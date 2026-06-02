@@ -393,6 +393,27 @@ let expenseData = null; // loaded from QuickBooks via proxy
 let expensesLoading = false;
 let costData = null;    // loaded from Income Data Dump sheet via proxy
 let costLoadError = null; // set on fetch failure, cleared on success
+let costIndex = null;  // pre-aggregated index built by buildCostIndex()
+
+/**
+ * Pre-aggregate costData.daily into fast lookup structures.
+ * Called once after costs load — eliminates O(365) scan on every render.
+ *   byMonth['2026-05'][storeName] = total cost for that month
+ *   byDay['2026-05-08'][storeName] = cost for that day
+ */
+function buildCostIndex(daily) {
+  const byMonth = {};
+  const byDay   = {};
+  for (const [ds, storeVals] of Object.entries(daily)) {
+    byDay[ds] = storeVals;
+    const mo = ds.slice(0, 7); // 'YYYY-MM'
+    if (!byMonth[mo]) byMonth[mo] = {};
+    for (const [store, val] of Object.entries(storeVals)) {
+      byMonth[mo][store] = (byMonth[mo][store] || 0) + val;
+    }
+  }
+  return { byMonth, byDay };
+}
 let expBudgets = null;  // loaded from Annual Budget sheet via proxy
 let otherRevData = null; // { atm: { Jan: 9493, ... }, sublet: { Jan: 0, ... } }
 let hiddenExpCats = new Set(JSON.parse(localStorage.getItem('hiddenExpCats') || '[]'));
@@ -400,6 +421,9 @@ let hiddenOtherRevs = new Set(JSON.parse(localStorage.getItem('hiddenOtherRevs')
 let inventoryData = {}; // { storeName: { products: [...] } | { error, products: [] } }
 let invLoading = new Set();
 let velocityData = null; // { stores: { velStoreName: { productName: { vel7, vel14, vel30, vel90 } } } }
+
+// Fast O(1) lookup by store name — replaces repeated inline STORES.find() calls.
+const STORE_MAP = new Map(STORES.map(s => [s.name, s]));
 
 // Velocity store name → dashboard store name mapping (only exceptions needed)
 const VEL_STORE_MAP = { 'River Rd': 'River' };
@@ -425,7 +449,7 @@ function toggleExpCat(name) {
 function getGoal(storeName, month) {
   const sg = goals[storeName];
   if (!sg) return 0;
-  if (month === 0) {
+  if (month === MONTH_YTD) {
     const curYear = new Date().getFullYear();
     const maxMo = activeYear < curYear ? 12 : new Date().getMonth() + 1;
     return MONTHS.slice(0, maxMo).reduce((a, m) => a + (sg[m] || 0), 0);
@@ -434,6 +458,8 @@ function getGoal(storeName, month) {
 }
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+// Sentinel: activeMonth === MONTH_YTD means "full year / YTD" view.
+const MONTH_YTD = 0;
 
 /**
  * Monthly goal for a store — leaderboard computed value when viewing current month,
@@ -512,6 +538,10 @@ let allDailyData = (() => {
   try { return JSON.parse(localStorage.getItem('gc_daily_acc') || '{}'); } catch { return {}; }
 })();
 
+// Per-store date → daily-record map, rebuilt when liveData changes.
+// Eliminates repeated Object.fromEntries() calls inside getPeriodTotals / getStorePeriodNet.
+const liveDateMaps = {};
+
 function mergeDailyData(storeName, dailyArr) {
   if (!allDailyData[storeName]) allDailyData[storeName] = {};
   for (const d of (dailyArr || [])) {
@@ -519,6 +549,13 @@ function mergeDailyData(storeName, dailyArr) {
   }
   // NOT persisted to localStorage — kept in-memory only.
   // Writing all-time history on every merge call was the primary cause of quota overflow.
+}
+
+/** Rebuild the date-keyed lookup for a single store. Called after liveData is updated. */
+function rebuildLiveDateMap(storeName) {
+  liveDateMaps[storeName] = Object.fromEntries(
+    (liveData[storeName]?.daily || []).map(d => [d.date, d])
+  );
 }
 function getDailyNet(val) {
   if (!val) return 0;
@@ -832,34 +869,40 @@ async function backfillDailyHistory(proxyUrl) {
   const maxMo   = activeYear < curYear ? 12 : curMo - 1; // stop before current month
   // Only backfill the most recent N months — older data adds little to DOW weights
   // and quickly exhausts localStorage quota.
-  const minMo   = Math.max(1, maxMo - THRESHOLDS.BACKFILL_MONTH_COUNT + 1);
+  const minMo = Math.max(1, maxMo - THRESHOLDS.BACKFILL_MONTH_COUNT + 1);
+
+  // Build the full list of (store, month) pairs that are missing data, then
+  // fetch them all in parallel rather than month-by-month sequentially.
+  const tasks = [];
   for (let m = minMo; m <= maxMo; m++) {
     const prefix = activeYear + '-' + String(m).padStart(2, '0');
-    const missingStores = STORES.filter(s =>
-      !Object.keys(allDailyData[s.name] || {}).some(d => d.startsWith(prefix))
-    );
-    if (missingStores.length === 0) continue;
-    await Promise.all(missingStores.map(async store => {
-      try {
-        // Read from localStorage if available; fetch from API otherwise.
-        // Historical months are NOT written back to localStorage — they are kept
-        // in-memory only (allDailyData) to avoid blowing the quota.
-        const cached = readSalesCache(store.name, activeYear, m);
-        const data   = cached ?? await (async () => {
-          const { from, to } = monthRange(m, activeYear);
-          const url = `${proxyUrl}?store=${encodeURIComponent(store.name)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
-          const res = await fetch(url);
-          if (!res.ok) return null;
-          const d = await res.json();
-          if (d.error) return null;
-          // Intentionally skip writeSalesCache here — historical data is in-memory only
-          return d;
-        })();
-        if (data) mergeDailyData(store.name, data.daily);
-      } catch {}
-    }));
-    if (activeDay || activeWeek) render();
+    for (const store of STORES) {
+      if (Object.keys(allDailyData[store.name] || {}).some(d => d.startsWith(prefix))) continue;
+      tasks.push({ store, m });
+    }
   }
+  if (tasks.length === 0) return;
+
+  await Promise.all(tasks.map(async ({ store, m }) => {
+    try {
+      // Read from localStorage if available; fetch from API otherwise.
+      // Historical months are NOT written back to localStorage — kept in-memory only
+      // (allDailyData) to avoid blowing the quota.
+      const cached = readSalesCache(store.name, activeYear, m);
+      const data   = cached ?? await (async () => {
+        const { from, to } = monthRange(m, activeYear);
+        const url = `${proxyUrl}?store=${encodeURIComponent(store.name)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const d = await res.json();
+        if (d.error) return null;
+        return d;
+      })();
+      if (data) mergeDailyData(store.name, data.daily);
+    } catch {}
+  }));
+
+  if (activeDay || activeWeek) render();
 }
 
 async function loadGoals() {
@@ -951,6 +994,7 @@ async function loadAllStores() {
         tax:        (acc.tax        || 0) + (c.tax        || 0),
         daily:      [...(acc.daily  || []), ...(c.daily    || [])],
       }), {});
+      rebuildLiveDateMap(s.name);
       mergeDailyData(s.name, liveData[s.name].daily);
     }
     buildStatusGrid(stateMap);
@@ -959,6 +1003,7 @@ async function loadAllStores() {
       try {
         const data = await fetchMonthData(store, activeYear, activeMonth);
         liveData[store.name] = data;
+        rebuildLiveDateMap(store.name);
         mergeDailyData(store.name, data.daily);
       } catch (e) {
         console.warn(store.name, e.message);
@@ -1071,7 +1116,7 @@ function setStore(s) {
   document.querySelectorAll('.store-btn').forEach(t => {
     const on = t.dataset.s === s;
     t.classList.toggle('on', on);
-    const st = STORES.find(x => x.name === s);
+    const st = STORE_MAP.get(s);
     t.style.background   = on && st ? st.color : '';
     t.style.borderColor  = on && st ? st.color : '';
   });
@@ -1080,7 +1125,7 @@ function setStore(s) {
 
 function setYear(yr) {
   activeYear    = yr;
-  activeMonth   = yr < new Date().getFullYear() ? 0 : new Date().getMonth() + 1;
+  activeMonth   = yr < new Date().getFullYear() ? MONTH_YTD : new Date().getMonth() + 1;
   activeWeek    = null;
   activeDay     = null;
   expandedGroup = null;
@@ -1133,7 +1178,7 @@ function buildTimeNav() {
     parts.push(`<button class="mtab tnav-pill on" onclick="navToMonth()">${monthLbl}</button>`);
   }
 
-  if (activeMonth === 0) {
+  if (activeMonth === MONTH_YTD) {
     document.getElementById('time-nav').innerHTML = parts.join('');
     return;
   }
@@ -1181,7 +1226,7 @@ function buildTimeNav() {
 
 function buildStoreTabs() {
   document.getElementById('store-tabs').innerHTML = ['All',...STORES.map(s=>s.name)].map(name => {
-    const s   = STORES.find(x => x.name === name);
+    const s   = STORE_MAP.get(name);
     const col = s ? s.color : '#1D9E75';
     const on  = name === activeStore;
     const lbl = s ? (s.display||s.name) : 'All';
@@ -1227,15 +1272,26 @@ function getActiveStores() {
   return activeStore === 'All' ? STORES.map(s => s.name) : [activeStore];
 }
 
+// Track last-rendered section so charts are only destroyed when switching sections,
+// not on every store-filter click or live-data refresh within the same section.
+let _lastRenderedSection = null;
+
 function render() {
-  if (section === 'expenses')  { destroyCharts(); renderExpenses();  return; }
-  if (section === 'inventory') { destroyCharts(); renderInventory(); return; }
+  const sectionChanged = section !== _lastRenderedSection;
+  if (sectionChanged) {
+    destroyCharts();
+    _incomeMounted = false; // force full skeleton rebuild when returning to income
+  }
+  _lastRenderedSection = section;
+
+  if (section === 'expenses')  { renderExpenses();  return; }
+  if (section === 'inventory') { renderInventory(); return; }
   if (Object.keys(liveData).length === 0) {
+    _incomeMounted = false;
     document.getElementById('main-content').innerHTML =
       `<div class="empty-state">No data loaded yet.</div>`;
     return;
   }
-  destroyCharts();
   renderIncome();
 }
 
@@ -1252,7 +1308,7 @@ function getPeriodLabel() {
     return d.toLocaleDateString([], { month:'short', day:'numeric' }) + yearSuffix;
   }
   if (activeWeek) return 'WK' + activeWeek + yearSuffix;
-  if (activeMonth === 0) return activeYear < curYear ? String(activeYear) : 'YTD';
+  if (activeMonth === MONTH_YTD) return activeYear < curYear ? String(activeYear) : 'YTD';
   return MONTHS[activeMonth-1] + yearSuffix;
 }
 
@@ -1268,7 +1324,7 @@ function getPeriodTotals(stores) {
       ? [activeDay]
       : getDaysOfISOWeek(activeYear, activeWeek).map(d => d.toISOString().slice(0, 10));
     stores.forEach(s => {
-      const liveDateMap = Object.fromEntries((liveData[s]?.daily||[]).map(d => [d.date, d]));
+      const liveDateMap = liveDateMaps[s] || {};
       for (const ds of dates) {
         const d = liveDateMap[ds] || allDailyData[s]?.[ds];
         if (!d) continue;
@@ -1288,7 +1344,7 @@ function getStorePeriodNet(s) {
   const dates = activeDay
     ? [activeDay]
     : getDaysOfISOWeek(activeYear, activeWeek).map(d => d.toISOString().slice(0, 10));
-  const liveDateMap = Object.fromEntries((liveData[s]?.daily||[]).map(d => [d.date, d]));
+  const liveDateMap = liveDateMaps[s] || {};
   let n = 0;
   for (const ds of dates) {
     const d = liveDateMap[ds] || allDailyData[s]?.[ds];
@@ -1297,6 +1353,144 @@ function getStorePeriodNet(s) {
   }
   return n;
 }
+
+// ─── Income sub-builders ──────────────────────────────────────────────────────
+// Each returns an HTML string. Keeping them separate lets renderIncome do targeted
+// DOM patches on store-filter / live-data updates instead of rebuilding everything.
+
+function _incomeKpiHtml(net, gross, orders, disc, cost, aov,
+                        periodGoal, goalLabel, goalPct, pacingPct, isClosed, under) {
+  const paceLinePos = pacingPct * THRESHOLDS.GOAL_BAR_FILL_RATIO;
+  const barColor    = goalPct >= pacingPct ? '#1D9E75' : '#EF9F27';
+  const barW        = Math.min(goalPct * THRESHOLDS.GOAL_BAR_FILL_RATIO, 100);
+  const vsGoal      = periodGoal - net;
+  return `<div class="kpi wide" id="kpi-net">
+      <div class="klabel">Net sales — ${getPeriodLabel()}</div>
+      <div class="kval">${fmtK(net)}</div>
+      <div style="position:relative;height:4px;background:linear-gradient(to right,#2a2a2a 80%,#333 80%);border-radius:2px;margin:7px 0 5px">
+        <div style="width:${barW}%;height:100%;background:${barColor};border-radius:2px"></div>
+        <div style="position:absolute;top:-4px;left:${paceLinePos}%;width:2px;height:12px;background:rgba(255,255,255,0.45);transform:translateX(-50%);border-radius:1px"></div>
+      </div>
+      <div class="ksub">
+        ${goalLabel} ${fmtK(periodGoal)} &nbsp;·&nbsp; ${goalPct}%
+        ${periodGoal>0 && !isClosed ? `&nbsp;·&nbsp; <span class="${under>0?'bad':'good'}">${under>0?fmtK(under)+' under':fmtK(-under)+' over'} pace</span>` : ''}
+        ${periodGoal>0 ? (() => { const v=periodGoal-net; return `&nbsp;·&nbsp; <span class="${v>0?'bad':'good'}">${v>0?fmtK(v)+' under':fmtK(-v)+' over'} goal</span>`; })() : ''}
+      </div>
+    </div>
+    <div class="kpi" id="kpi-gp">
+      <div class="klabel">Gross profit</div>
+      <div class="kval">${cost > 0 ? fmtK(net - cost) : '—'}</div>
+      <div class="ksub muted">${cost > 0 ? `margin ${net>0?Math.round((net-cost)/net*100):0}% · COGS ${fmtK(cost)}` : costData ? `no EOD report · ${Object.keys(costData.daily).length}d loaded` : costLoadError ? 'fetch error: '+costLoadError.slice(0,40) : 'costs not loaded'}</div>
+    </div>
+    <div class="kpi" id="kpi-txns">
+      <div class="klabel">Transactions</div>
+      <div class="kval">${orders.toLocaleString()}</div>
+      <div class="ksub muted">AOV ${fmtD(aov)}</div>
+    </div>
+    <div class="kpi" id="kpi-disc">
+      <div class="klabel">Discounts</div>
+      <div class="kval">${fmtK(disc)}</div>
+      <div class="ksub ${net>0&&disc/net>THRESHOLDS.DISCOUNT_FLAG_PCT?'bad':'good'}">${pct(disc,net)} of sales</div>
+    </div>
+    <div class="kpi" id="kpi-gross">
+      <div class="klabel">Gross sales</div>
+      <div class="kval">${fmtK(gross)}</div>
+      <div class="ksub muted">before discounts</div>
+    </div>`;
+}
+
+function _incomeStoreBreakdownHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo) {
+  return `<div class="sec-lbl">Store breakdown</div>
+    <div class="card">
+      ${stores.map(s => {
+        if (!liveData[s]) return '';
+        const st          = STORE_MAP.get(s);
+        const col         = st?.color || '#888';
+        const snet        = storeNets[s];
+        const sMonthGoal  = getMonthlyGoal(s, activeMonth, yr);
+        const sPeriodGoal = activeDay
+          ? getDailyGoal(s, new Date(activeDay + 'T12:00:00').getDay(), activeMonth, yr, daysInMo)
+          : activeWeek ? getWeeklyGoal(s, activeMonth, yr, daysInMo)
+          : sMonthGoal;
+        const sCompareGoal = isClosed ? sPeriodGoal : Math.round(sPeriodGoal * pacingPct / 100);
+        const diff         = snet - sCompareGoal;
+        const sGoalPct     = sPeriodGoal > 0 ? Math.round(snet / sPeriodGoal * 100) : 0;
+        const sPaceColor   = sGoalPct >= pacingPct ? '#1D9E75' : '#EF9F27';
+        const sBarW        = Math.min(sGoalPct * THRESHOLDS.GOAL_BAR_FILL_RATIO, 100);
+        const sPacePos     = pacingPct * THRESHOLDS.GOAL_BAR_FILL_RATIO;
+        return `<div class="srow">
+          <div class="swatch" style="background:${col}"></div>
+          <div class="sname" style="flex:1">
+            ${st?.display||s}
+            ${sPeriodGoal>0 ? `<div style="position:relative;height:3px;background:linear-gradient(to right,#333 80%,#3a3a3a 80%);border-radius:2px;margin-top:4px">
+              <div style="width:${sBarW}%;height:100%;background:${sPaceColor};border-radius:2px"></div>
+              <div style="position:absolute;top:-2px;left:${sPacePos}%;width:1.5px;height:7px;background:rgba(255,255,255,0.3);transform:translateX(-50%)"></div>
+            </div>` : ''}
+          </div>
+          <div class="sval">${fmtK(snet)}</div>
+          ${sPeriodGoal>0 ? `<div style="text-align:right;min-width:44px">
+            <div style="font-size:10px;color:#888">${sGoalPct}%</div>
+            <div class="sdiff ${diff>=0?'good':'bad'}">${diff>=0?'+':''}${fmtK(diff)}</div>
+          </div>` : ''}
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+function _incomeOtherRevHtml() {
+  if (activeDay || activeWeek || !otherRevData) return '';
+  const atmRaw    = (() => { const d = otherRevData.atm;    return activeMonth === MONTH_YTD ? MONTHS.slice(0, new Date().getMonth()+1).reduce((s,m)=>s+(d[m]||0),0) : d[MONTHS[activeMonth-1]]||0; })();
+  const subletRaw = (() => { const d = otherRevData.sublet; return activeMonth === MONTH_YTD ? MONTHS.slice(0, new Date().getMonth()+1).reduce((s,m)=>s+(d[m]||0),0) : d[MONTHS[activeMonth-1]]||0; })();
+  if (atmRaw === 0 && subletRaw === 0) return '';
+  const atmHidden    = hiddenOtherRevs.has('atm');
+  const subletHidden = hiddenOtherRevs.has('sublet');
+  const atmVal    = computeOtherRev('atm');
+  const subletVal = computeOtherRev('sublet');
+  return `<div class="sec-lbl">Other revenue <span style="font-size:10px;color:#666;font-weight:400">(click to toggle)</span></div>
+    <div class="card">
+      ${atmRaw > 0 ? `<div class="srow" style="cursor:pointer;opacity:${atmHidden?'0.3':'1'}" onclick="toggleOtherRev('atm')">
+        <div class="swatch" style="background:#7C5CBF"></div>
+        <div class="sname" style="flex:1">ATM</div>
+        <div class="sval">${fmtK(atmRaw)}</div>
+      </div>` : ''}
+      ${subletRaw > 0 ? `<div class="srow" style="cursor:pointer;opacity:${subletHidden?'0.3':'1'}" onclick="toggleOtherRev('sublet')">
+        <div class="swatch" style="background:#3A86FF"></div>
+        <div class="sname" style="flex:1">Sublet</div>
+        <div class="sval">${fmtK(subletRaw)}</div>
+      </div>` : ''}
+      <div class="srow" style="border-top:1px solid #333;margin-top:6px;padding-top:6px">
+        <div class="sname" style="flex:1;color:#aaa;font-size:11px">Included in net sales</div>
+        <div class="sval">${fmtK(atmVal + subletVal)}</div>
+      </div>
+    </div>`;
+}
+
+function _incomeChartLabel() {
+  const dowNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  return activeDay
+    ? `All ${dowNames[new Date(activeDay + 'T12:00:00').getDay()]}s · ${new Date().getFullYear()}`
+    : activeMonth === MONTH_YTD ? 'Monthly trend' : 'Daily trend';
+}
+
+function _incomeTopProductsHtml(topProds) {
+  if (!topProds.length) return '';
+  return `<div class="sec-lbl">Top products</div>
+    <div class="card" id="top-products">
+      ${topProds.map((p,i) => `
+        <div class="top-row">
+          <div class="top-rank">${i+1}</div>
+          <div class="top-name">${escHtml(p.name)}</div>
+          <div>
+            <div class="top-rev">${fmtK(p.revenue)}</div>
+            <div class="top-units">${p.units} units</div>
+          </div>
+        </div>`).join('')}
+    </div>`;
+}
+
+// ─── Income mount state ───────────────────────────────────────────────────────
+let _incomeViewType = null; // 'day' | 'week' | 'month' of the last mounted skeleton
+let _incomeMounted  = false; // true when income skeleton nodes are in the DOM
 
 function renderIncome() {
   const stores = getActiveStores();
@@ -1307,7 +1501,6 @@ function renderIncome() {
 
   const today = new Date();
   const yr = activeYear;
-  const monthNet = stores.reduce((a,s) => a+(liveData[s]?.netSales||0), 0);
   const monthGoal = stores.reduce((a,s) => a + getMonthlyGoal(s, activeMonth, yr), 0);
   const daysInMo = activeMonth > 0 ? new Date(activeYear, activeMonth, 0).getDate() : 365;
 
@@ -1328,7 +1521,7 @@ function renderIncome() {
     goalLabel = 'Week target';
   } else {
     periodGoal = monthGoal;
-    goalLabel = activeMonth === 0 ? 'YTD goal' : 'Monthly goal';
+    goalLabel = activeMonth === MONTH_YTD ? 'YTD goal' : 'Monthly goal';
   }
 
   const goalPct = periodGoal > 0 ? Math.round(net / periodGoal * 100) : 0;
@@ -1351,156 +1544,62 @@ function renderIncome() {
   }
   const under = pacedGoal - net;
 
-  const storeNets = Object.fromEntries(stores.map(s => [s, getStorePeriodNet(s)]));
-  const maxNet    = Math.max(...Object.values(storeNets), 1);
+  const storeNets  = Object.fromEntries(stores.map(s => [s, getStorePeriodNet(s)]));
+  const weekly     = activeDay ? buildDayOfWeekChart(stores) : activeWeek ? buildWeeklyDays(stores) : buildMonthDailyChart(stores);
+  const topProds   = activeDay ? [] : buildTopProducts(stores);
+  const viewType   = activeDay ? 'day' : activeWeek ? 'week' : 'month';
 
-  const weekly  = activeDay ? buildDayOfWeekChart(stores) : activeWeek ? buildWeeklyDays(stores) : buildMonthDailyChart(stores);
-  const topProds= activeDay ? [] : buildTopProducts(stores);
+  // Build sub-section HTML strings
+  const kpiHtml    = _incomeKpiHtml(net, gross, orders, disc, cost, aov,
+                                    periodGoal, goalLabel, goalPct, pacingPct, isClosed, under);
+  const storeHtml  = _incomeStoreBreakdownHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo);
+  const otherHtml  = _incomeOtherRevHtml();
+  const chartLabel = _incomeChartLabel();
+  const topHtml    = _incomeTopProductsHtml(topProds);
 
-  document.getElementById('main-content').innerHTML = `
-    <div class="kpi-grid">
-      <div class="kpi wide">
-        <div class="klabel">Net sales — ${getPeriodLabel()}</div>
-        <div class="kval">${fmtK(net)}</div>
-        ${(() => {
-          const paceLinePos = pacingPct * THRESHOLDS.GOAL_BAR_FILL_RATIO;
-          const barColor = goalPct >= pacingPct ? '#1D9E75' : '#EF9F27';
-          const barW = Math.min(goalPct * THRESHOLDS.GOAL_BAR_FILL_RATIO, 100);
-          return `<div style="position:relative;height:4px;background:linear-gradient(to right,#2a2a2a 80%,#333 80%);border-radius:2px;margin:7px 0 5px">
-            <div style="width:${barW}%;height:100%;background:${barColor};border-radius:2px"></div>
-            <div style="position:absolute;top:-4px;left:${paceLinePos}%;width:2px;height:12px;background:rgba(255,255,255,0.45);transform:translateX(-50%);border-radius:1px"></div>
-          </div>`;
-        })()}
-        <div class="ksub">
-          ${goalLabel} ${fmtK(periodGoal)} &nbsp;·&nbsp; ${goalPct}%
-          ${periodGoal>0 && !isClosed ? `&nbsp;·&nbsp; <span class="${under>0?'bad':'good'}">${under>0?fmtK(under)+' under':fmtK(-under)+' over'} pace</span>` : ''}
-          ${periodGoal>0 ? (() => { const vsGoal = periodGoal - net; return `&nbsp;·&nbsp; <span class="${vsGoal>0?'bad':'good'}">${vsGoal>0?fmtK(vsGoal)+' under':fmtK(-vsGoal)+' over'} goal</span>`; })() : ''}
-        </div>
-      </div>
-      <div class="kpi">
-        <div class="klabel">Gross profit</div>
-        <div class="kval">${cost > 0 ? fmtK(net - cost) : '—'}</div>
-        <div class="ksub muted">${cost > 0 ? `margin ${net>0?Math.round((net-cost)/net*100):0}% · COGS ${fmtK(cost)}` : costData ? `no EOD report · ${Object.keys(costData.daily).length}d loaded` : costLoadError ? 'fetch error: '+costLoadError.slice(0,40) : 'costs not loaded'}</div>
-      </div>
-      <div class="kpi">
-        <div class="klabel">Transactions</div>
-        <div class="kval">${orders.toLocaleString()}</div>
-        <div class="ksub muted">AOV ${fmtD(aov)}</div>
-      </div>
-      <div class="kpi">
-        <div class="klabel">Discounts</div>
-        <div class="kval">${fmtK(disc)}</div>
-        <div class="ksub ${net>0&&disc/net>THRESHOLDS.DISCOUNT_FLAG_PCT?'bad':'good'}">${pct(disc,net)} of sales</div>
-      </div>
-      <div class="kpi">
-        <div class="klabel">Gross sales</div>
-        <div class="kval">${fmtK(gross)}</div>
-        <div class="ksub muted">before discounts</div>
-      </div>
-    </div>
+  const needsFullMount = !_incomeMounted || viewType !== _incomeViewType;
 
-    <div class="sec-lbl">Store breakdown</div>
-    <div class="card">
-      ${stores.map(s => {
-        if (!liveData[s]) return '';
-        const st      = STORES.find(x => x.name === s);
-        const col     = st?.color || '#888';
-        const snet    = storeNets[s];
-        const bw      = Math.round(snet/maxNet*100);
-        const sMonthGoal = getMonthlyGoal(s, activeMonth, yr);
-        const sPeriodGoal = activeDay
-          ? getDailyGoal(s, new Date(activeDay + 'T12:00:00').getDay(), activeMonth, yr, daysInMo)
-          : activeWeek
-            ? getWeeklyGoal(s, activeMonth, yr, daysInMo)
-          : sMonthGoal;
-        const sCompareGoal = isClosed ? sPeriodGoal : Math.round(sPeriodGoal * pacingPct / 100);
-        const diff    = snet - sCompareGoal;
-        const sGoalPct= sPeriodGoal > 0 ? Math.round(snet / sPeriodGoal * 100) : 0;
-        const sPaceColor = sGoalPct >= pacingPct ? '#1D9E75' : '#EF9F27';
-        const sBarW = Math.min(sGoalPct * THRESHOLDS.GOAL_BAR_FILL_RATIO, 100);
-        const sPaceLinePos = pacingPct * THRESHOLDS.GOAL_BAR_FILL_RATIO;
-        return `<div class="srow">
-          <div class="swatch" style="background:${col}"></div>
-          <div class="sname" style="flex:1">
-            ${st?.display||s}
-            ${sPeriodGoal>0 ? `<div style="position:relative;height:3px;background:linear-gradient(to right,#333 80%,#3a3a3a 80%);border-radius:2px;margin-top:4px">
-              <div style="width:${sBarW}%;height:100%;background:${sPaceColor};border-radius:2px"></div>
-              <div style="position:absolute;top:-2px;left:${sPaceLinePos}%;width:1.5px;height:7px;background:rgba(255,255,255,0.3);transform:translateX(-50%)"></div>
-            </div>` : ''}
+  if (needsFullMount) {
+    // ── Full mount: replace everything, initialise chart fresh ──────────────
+    _incomeViewType = viewType;
+    _incomeMounted  = true;
+    document.getElementById('main-content').innerHTML = `
+      <div class="kpi-grid">${kpiHtml}</div>
+      <div id="income-store-breakdown">${storeHtml}</div>
+      <div id="income-other-rev">${otherHtml}</div>
+      <div id="income-chart-section">
+        <div class="sec-lbl" id="income-chart-label">${chartLabel}</div>
+        <div class="card">
+          <div style="position:relative;width:100%;height:160px">
+            <canvas id="weekChart" role="img" aria-label="Sales trend">Sales data</canvas>
           </div>
-          <div class="sval">${fmtK(snet)}</div>
-          ${sPeriodGoal>0 ? `<div style="text-align:right;min-width:44px">
-            <div style="font-size:10px;color:#888">${sGoalPct}%</div>
-            <div class="sdiff ${diff>=0?'good':'bad'}">${diff>=0?'+':''}${fmtK(diff)}</div>
-          </div>` : ''}
-        </div>`;
-      }).join('')}
-    </div>
-
-    ${(!activeDay && !activeWeek && otherRevData) ? (() => {
-      // Show raw values (ignoring hidden) to decide whether to render the section at all
-      const atmRaw    = (() => { const d = otherRevData.atm; return activeMonth === 0 ? MONTHS.slice(0, new Date().getMonth()+1).reduce((s,m)=>s+(d[m]||0),0) : d[MONTHS[activeMonth-1]]||0; })();
-      const subletRaw = (() => { const d = otherRevData.sublet; return activeMonth === 0 ? MONTHS.slice(0, new Date().getMonth()+1).reduce((s,m)=>s+(d[m]||0),0) : d[MONTHS[activeMonth-1]]||0; })();
-      if (atmRaw === 0 && subletRaw === 0) return '';
-      const atmHidden    = hiddenOtherRevs.has('atm');
-      const subletHidden = hiddenOtherRevs.has('sublet');
-      const atmVal    = computeOtherRev('atm');
-      const subletVal = computeOtherRev('sublet');
-      return `<div class="sec-lbl">Other revenue <span style="font-size:10px;color:#666;font-weight:400">(click to toggle)</span></div>
-      <div class="card">
-        ${atmRaw > 0 ? `<div class="srow" style="cursor:pointer;opacity:${atmHidden?'0.3':'1'}" onclick="toggleOtherRev('atm')">
-          <div class="swatch" style="background:#7C5CBF"></div>
-          <div class="sname" style="flex:1">ATM</div>
-          <div class="sval">${fmtK(atmRaw)}</div>
-        </div>` : ''}
-        ${subletRaw > 0 ? `<div class="srow" style="cursor:pointer;opacity:${subletHidden?'0.3':'1'}" onclick="toggleOtherRev('sublet')">
-          <div class="swatch" style="background:#3A86FF"></div>
-          <div class="sname" style="flex:1">Sublet</div>
-          <div class="sval">${fmtK(subletRaw)}</div>
-        </div>` : ''}
-        <div class="srow" style="border-top:1px solid #333;margin-top:6px;padding-top:6px">
-          <div class="sname" style="flex:1;color:#aaa;font-size:11px">Included in net sales</div>
-          <div class="sval">${fmtK(atmVal + subletVal)}</div>
         </div>
-      </div>`;
-    })() : ''}
-
-    ${(() => {
-      const dowNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-      const lbl = activeDay
-        ? `All ${dowNames[new Date(activeDay + 'T12:00:00').getDay()]}s · ${new Date().getFullYear()}`
-        : activeMonth === 0 ? 'Monthly trend' : 'Daily trend';
-      return `
-    <div class="sec-lbl">${lbl}</div>
-    <div class="card">
-      <div style="position:relative;width:100%;height:160px">
-        <canvas id="weekChart" role="img" aria-label="Sales trend">Sales data</canvas>
       </div>
-    </div>`;
-    })()}
-
-    ${activeDay ? '' : `
-    <div class="sec-lbl">Top products</div>
-    <div class="card" id="top-products">
-      ${topProds.length > 0
-        ? topProds.map((p,i) => `
-          <div class="top-row">
-            <div class="top-rank">${i+1}</div>
-            <div class="top-name">${p.name}</div>
-            <div>
-              <div class="top-rev">${fmtK(p.revenue)}</div>
-              <div class="top-units">${p.units} units</div>
-            </div>
-          </div>`).join('')
-        : `<div class="empty-state" style="padding:12px 0">Product detail not available — the Reporting scope may need item-level permissions.</div>`
-      }
-    </div>`}
-
-    <div class="last-sync">Updated ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</div>
-
-  `;
-
-  requestAnimationFrame(() => drawWeekChart(weekly));
+      <div id="income-top-products">${topHtml}</div>
+      <div class="last-sync" id="income-last-sync">Updated ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</div>`;
+    requestAnimationFrame(() => drawWeekChart(weekly));
+  } else {
+    // ── Patch: update only changed nodes, preserve the chart canvas ─────────
+    // Parse new KPI HTML into a fragment and swap each card's innerHTML individually.
+    const kpiFrag = document.createElement('div');
+    kpiFrag.innerHTML = `<div class="kpi-grid">${kpiHtml}</div>`;
+    ['kpi-net','kpi-gp','kpi-txns','kpi-disc','kpi-gross'].forEach(id => {
+      const fresh = kpiFrag.querySelector('#' + id);
+      const live  = document.getElementById(id);
+      if (fresh && live) live.innerHTML = fresh.innerHTML;
+    });
+    document.getElementById('income-store-breakdown').innerHTML = storeHtml;
+    document.getElementById('income-other-rev').innerHTML       = otherHtml;
+    document.getElementById('income-chart-label').textContent   = chartLabel;
+    document.getElementById('income-top-products').innerHTML    = topHtml;
+    const syncEl = document.getElementById('income-last-sync');
+    if (syncEl) syncEl.textContent = `Updated ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
+    // Update chart data in-place — canvas is untouched, no destroy+recreate.
+    if (charts.week) {
+      charts.week.data = weekly;
+      charts.week.update('none');
+    }
+  }
 }
 
 function buildWeeklyDays(stores) {
@@ -1508,11 +1607,11 @@ function buildWeeklyDays(stores) {
   const days = getDaysOfISOWeek(yr, activeWeek);
   const labels = days.map(d => DAY_LETTERS[d.getDay()] + String(d.getDate()).padStart(2,'0'));
   const datasets = stores.map(s => {
-    const st  = STORES.find(x => x.name === s);
+    const st  = STORE_MAP.get(s);
     const col = st?.color || '#888';
     const liveDateMap = Object.fromEntries((liveData[s]?.daily||[]).map(d => [d.date, d.netSales]));
     return {
-      label: STORES.find(x=>x.name===s)?.display || s,
+      label: STORE_MAP.get(s)?.display || s,
       data: days.map(d => {
         const ds = d.toISOString().slice(0, 10);
         return Math.round(liveDateMap[ds] ?? getDailyNet(allDailyData[s]?.[ds]));
@@ -1563,7 +1662,7 @@ function buildDayOfWeekChart(stores) {
   const labels = dates.map(d => MONTHS[d.getMonth()].slice(0, 3) + ' ' + d.getDate());
 
   const datasets = stores.map(s => {
-    const st  = STORES.find(x => x.name === s);
+    const st  = STORE_MAP.get(s);
     const col = st?.color || '#888';
     const map = allDailyData[s] || {};  // accumulated across all fetched months
     return {
@@ -1608,7 +1707,7 @@ function buildMonthDailyChart(stores) {
     const curMo = activeYear < curYear ? 12 : new Date().getMonth() + 1;
     const labels = MONTHS.slice(0, curMo);
     const datasets = stores.map(s => {
-      const st = STORES.find(x => x.name === s);
+      const st = STORE_MAP.get(s);
       const col = st?.color || '#888';
       const data = Array.from({length: curMo}, (_, i) => {
         const m = String(i+1).padStart(2,'0');
@@ -1632,7 +1731,7 @@ function buildMonthDailyChart(stores) {
     return { date: d.toISOString().slice(0,10), label: DAY_LETTERS[d.getDay()] + String(i+1).padStart(2,'0') };
   });
   const datasets = stores.map(s => {
-    const st  = STORES.find(x => x.name === s);
+    const st  = STORE_MAP.get(s);
     const col = st?.color || '#888';
     const map = Object.fromEntries((liveData[s]?.daily||[]).map(d => [d.date, d.netSales]));
     return {
@@ -1798,6 +1897,7 @@ async function loadCosts() {
   const cached = readCache('costs');
   if (cached) {
     costData = cached;
+    costIndex = buildCostIndex(cached.daily || {});
     costLoadError = null;
     console.log('Costs loaded from cache:', Object.keys(cached.daily||{}).length, 'days');
     return;
@@ -1809,6 +1909,7 @@ async function loadCosts() {
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     costData = data;
+    costIndex = buildCostIndex(data.daily || {});
     costLoadError = null;
     writeCache('costs', data);
     console.log('Costs loaded from API:', Object.keys(data.daily||{}).length, 'days');
@@ -1820,31 +1921,31 @@ async function loadCosts() {
 }
 
 function computeCost(stores) {
-  if (!costData?.daily) return 0;
+  if (!costIndex) return 0;
   let total = 0;
   if (activeDay) {
-    const d = costData.daily[activeDay] || {};
+    // O(1): single day lookup
+    const d = costIndex.byDay[activeDay] || {};
     total = stores.reduce((s, st) => s + (d[st] || 0), 0);
   } else if (activeWeek) {
-    const weekDays = getDaysOfISOWeek(activeYear, activeWeek);
-    for (const day of weekDays) {
+    // O(7): one lookup per day in the week
+    for (const day of getDaysOfISOWeek(activeYear, activeWeek)) {
       if (day.getMonth() + 1 !== activeMonth) continue;
-      const ds = toDateStr(day);
-      const d = costData.daily[ds] || {};
+      const d = costIndex.byDay[toDateStr(day)] || {};
       total += stores.reduce((s, st) => s + (d[st] || 0), 0);
     }
-  } else if (activeMonth === 0) {
+  } else if (activeMonth === MONTH_YTD) {
+    // O(months): sum pre-aggregated monthly buckets for this year
     const yearPrefix = String(activeYear) + '-';
-    for (const [ds, d] of Object.entries(costData.daily)) {
-      if (!ds.startsWith(yearPrefix)) continue;
+    for (const [mo, d] of Object.entries(costIndex.byMonth)) {
+      if (!mo.startsWith(yearPrefix)) continue;
       total += stores.reduce((s, st) => s + (d[st] || 0), 0);
     }
   } else {
-    const prefix = activeYear + '-' + String(activeMonth).padStart(2,'0');
-    for (const [ds, d] of Object.entries(costData.daily)) {
-      if (!ds.startsWith(prefix)) continue;
-      total += stores.reduce((s, st) => s + (d[st] || 0), 0);
-    }
+    // O(1): single month lookup
+    const mo = activeYear + '-' + String(activeMonth).padStart(2, '0');
+    const d  = costIndex.byMonth[mo] || {};
+    total = stores.reduce((s, st) => s + (d[st] || 0), 0);
   }
   return total;
 }
@@ -1861,6 +1962,18 @@ function computeOtherRev(type) {
   return data[MONTHS[activeMonth - 1]] || 0;
 }
 
+// Known expense categories — defines display order and ensures they're always shown
+// even if the QB API returns no data for a period. Unknown API categories are merged in
+// at render time so nothing is silently dropped.
+const ALL_EXPENSE_CATS = [
+  'COGS','COGS - Supplies & Materials','Payroll Expenses',
+  'Advertising & Promotion','Bank Service Charge','Insurance Expense',
+  'Interest Expense','Internet & Phone','Licenses','Meals & Entertainment',
+  'Miscellaneous','Office Supplies','Professional Fees','Rent Expense',
+  'Repairs & Maintenance','Security Monitoring','Software','Startup Expense',
+  'Taxes','Travel','Utilities / Garbage','Management',
+];
+
 async function reloadExpenses() {
   expenseData = null;
   expensesLoading = false;
@@ -1875,7 +1988,7 @@ function renderExpenses() {
         <div class="card">
           <div class="empty-state"><span class="spinner-inline"></span>Loading QuickBooks expenses…</div>
         </div>`;
-      loadExpenses().then(() => {
+      loadExpenses().finally(() => {
         expensesLoading = false;
         if (section === 'expenses') renderExpenses();
       });
@@ -1900,14 +2013,10 @@ function renderExpenses() {
     return;
   }
 
-  const ALL_CATS = [
-    'COGS','COGS - Supplies & Materials','Payroll Expenses',
-    'Advertising & Promotion','Bank Service Charge','Insurance Expense',
-    'Interest Expense','Internet & Phone','Licenses','Meals & Entertainment',
-    'Miscellaneous','Office Supplies','Professional Fees','Rent Expense',
-    'Repairs & Maintenance','Security Monitoring','Software','Startup Expense',
-    'Taxes','Travel','Utilities / Garbage','Management',
-  ];
+  // ALL_CATS is defined at module level; merge with any new categories from the API
+  // response so unknown QB categories are never silently dropped.
+  const apiCats  = Object.keys(expenseData.expenses || {});
+  const mergedCats = [...new Set([...ALL_EXPENSE_CATS, ...apiCats])];
   // Budget for selected period
   const getBudget = (name) => {
     if (!expBudgets?.[name]) return 0;
@@ -1920,7 +2029,7 @@ function renderExpenses() {
   // Pacing: % of period elapsed (shared with income renderer via getPacingPct)
   const expPacingPct = getPacingPct();
 
-  const cats = ALL_CATS
+  const cats = mergedCats
     .map(name => ({ name, val: (expenseData.expenses[name] || {})[colKey] || 0, budget: getBudget(name) }))
     .filter(c => c.val > 0 || c.budget > 0)
     .sort((a, b) => b.val - a.val);
@@ -2202,7 +2311,7 @@ function renderInventory() {
     ${errorStores.length > 0 ? `
     <div style="font-size:11px;color:#F09595;margin-bottom:8px;line-height:1.6">
       ${errorStores.map(s => {
-        const disp = STORES.find(x=>x.name===s)?.display||s;
+        const disp = STORE_MAP.get(s)?.display||s;
         const err  = (inventoryData[s]?.error||'unknown error').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         return `${disp}: ${err}`;
       }).join('<br>')}
