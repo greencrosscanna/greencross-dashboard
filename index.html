@@ -938,6 +938,7 @@ async function loadAllStores() {
   _loadAllStoresInFlight = true;
   const proxyUrl = getProxyUrl();
   if (!proxyUrl) {
+    _loadAllStoresInFlight = false;            // must reset — early return skips the finally
     showErr('setup-err', 'Paste your Google Apps Script Web App URL first.');
     return;
   }
@@ -1393,7 +1394,7 @@ function _incomeKpiHtml(net, gross, orders, disc, cost, aov,
     <div class="kpi" id="kpi-gp">
       <div class="klabel">Gross profit</div>
       <div class="kval">${cost > 0 ? fmtK(net - cost) : '—'}</div>
-      <div class="ksub muted">${cost > 0 ? `margin ${net>0?Math.round((net-cost)/net*100):0}% · COGS ${fmtK(cost)}` : costData ? `no EOD report · ${Object.keys(costData.daily).length}d loaded` : costLoadError ? 'fetch error: '+costLoadError.slice(0,40) : 'costs not loaded'}</div>
+      <div class="ksub muted">${cost > 0 ? `margin ${net>0?Math.round((net-cost)/net*100):0}% · COGS ${fmtK(cost)}` : costData ? `no EOD report · ${Object.keys(costData.daily).length}d loaded` : costLoadError ? 'fetch error: '+escHtml(costLoadError.slice(0,40)) : 'costs not loaded'}</div>
     </div>
     <div class="kpi" id="kpi-txns">
       <div class="klabel">Transactions</div>
@@ -1622,12 +1623,12 @@ function buildWeeklyDays(stores) {
   const datasets = stores.map(s => {
     const st  = STORE_MAP.get(s);
     const col = st?.color || '#888';
-    const liveDateMap = Object.fromEntries((liveData[s]?.daily||[]).map(d => [d.date, d.netSales]));
+    const liveDateMap = liveDateMaps[s] || {};
     return {
       label: STORE_MAP.get(s)?.display || s,
       data: days.map(d => {
         const ds = d.toISOString().slice(0, 10);
-        return Math.round(liveDateMap[ds] ?? getDailyNet(allDailyData[s]?.[ds]));
+        return Math.round(getDailyNet(liveDateMap[ds]) || getDailyNet(allDailyData[s]?.[ds]));
       }),
       backgroundColor: col,
       borderRadius: 2, stack: 's'
@@ -1746,10 +1747,10 @@ function buildMonthDailyChart(stores) {
   const datasets = stores.map(s => {
     const st  = STORE_MAP.get(s);
     const col = st?.color || '#888';
-    const map = Object.fromEntries((liveData[s]?.daily||[]).map(d => [d.date, d.netSales]));
+    const liveDateMap = liveDateMaps[s] || {};
     return {
       label: st?.display||s,
-      data: dates.map(d => Math.round(map[d.date] || 0)),
+      data: dates.map(d => Math.round(getDailyNet(liveDateMap[d.date]) || 0)),
       backgroundColor: col, borderRadius: 2, stack: 's'
     };
   });
@@ -1941,9 +1942,9 @@ function computeCost(stores) {
     const d = costIndex.byDay[activeDay] || {};
     total = stores.reduce((s, st) => s + (d[st] || 0), 0);
   } else if (activeWeek) {
-    // O(7): one lookup per day in the week
+    // O(7): one lookup per day in the week — include all 7 days even if they
+    // span a month boundary (cost data is keyed by date, not by active month)
     for (const day of getDaysOfISOWeek(activeYear, activeWeek)) {
-      if (day.getMonth() + 1 !== activeMonth) continue;
       const d = costIndex.byDay[toDateStr(day)] || {};
       total += stores.reduce((s, st) => s + (d[st] || 0), 0);
     }
@@ -1968,9 +1969,10 @@ function computeOtherRev(type) {
   if (!otherRevData?.[type] || hiddenOtherRevs.has(type)) return 0;
   if (activeDay || activeWeek) return 0;
   const data = otherRevData[type];
-  if (activeMonth === 0) {
-    const curMo = new Date().getMonth() + 1;
-    return MONTHS.slice(0, curMo).reduce((s, m) => s + (data[m] || 0), 0);
+  if (activeMonth === MONTH_YTD) {
+    const curYear = new Date().getFullYear();
+    const maxMo   = activeYear < curYear ? 12 : new Date().getMonth() + 1;
+    return MONTHS.slice(0, maxMo).reduce((s, m) => s + (data[m] || 0), 0);
   }
   return data[MONTHS[activeMonth - 1]] || 0;
 }
@@ -2331,7 +2333,7 @@ function renderInventory() {
     </div>` : ''}
 
     <div class="last-sync">
-      ${isLoading ? `<span class="spinner-inline"></span>Loading ${loadingStores.map(s => STORES.find(x => x.name === s)?.display || s).join(', ')}…` : ''}
+      ${isLoading ? `<span class="spinner-inline"></span>Loading ${loadingStores.map(s => STORE_MAP.get(s)?.display || s).join(', ')}…` : ''}
       ${isLoaded ? `Inventory · ${loadedStores.length} store${loadedStores.length > 1 ? 's' : ''} · <button onclick="clearInventoryAndReload()" style="font-size:10px;color:#555;background:none;border:none;cursor:pointer">↻ refresh</button>` : ''}
       ${!isLoaded && !isLoading ? 'Open ⚙ settings and load data first.' : ''}
     </div>
