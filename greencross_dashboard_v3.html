@@ -809,12 +809,22 @@ function writeSalesCache(store, year, month, data) {
   }
 }
 
+/** Reset all derived in-memory caches that are built from liveData / costData / allDailyData. */
+function _invalidateDerivedCaches() {
+  Object.keys(liveDateMaps).forEach(k => delete liveDateMaps[k]);
+  costIndex           = null;
+  _dowWeightsCache    = null;
+  _dowWeightsCacheKey = '';
+  _incomeMounted      = false; // force full skeleton rebuild on next render
+}
+
 function clearDutchieCache() {
   Object.keys(localStorage)
     .filter(k => k.startsWith('gc_sales_'))
     .forEach(k => localStorage.removeItem(k));
   allDailyData = {};
-  liveData = {};
+  liveData     = {};
+  _invalidateDerivedCaches();
   console.log('Dutchie sales cache cleared');
 }
 
@@ -826,8 +836,11 @@ function clearAllCache() {
     .forEach(k => localStorage.removeItem(k));
   Object.keys(sessionMemCache).forEach(k => delete sessionMemCache[k]);
   inventoryData = {};
-  allDailyData = {};
-  lbGoals = null;
+  allDailyData  = {};
+  lbGoals       = null;
+  costData      = null;
+  costLoadError = null;
+  _invalidateDerivedCaches();
   console.log('Cache cleared');
 }
 
