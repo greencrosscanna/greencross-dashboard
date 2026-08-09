@@ -11,8 +11,8 @@
 <meta name="apple-mobile-web-app-title" content="Green Cross">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0f0f0f">
-<title>Green Cross — Live Dashboard v38</title>
-<!-- v38: Settings gear drawer — proxy URL, display toggles, cache controls, version history -->
+<title>Green Cross — Live Dashboard v39</title>
+<!-- v39: Year tabs; historical month caching; Refresh Dutchie data button -->
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html{background:#0f0f0f}
@@ -374,6 +374,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     document.head.appendChild(l);
   }
 })();
+
+const APP_VERSION = '39';
+document.title = `Green Cross — Live Dashboard v${APP_VERSION}`;
 
 const STORES = [
   { name:'Bend',        display:'Century',    color:'#1D9E75' },
