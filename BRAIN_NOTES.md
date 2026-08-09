@@ -17,30 +17,6 @@ Backend GAS: `dutchie_proxy.gs` (Dutchie + QuickBooks proxy; no dedicated GAS we
 
 ## Pending
 
-### 1. Auto-record deploys to GX Core (the no-UI first win)
-Record each Sales release to GX Core's single release-note log via the **central** endpoint — do NOT build
-a per-app record action (that logic lives once in GX Core). This is the dependency for the changelog swap
-below: once the app reads its history from GX Core, auto-record is what keeps it current.
-
-- Pick a single source of truth for the version (today it's duplicated — the `<title>` "v38" and the
-  hardcoded `vhist-row`s). A `VERSION` / `APP_VERSION` constant is ideal.
-- There's no deploy script yet (`clasp.sh` is just a node wrapper), so add a small `deploy.sh` (or a
-  release step) that, after you ship, curls the central endpoint:
-  ```
-  GXCORE="https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec"
-  curl -sL -G "$GXCORE" \
-    --data-urlencode "action=deploy_version" \
-    --data-urlencode "secret=$(cat .gx_deploy_secret)" \
-    --data-urlencode "app=sales" \
-    --data-urlencode "version=$VERSION" \
-    --data-urlencode "sha=$(git rev-parse --short HEAD)" \
-    --data-urlencode "notes=$GX_NOTES"
-  ```
-- `.gx_deploy_secret` (untracked, already gitignored) must hold the shared suite-wide secret — **ask Sky**
-  to drop it in (same value the other apps use).
-- Verify: run it once → the new version appears via `…?action=version_history&app=sales` with
-  `deployed_by:"app"`. Then move this to **## Archive** with date + commit and report a sync report.
-
 ### Next up (after #1 verifies — don't start these yet)
 - **Changelog → read from GX Core.** Replace the hardcoded `vhist-row` list in `index.html` with a JSONP
   fetch of `…?action=version_history&app=sales&callback=…` (GX Core already serves Sales' v1–v39). Same
@@ -52,6 +28,8 @@ below: once the app reads its history from GX Core, auto-record is what keeps it
   Lowest priority of the three.
 
 ## Notes back to the brain
+
+- **`.gx_deploy_secret` needed:** `deploy.sh` is ready but can't run end-to-end until Sky drops the shared suite secret into `.gx_deploy_secret` (same value other apps use). Once it's there, run `GX_NOTES="..." ./deploy.sh` once and confirm v39 appears via `?action=version_history&app=sales` with `deployed_by:"app"`. After that, move item #1 to Archive.
 
 <!-- Things only the brain can act on (cross-app contracts, GX Core schema changes, etc.) -->
 
@@ -67,4 +45,4 @@ below: once the app reads its history from GX Core, auto-record is what keeps it
 
 <!-- Completed pending items land here: - [x] Task — done YYYY-MM-DD commit XXXXXXX -->
 
-_Nothing archived yet._
+- [~] #1 Auto-record deploys — `APP_VERSION = '39'` added to `index.html` (single source of truth); `deploy.sh` created (pushes clasp + git, curls GX Core endpoint) — 2026-08-09 commit 849920c. **Blocked: needs `.gx_deploy_secret` from Sky to verify end-to-end.**
