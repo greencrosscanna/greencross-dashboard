@@ -1,0 +1,12 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+# Claude local settings (machine-specific)
+.claude/settings.local.json
+# clasp OAuth credentials — never commit
+.clasprc.json
+# Netlify local state
+.netlify
+# Local GX Core deploy secret — never commit (used by deploy auto-record)
+.gx_deploy_secret

@@ -1,0 +1,1036 @@
+// Green Cross — Dutchie API Proxy
+// Deploy as Web App: Execute as "Me", Who has access "Anyone"
+// Paste your API keys below — these never leave your Google account
+
+const STORE_KEYS = {
+  'Bend':        '77e157f3fcdf43d9864daf0420df8c97',
+  'Center':      '6a7e9c3187a6471d8a0a2d05cfa92023',
+  'Commercial':  'd97da3cef3f74dd087cee7d4239a851d',
+  'Hillsboro':   'a2de33457b8f4d35972d3c47832207eb',
+  'Portland Rd': '5671f32c2c2a4756811e9513945815f4',
+  'River':       '5212417431014845a6db39bcb4ccef6b',
+};
+
+const BASE = 'https://api.pos.dutchie.com';
+
+const BUDGET_SHEET_ID  = '1OBNzkBrJtLIlf8xknVlGd6Jb8nlkg4_KG-Gq6BD7HHY';
+const BUDGET_SHEET_GID = 1092240858;
+
+// ── QuickBooks credentials ────────────────────────────────────────────────────
+// Paste values here ONLY to run exchangeQBCode() — after that they are stored
+// in Script Properties and these constants are no longer used.
+const QB_CLIENT_ID     = 'XXXXXXX';
+const QB_CLIENT_SECRET = 'XXXXXXX';
+const QB_REALM_ID      = 'XXXXXXX';
+const QB_AUTH_CODE     = 'XXXXXXX';
+
+// ── Cache helpers ─────────────────────────────────────────────────────────────
+const CACHE = CacheService.getScriptCache();
+
+function cacheGet_(key) {
+  try {
+    // Support chunked storage for large payloads
+    const meta = CACHE.get(key + '__meta');
+    if (meta) {
+      const { chunks } = JSON.parse(meta);
+      let out = '';
+      for (let i = 0; i < chunks; i++) out += (CACHE.get(key + '__' + i) || '');
+      return out || null;
+    }
+    return CACHE.get(key);
+  } catch(e) { return null; }
+}
+
+function cacheSet_(key, value, ttl) {
+  try {
+    const CHUNK = 95000; // GAS cache limit is ~100KB per entry
+    if (value.length > CHUNK) {
+      const chunks = Math.ceil(value.length / CHUNK);
+      const entries = { [key + '__meta']: JSON.stringify({ chunks }) };
+      for (let i = 0; i < chunks; i++) {
+        entries[key + '__' + i] = value.slice(i * CHUNK, (i + 1) * CHUNK);
+      }
+      CACHE.putAll(entries, ttl);
+    } else {
+      CACHE.put(key, value, ttl);
+    }
+  } catch(e) { /* cache write failure is non-fatal */ }
+}
+
+function doGet(e) {
+  const params = e.parameter;
+
+  // Serve the dashboard HTML when accessed with no parameters
+  if (!params.action && !params.store) {
+    return HtmlService.createHtmlOutputFromFile('index')
+      .setTitle('Green Cross Dashboard')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, viewport-fit=cover')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  }
+
+  if (params.action === 'goals')       return getGoals();
+  if (params.action === 'expenses')    return getExpenses(params);
+  if (params.action === 'qbaccounts')  return getQBAccountNames();
+  if (params.action === 'qbmapping')   return getQBMappingSheet();
+  if (params.action === 'txfields')    return getTxFields(params);
+  if (params.action === 'eodtest')     return getEodTest(params);
+  if (params.action === 'sheetpreview')  return getSheetPreview(params);
+  if (params.action === 'costs')         return getCosts(params);
+  if (params.action === 'expbudgets')    return getExpenseBudgets();
+  if (params.action === 'otherrev')      return getOtherRevenue();
+  if (params.action === 'inventory')     return getInventory(params);
+  if (params.action === 'invprobe')      return probeInventoryEndpoints(params);
+  if (params.action === 'invfields')     return getInvFields(params);
+  if (params.action === 'itemstest')     return getItemsTest(params);
+  if (params.action === 'txdetail')      return getTxDetail(params);
+
+  const store  = params.store;
+  const from   = params.from;  // e.g. "2026-04-01T08:00:00Z"
+  const to     = params.to;
+
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+
+  if (!store || !STORE_KEYS[store]) {
+    output.setContent(JSON.stringify({ error: 'Unknown store: ' + store }));
+    return output;
+  }
+
+  try {
+    const apiKey = STORE_KEYS[store];
+    const auth   = Utilities.base64Encode(apiKey + ':');
+
+    // Fetch a wide window by lastModified; client-side filter below narrows to actual transaction date
+    const url = BASE + '/reporting/transactions'
+      + '?fromLastModifiedDateUTC=' + encodeURIComponent(from)
+      + '&toLastModifiedDateUTC='   + encodeURIComponent(to)
+      + '&includeItems=true';
+
+    const resp = UrlFetchApp.fetch(url, {
+      method: 'get',
+      headers: { Authorization: 'Basic ' + auth, Accept: 'application/json' },
+      muteHttpExceptions: true
+    });
+
+    const raw  = JSON.parse(resp.getContentText());
+    const rows = Array.isArray(raw) ? raw : (raw.data || raw.items || []);
+
+    // Date range strings for client-side guard (YYYY-MM-DD, local date)
+    const dateFrom = from.slice(0, 10);
+    const dateTo   = to.slice(0, 10);
+
+    const sales = rows.filter(r => {
+      if (r.isVoid) return false;
+      if ((r.transactionType || '').toLowerCase() !== 'retail') return false;
+      // Client-side date guard using local transaction date
+      const txDate = (r.transactionDateLocalTime || r.transactionDate || '').slice(0, 10);
+      if (txDate && (txDate < dateFrom || txDate > dateTo)) return false;
+      return true;
+    });
+
+    let netSales = 0, grossSales = 0, discounts = 0, cost = 0, tax = 0;
+    const weeklyMap = {};
+    const dailyMap  = {};
+    const productMap = {};
+
+    for (const tx of sales) {
+      const net  = Number(tx.totalBeforeTax || tx.subtotal || 0);
+      const disc = Number(tx.totalDiscount  || 0);
+      const txTax= Number(tx.tax            || tx.taxAmount || 0);
+
+      netSales   += net;
+      grossSales += net + disc;
+      discounts  += disc;
+      tax        += txTax;
+
+      // Cost: sum from line items if available
+      const items = tx.items || tx.lineItems || tx.orderItems || [];
+      for (const item of items) {
+        const itemCost = Number(item.costOfGoods || item.cost || item.unitCost || 0);
+        const qty      = Number(item.quantity || item.qty || 1);
+        cost += itemCost * qty;
+
+        const name = item.productName || item.name || 'Unknown';
+        const rev  = Number(item.totalPrice || item.price || item.lineTotal || 0);
+        if (!productMap[name]) productMap[name] = { revenue: 0, units: 0 };
+        productMap[name].revenue += rev;
+        productMap[name].units   += qty;
+      }
+
+      // Daily + weekly rollup
+      const dateStr = (tx.transactionDateLocalTime || tx.transactionDate || '').slice(0, 10);
+      if (dateStr) {
+        if (!dailyMap[dateStr]) dailyMap[dateStr] = { netSales: 0, grossSales: 0, orders: 0, discounts: 0 };
+        dailyMap[dateStr].netSales   += net;
+        dailyMap[dateStr].grossSales += net + disc;
+        dailyMap[dateStr].orders     += 1;
+        dailyMap[dateStr].discounts  += disc;
+
+        const wk = getISOWeek(new Date(dateStr)) - 1;
+        weeklyMap['WK' + wk] = (weeklyMap['WK' + wk] || 0) + net;
+      }
+    }
+
+    const orders = sales.length;
+    const topProducts = Object.entries(productMap)
+      .sort((a, b) => b[1].revenue - a[1].revenue)
+      .slice(0, 10)
+      .map(([name, d]) => ({ name, revenue: d.revenue, units: d.units }));
+
+    const weekly = Object.entries(weeklyMap)
+      .sort((a, b) => parseInt(a[0].replace('Wk ', '')) - parseInt(b[0].replace('Wk ', '')))
+      .map(([label, amount]) => ({ label, amount }));
+
+    output.setContent(JSON.stringify({
+      store,
+      orders,
+      netSales:   Math.round(netSales   * 100) / 100,
+      grossSales: Math.round(grossSales * 100) / 100,
+      discounts:  Math.round(discounts  * 100) / 100,
+      cost:       Math.round(cost       * 100) / 100,
+      tax:        Math.round(tax        * 100) / 100,
+      profit:     Math.round((netSales - cost) * 100) / 100,
+      aov:        orders > 0 ? Math.round(netSales / orders * 100) / 100 : 0,
+      margin:     netSales > 0 ? Math.round((netSales - cost) / netSales * 10000) / 100 : 0,
+      weekly,
+      topProducts,
+      daily: Object.entries(dailyMap)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([date, d]) => ({ date,
+          netSales:   Math.round(d.netSales   * 100) / 100,
+          grossSales: Math.round(d.grossSales * 100) / 100,
+          orders:     d.orders,
+          discounts:  Math.round(d.discounts  * 100) / 100,
+        })),
+      rawCount:   rows.length,
+      salesCount: sales.length,
+    }));
+
+  } catch (err) {
+    output.setContent(JSON.stringify({ error: err.message }));
+  }
+
+  return output;
+}
+
+function getISOWeek(date) {
+  var d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  var day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  var yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
+
+function getGoals() {
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+  const cached = cacheGet_('goals');
+  if (cached) { output.setContent(cached); return output; }
+  try {
+    const ss    = SpreadsheetApp.openById(BUDGET_SHEET_ID);
+    const sheet = ss.getSheets().find(s => s.getSheetId() === BUDGET_SHEET_GID);
+    if (!sheet) throw new Error('Budget sheet not found (gid ' + BUDGET_SHEET_GID + ')');
+
+    const STORE_NAMES = ['Bend', 'Center', 'Commercial', 'Hillsboro', 'Portland Rd', 'River'];
+    const MONTHS_12   = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const data  = sheet.getDataRange().getValues();
+    const goals = {};
+
+    for (const row of data) {
+      const name = String(row[3] || '').trim();
+      if (!STORE_NAMES.includes(name)) continue;
+      goals[name] = {};
+      MONTHS_12.forEach((m, i) => {
+        goals[name][m] = Number(String(row[4 + i]).replace(/[$,]/g, '')) || 0;
+      });
+    }
+
+    const content = JSON.stringify({ goals });
+    cacheSet_('goals', content, 3600); // 1 hour
+    output.setContent(content);
+  } catch (err) {
+    output.setContent(JSON.stringify({ error: err.message }));
+  }
+  return output;
+}
+
+// ── QuickBooks OAuth ──────────────────────────────────────────────────────────
+
+// Run this ONCE after pasting QB_AUTH_CODE above. Saves refresh token to
+// Script Properties so the live proxy can auto-refresh without touching the code.
+function exchangeQBCode() {
+  const resp = UrlFetchApp.fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer', {
+    method: 'post',
+    headers: {
+      Authorization:  'Basic ' + Utilities.base64Encode(QB_CLIENT_ID + ':' + QB_CLIENT_SECRET),
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept:         'application/json',
+    },
+    payload: 'grant_type=authorization_code'
+           + '&code='         + encodeURIComponent(QB_AUTH_CODE)
+           + '&redirect_uri=' + encodeURIComponent('https://developer.intuit.com/v2/OAuth2Playground/RedirectUrl'),
+    muteHttpExceptions: true,
+  });
+
+  const data = JSON.parse(resp.getContentText());
+  if (data.refresh_token) {
+    const props = PropertiesService.getScriptProperties();
+    props.setProperty('QB_CLIENT_ID',     QB_CLIENT_ID);
+    props.setProperty('QB_CLIENT_SECRET', QB_CLIENT_SECRET);
+    props.setProperty('QB_REALM_ID',      QB_REALM_ID);
+    props.setProperty('QB_REFRESH_TOKEN', data.refresh_token);
+    Logger.log('Success! All QB credentials saved to Script Properties.');
+  } else {
+    Logger.log('Failed: ' + resp.getContentText());
+  }
+}
+
+function getQBAccessToken_() {
+  const props     = PropertiesService.getScriptProperties();
+  const clientId  = props.getProperty('QB_CLIENT_ID');
+  const secret    = props.getProperty('QB_CLIENT_SECRET');
+  const refresh   = props.getProperty('QB_REFRESH_TOKEN');
+  if (!refresh)  throw new Error('No QB_REFRESH_TOKEN — run exchangeQBCode() first.');
+  if (!clientId) throw new Error('No QB_CLIENT_ID in Script Properties — run exchangeQBCode() first.');
+
+  const resp = UrlFetchApp.fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer', {
+    method: 'post',
+    headers: {
+      Authorization:  'Basic ' + Utilities.base64Encode(clientId + ':' + secret),
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept:         'application/json',
+    },
+    payload: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(refresh),
+    muteHttpExceptions: true,
+  });
+
+  const data = JSON.parse(resp.getContentText());
+  if (!data.access_token) throw new Error('QB token refresh failed: ' + resp.getContentText());
+  props.setProperty('QB_REFRESH_TOKEN', data.refresh_token);
+  return data.access_token;
+}
+
+// ── QuickBooks Expenses ───────────────────────────────────────────────────────
+
+// Section summaries: when matched, add the total and DON'T recurse into children
+// Keys are the section name after stripping "Total " or "Total for "
+const QB_SUMMARY_MAP_ = {
+  'COGS - SUPPLIES & MATERIALS':    'COGS - Supplies & Materials',
+  'PAYROLL EXPENSES':               'Payroll Expenses',
+  'PURCHASED MATERIALS FOR RESALE': 'COGS',
+  'INSURANCE EXPENSE':              'Insurance Expense',
+  'PROFESSIONAL FEES':              'Professional Fees',
+  'TAXES PAID':                     'Taxes',
+  'SOFTWARE':                       'Software',
+};
+
+// Individual leaf rows: always captured directly by account name
+// REPAIRS & MAINTENANCE is intentionally NOT in QB_SUMMARY_MAP_ so we recurse
+// into its sub-items and split GENERAL (Management) from the rest
+const QB_DETAIL_MAP_ = {
+  'ADVERTISING & PROMOTION':   'Advertising & Promotion',
+  'BANK SERVICE CHARGE':       'Bank Service Charge',
+  'BUILDING':                  'Repairs & Maintenance',
+  'EQUIPMENT':                 'Repairs & Maintenance',
+  'GARBAGE':                   'Utilities / Garbage',
+  'GENERAL':                   'Management',
+  'INTEREST EXPENSE':          'Interest Expense',
+  'INTERNET & PHONE':          'Internet & Phone',
+  'LICENSES':                  'Licenses',
+  'MEALS & ENTERTAINMENT':     'Meals & Entertainment',
+  'MISCELLANEOUS EXPENSE':     'Miscellaneous',
+  'OFFICE SUPPLIES':           'Office Supplies',
+  'PEST CONTROL':              'Repairs & Maintenance',
+  'POSTAGE':                   'Office Supplies',
+  'RENT EXPENSE':              'Rent Expense',
+  'SCALES':                    'Repairs & Maintenance',
+  'SECURITY SYSTEMS':          'Security Monitoring',
+  'SOFTWARE':                  'Software',
+  'START UP EXPENSES':         'Startup Expense',
+  'TELEPHONE EXPENSE':         'Internet & Phone',
+  'TRAVEL':                    'Travel',
+  'UNCATEGORIZED EXPENSE':     'Miscellaneous',
+  'UTILITIES':                 'Utilities / Garbage',
+};
+
+function walkQBRows_(rows, cols, result) {
+  for (const row of (rows || [])) {
+    let summaryMatched = false;
+
+    // Section summary row — strip "Total for " or "Total " prefix to get the section name
+    if (row.Summary) {
+      const raw = (row.Summary.ColData?.[0]?.value || '')
+        .replace(/^Total\s+(for\s+)?/i, '').trim().toUpperCase();
+      const cat = QB_SUMMARY_MAP_[raw];
+      if (cat) {
+        summaryMatched = true; // skip recursion to avoid double-counting sub-items
+        if (!result[cat]) result[cat] = {};
+        cols.forEach((col, i) => {
+          const v = parseFloat((row.Summary.ColData?.[i + 1]?.value || '').replace(/,/g, '')) || 0;
+          if (col) result[cat][col] = (result[cat][col] || 0) + v;
+        });
+      }
+    }
+
+    // Individual data row (leaf node — no Summary sibling)
+    if (row.ColData && !row.Summary) {
+      const raw = (row.ColData[0]?.value || '').trim().toUpperCase();
+      const cat = QB_DETAIL_MAP_[raw];
+      if (cat) {
+        if (!result[cat]) result[cat] = {};
+        cols.forEach((col, i) => {
+          const v = parseFloat((row.ColData[i + 1]?.value || '').replace(/,/g, '')) || 0;
+          if (col) result[cat][col] = (result[cat][col] || 0) + v;
+        });
+      }
+    }
+
+    // Recurse only if this section's summary wasn't matched (prevents double-counting)
+    if (!summaryMatched && row.Rows?.Row) {
+      walkQBRows_(row.Rows.Row, cols, result);
+    }
+  }
+}
+
+function getExpenses(params) {
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+  const cacheKey = 'expenses_' + new Date().getFullYear();
+  if (!params?.debug) {
+    const cached = cacheGet_(cacheKey);
+    if (cached) { output.setContent(cached); return output; }
+  }
+  try {
+    const props   = PropertiesService.getScriptProperties();
+    const token   = getQBAccessToken_();
+    const realmId = props.getProperty('QB_REALM_ID');
+    const today   = new Date();
+    const yr      = today.getFullYear();
+    const start   = yr + '-01-01';
+    const end     = yr + '-' + String(today.getMonth() + 1).padStart(2, '0')
+                        + '-' + String(today.getDate()).padStart(2, '0');
+
+    const isSandbox = (props.getProperty('QB_SANDBOX') === 'true');
+    const qbBase    = isSandbox
+      ? 'https://sandbox-quickbooks.api.intuit.com'
+      : 'https://quickbooks.api.intuit.com';
+
+    const url = qbBase + '/v3/company/' + realmId
+      + '/reports/ProfitAndLoss'
+      + '?start_date=' + start + '&end_date=' + end
+      + '&summarize_column_by=Month';
+
+    const resp   = UrlFetchApp.fetch(url, {
+      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+      muteHttpExceptions: true,
+    });
+
+    const raw    = resp.getContentText();
+    const report = JSON.parse(raw);
+    if (report.Fault) throw new Error(JSON.stringify(report.Fault));
+
+    // Column titles e.g. ["Jan 2026", "Feb 2026", ...]
+    const cols = (report.Columns?.Column || []).map(c => c.ColTitle || '').filter(Boolean);
+
+    const expenses = {};
+    walkQBRows_(report.Rows?.Row || [], cols, expenses);
+
+    // debug=true returns raw report for mapping verification
+    if (params && params.debug === 'true') {
+      output.setContent(raw);
+      return output;
+    }
+
+    const content = JSON.stringify({ expenses, columns: cols });
+    cacheSet_(cacheKey, content, 1800); // 30 min
+    output.setContent(content);
+  } catch (err) {
+    output.setContent(JSON.stringify({ error: err.message }));
+  }
+  return output;
+}
+
+// Probes common Dutchie EOD/daily-summary endpoint patterns to find inventory cost
+function getEodTest(params) {
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+  try {
+    const store  = params.store || 'River';
+    const apiKey = STORE_KEYS[store];
+    const auth   = Utilities.base64Encode(apiKey + ':');
+    const date   = params.date || '2026-04-20'; // use yesterday by default
+    const today2 = new Date();
+    const from   = new Date(today2.getFullYear(), today2.getMonth(), 1).toISOString().replace('.000','');
+    const to     = today2.toISOString().replace('.000','');
+
+    // Probe endpoints that might expose product-level sold qty or cost
+    const paths = [
+      // Dedicated sales / product-performance endpoints
+      ['/reporting/sales', '?fromDate=' + date + '&toDate=' + date],
+      ['/reporting/sales', '?startDate=' + date + '&endDate=' + date],
+      ['/reporting/product-performance', '?fromDate=' + date + '&toDate=' + date],
+      ['/reporting/product-performance', ''],
+      ['/reporting/daily-summary', '?date=' + date],
+      ['/reporting/daily-summary', ''],
+      ['/reporting/sales-summary', '?date=' + date],
+      // Inventory adjustments — could show outbound movements
+      ['/reporting/inventory-adjustments', '?fromLastModifiedDateUTC=' + encodeURIComponent(from)],
+      ['/reporting/adjustments', '?fromDate=' + date],
+    ];
+    const results = {};
+    for (const [path, qs] of paths) {
+      const resp = UrlFetchApp.fetch(BASE + path + qs, {
+        method: 'get',
+        headers: { Authorization: 'Basic ' + auth, Accept: 'application/json' },
+        muteHttpExceptions: true,
+      });
+      const code = resp.getResponseCode();
+      // For 200s grab more content to see fields; for others just status
+      const body = code === 200 ? resp.getContentText().slice(0, 800) : '';
+      results[path + (qs ? ' ' + qs.slice(0,30) : '')] = { status: code, preview: body };
+    }
+    output.setContent(JSON.stringify(results));
+  } catch(e) {
+    output.setContent(JSON.stringify({ error: e.message }));
+  }
+  return output;
+}
+
+// Returns top-level fields + first item fields from one transaction — for debugging cost field names
+function getTxFields(params) {
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+  try {
+    const store  = params.store || 'River';
+    const apiKey = STORE_KEYS[store];
+    const auth   = Utilities.base64Encode(apiKey + ':');
+    const today  = new Date();
+    const from   = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().replace('.000','');
+    const to     = today.toISOString().replace('.000','');
+    const url    = BASE + '/reporting/transactions'
+      + '?fromLastModifiedDateUTC=' + encodeURIComponent(from)
+      + '&toLastModifiedDateUTC='   + encodeURIComponent(to)
+      + '&includeItems=true&includeItemDetails=true';
+    const resp = UrlFetchApp.fetch(url, {
+      method: 'get',
+      headers: { Authorization: 'Basic ' + auth, Accept: 'application/json' },
+      muteHttpExceptions: true,
+    });
+    const raw  = JSON.parse(resp.getContentText());
+    const rows = Array.isArray(raw) ? raw : (raw.data || raw.items || []);
+    const tx   = rows.find(r => !r.isVoid && (r.transactionType||'').toLowerCase() === 'retail') || rows[0];
+    if (!tx) { output.setContent(JSON.stringify({ error: 'no transactions found' })); return output; }
+    const items = tx.items || tx.lineItems || tx.orderItems || [];
+    output.setContent(JSON.stringify({
+      txKeys:   Object.keys(tx),
+      txSample: Object.fromEntries(Object.entries(tx).filter(([k,v]) => typeof v !== 'object')),
+      itemKeys: items[0] ? Object.keys(items[0]) : [],
+      itemSample: items[0] ? Object.fromEntries(Object.entries(items[0]).filter(([k,v]) => typeof v !== 'object')) : {},
+    }));
+  } catch(e) {
+    output.setContent(JSON.stringify({ error: e.message }));
+  }
+  return output;
+}
+
+// Returns Col A → Col B from the P&L mapping sheet so we can verify/build the map
+function getQBMappingSheet() {
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+  try {
+    const MAPPING_GID = 996732254;
+    const ss    = SpreadsheetApp.openById(BUDGET_SHEET_ID);
+    const sheet = ss.getSheets().find(s => s.getSheetId() === MAPPING_GID);
+    if (!sheet) throw new Error('Mapping sheet not found (gid ' + MAPPING_GID + ')');
+    const rows = sheet.getDataRange().getValues();
+    const pairs = rows
+      .filter(r => r[0] && r[1])
+      .map(r => ({ qb: String(r[0]).trim(), dash: String(r[1]).trim() }));
+    output.setContent(JSON.stringify({ pairs }));
+  } catch(e) {
+    output.setContent(JSON.stringify({ error: e.message }));
+  }
+  return output;
+}
+
+// Web-accessible version — hit ?action=qbaccounts to get all raw row names as JSON
+function getQBAccountNames() {
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+  try {
+    const token   = getQBAccessToken_();
+    const realmId = PropertiesService.getScriptProperties().getProperty('QB_REALM_ID');
+    const yr      = new Date().getFullYear();
+    const url     = 'https://quickbooks.api.intuit.com/v3/company/' + realmId
+      + '/reports/ProfitAndLoss?start_date=' + yr + '-01-01&end_date=' + yr + '-04-21&summarize_column_by=Month';
+    const resp   = UrlFetchApp.fetch(url, {
+      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+      muteHttpExceptions: true,
+    });
+    const report = JSON.parse(resp.getContentText());
+    const names  = [];
+    function walk(rows, depth) {
+      for (const r of rows || []) {
+        if (r.Summary?.ColData?.[0]?.value) names.push({ type:'S', depth, name: r.Summary.ColData[0].value });
+        else if (r.ColData?.[0]?.value)     names.push({ type:'D', depth, name: r.ColData[0].value });
+        if (r.Rows?.Row) walk(r.Rows.Row, depth + 1);
+      }
+    }
+    walk(report.Rows?.Row || [], 0);
+    output.setContent(JSON.stringify({ names }));
+  } catch(e) {
+    output.setContent(JSON.stringify({ error: e.message }));
+  }
+  return output;
+}
+
+// Run in editor to see raw QB account/section names for mapping verification
+function debugQBAccountNames() {
+  const token   = getQBAccessToken_();
+  const realmId = PropertiesService.getScriptProperties().getProperty('QB_REALM_ID');
+  const yr      = new Date().getFullYear();
+  const url     = 'https://quickbooks.api.intuit.com/v3/company/' + realmId
+    + '/reports/ProfitAndLoss?start_date=' + yr + '-01-01&end_date=' + yr + '-04-20&summarize_column_by=Month';
+  const resp  = UrlFetchApp.fetch(url, {
+    headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+    muteHttpExceptions: true,
+  });
+  const report = JSON.parse(resp.getContentText());
+  function names(rows, d) {
+    let out = [];
+    for (const r of rows || []) {
+      if (r.Summary?.ColData?.[0]?.value) out.push('  '.repeat(d) + '[S] ' + r.Summary.ColData[0].value);
+      else if (r.ColData?.[0]?.value)     out.push('  '.repeat(d) + '[D] ' + r.ColData[0].value);
+      if (r.Rows?.Row) out = out.concat(names(r.Rows.Row, d + 1));
+    }
+    return out;
+  }
+  Logger.log(names(report.Rows?.Row || [], 0).join('\n'));
+}
+
+function debugQBAuth() {
+  const props   = PropertiesService.getScriptProperties();
+  const realmId = props.getProperty('QB_REALM_ID') || '(not set)';
+  const hasRefresh = !!props.getProperty('QB_REFRESH_TOKEN');
+  const hasClient  = !!props.getProperty('QB_CLIENT_ID');
+  Logger.log('Realm ID: ' + realmId);
+  Logger.log('Has refresh token: ' + hasRefresh);
+  Logger.log('Has client ID: ' + hasClient);
+  // Try a simple company info call to verify auth
+  try {
+    const token     = getQBAccessToken_();
+    const sandbox   = (props.getProperty('QB_SANDBOX') === 'true');
+    const base      = sandbox ? 'https://sandbox-quickbooks.api.intuit.com' : 'https://quickbooks.api.intuit.com';
+    const url       = base + '/v3/company/' + realmId + '/companyinfo/' + realmId;
+    const resp  = UrlFetchApp.fetch(url, {
+      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+      muteHttpExceptions: true,
+    });
+    Logger.log('Company info status: ' + resp.getResponseCode());
+    Logger.log('Company info response: ' + resp.getContentText().slice(0, 500));
+  } catch(e) {
+    Logger.log('Error: ' + e.message);
+  }
+}
+
+function testProxy() {
+  const e = { parameter: {
+    store: 'River',
+    from:  '2026-04-01T07:00:00Z',
+    to:    '2026-04-21T07:00:00Z',
+  }};
+  const result = doGet(e);
+  Logger.log(result.getContent());
+}
+
+// Returns first 10 rows of a sheet by GID to inspect structure
+function getSheetPreview(params) {
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+  try {
+    const gid = params.gid || '1548231883';
+    const ss = SpreadsheetApp.openById(BUDGET_SHEET_ID);
+    const sheets = ss.getSheets();
+    const sheet = sheets.find(s => String(s.getSheetId()) === String(gid));
+    if (!sheet) {
+      output.setContent(JSON.stringify({ error: 'Sheet not found', available: sheets.map(s => ({ name: s.getName(), gid: s.getSheetId() })) }));
+      return output;
+    }
+    const maxRows = parseInt(params.rows || '10') || 10;
+    const rows = sheet.getRange(1, 1, Math.min(maxRows, sheet.getLastRow()), sheet.getLastColumn()).getValues();
+    output.setContent(JSON.stringify({ name: sheet.getName(), rows }));
+  } catch(e) {
+    output.setContent(JSON.stringify({ error: e.message }));
+  }
+  return output;
+}
+
+// Returns daily inventory cost data from the EOD sheet
+// Columns expected: Date, Month, Store, [Revenue], [Cost], ...
+// Returns daily inventory cost by date and store from the Income Data Dump sheet.
+// Response: { daily: { "2026-01-01": { "Bend": 2100.50, "Center": 742.57, ... }, ... } }
+function getCosts(params) {
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+  const cached = cacheGet_('costs');
+  if (cached) { output.setContent(cached); return output; }
+  try {
+    const COST_SHEET_GID = 1548231883;
+    const ss = SpreadsheetApp.openById(BUDGET_SHEET_ID);
+    const sheet = ss.getSheets().find(s => s.getSheetId() === COST_SHEET_GID);
+    if (!sheet) {
+      output.setContent(JSON.stringify({ error: 'Income Data Dump sheet not found' }));
+      return output;
+    }
+
+    // Location name → dashboard store key
+    const LOC_MAP = {
+      'bend':         'Bend',
+      'center':       'Center',
+      'commercial':   'Commercial',
+      'hillsboro':    'Hillsboro',
+      'portland road':'Portland Rd',
+      'portland rd':  'Portland Rd',
+      'river':        'River',
+    };
+
+    function locToStore(loc) {
+      const lower = (loc || '').toLowerCase();
+      for (const [key, store] of Object.entries(LOC_MAP)) {
+        if (lower.includes(key)) return store;
+      }
+      return null;
+    }
+
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0].map(h => String(h).trim());
+    const dateCol = headers.indexOf('Order Date');
+    const locCol  = headers.indexOf('Location Name');
+    const costCol = headers.indexOf('Inventory Cost');
+
+    if (dateCol < 0 || locCol < 0 || costCol < 0) {
+      output.setContent(JSON.stringify({ error: 'Expected columns not found', headers }));
+      return output;
+    }
+
+    const daily = {};
+    for (let i = 1; i < data.length; i++) {
+      const row  = data[i];
+      const raw  = row[dateCol];
+      if (!raw) continue;
+      // Dates stored as midnight Pacific (7 or 8 AM UTC depending on DST).
+      // UTC date portion always equals the local Pacific date since Pacific is UTC-7/-8.
+      const d = raw instanceof Date ? raw : new Date(raw);
+      if (isNaN(d)) continue;
+      const dateStr = d.toISOString().slice(0, 10);
+
+      const store = locToStore(String(row[locCol]));
+      if (!store) continue;
+      const cost = Number(row[costCol]) || 0;
+
+      if (!daily[dateStr]) daily[dateStr] = {};
+      daily[dateStr][store] = (daily[dateStr][store] || 0) + cost;
+    }
+
+    const content = JSON.stringify({ daily });
+    cacheSet_('costs', content, 1800); // 30 min
+    output.setContent(content);
+  } catch(e) {
+    output.setContent(JSON.stringify({ error: e.message }));
+  }
+  return output;
+}
+
+// Returns monthly expense budgets from the Annual Budget sheet
+// Response: { budgets: { "COGS": { Jan: 311749, Feb: 282160, ... }, ... } }
+function getExpenseBudgets() {
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+  const cached = cacheGet_('expbudgets');
+  if (cached) { output.setContent(cached); return output; }
+  try {
+    const ss    = SpreadsheetApp.openById(BUDGET_SHEET_ID);
+    const sheet = ss.getSheets().find(s => s.getSheetId() === BUDGET_SHEET_GID);
+    if (!sheet) throw new Error('Budget sheet not found');
+
+    const data = sheet.getDataRange().getValues();
+    const MONTHS_12 = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    // Find the "EXPENSES BUDGET" section header
+    let expStart = -1;
+    for (let i = 0; i < data.length; i++) {
+      if (String(data[i][1]).trim() === 'EXPENSES BUDGET') { expStart = i; break; }
+    }
+    if (expStart < 0) throw new Error('EXPENSES BUDGET section not found');
+
+    const budgets = {};
+    for (let i = expStart + 1; i < data.length; i++) {
+      const cat = String(data[i][3]).trim();
+      if (!cat || cat === 'Total') continue;
+      // Stop if we hit another section header
+      if (data[i][1]) break;
+      budgets[cat] = {};
+      MONTHS_12.forEach((m, j) => {
+        budgets[cat][m] = Number(data[i][4 + j]) || 0;
+      });
+    }
+
+    const content = JSON.stringify({ budgets });
+    cacheSet_('expbudgets', content, 3600); // 1 hour
+    output.setContent(content);
+  } catch(e) {
+    output.setContent(JSON.stringify({ error: e.message }));
+  }
+  return output;
+}
+
+// Test transactions with fromDate/toDate params instead of lastModifiedDate
+function getTxDetail(params) {
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+  const store  = params.store || 'River';
+  const apiKey = STORE_KEYS[store];
+  const auth   = Utilities.base64Encode(apiKey + ':');
+  const hdrs   = { Authorization: 'Basic ' + auth, Accept: 'application/json' };
+  const today  = new Date();
+  const yd     = new Date(today - 86400000).toISOString().slice(0, 10);
+  // Try fromDate/toDate instead of lastModified
+  const resp = UrlFetchApp.fetch(
+    BASE + '/reporting/transactions?fromDate=' + yd + '&toDate=' + yd + '&includeItems=true',
+    { method: 'get', headers: hdrs, muteHttpExceptions: true }
+  );
+  const code  = resp.getResponseCode();
+  const raw   = JSON.parse(resp.getContentText());
+  const rows  = Array.isArray(raw) ? raw : (raw.data || raw.items || []);
+  const retail = rows.filter(r => !r.isVoid && (r.transactionType||'').toLowerCase() === 'retail');
+  const first  = retail.find(r => (r.items||r.lineItems||r.orderItems||[]).length > 0) || retail[0];
+  const fi     = first ? (first.items || first.lineItems || first.orderItems || []) : [];
+  output.setContent(JSON.stringify({
+    status: code,
+    total: rows.length,
+    withItems: retail.filter(r => (r.items||r.lineItems||r.orderItems||[]).length > 0).length,
+    firstItemLen: fi.length,
+    firstItem: fi[0] || null,
+  }));
+  return output;
+}
+
+// Probes candidate inventory endpoints to find which one the Dutchie API supports.
+function probeInventoryEndpoints(params) {
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+  const store  = params.store || 'River';
+  const apiKey = STORE_KEYS[store];
+  const auth   = Utilities.base64Encode(apiKey + ':');
+  const hdrs   = { Authorization: 'Basic ' + auth, Accept: 'application/json' };
+  const paths  = [
+    '/inventory/product',
+    '/inventory',
+    '/product',
+    '/products',
+    '/inventory/active',
+    '/api/inventory/product',
+    '/v1/inventory/product',
+    '/reporting/product-performance',
+    '/reporting/inventory',
+    '/inventory/transfer',
+  ];
+  const results = {};
+  for (const path of paths) {
+    try {
+      const resp = UrlFetchApp.fetch(BASE + path, { method: 'get', headers: hdrs, muteHttpExceptions: true });
+      const code = resp.getResponseCode();
+      const body = resp.getContentText();
+      results[path] = { status: code, preview: body.slice(0, 300) };
+    } catch(e) {
+      results[path] = { status: 'error', preview: e.message };
+    }
+  }
+  output.setContent(JSON.stringify(results, null, 2));
+  return output;
+}
+
+// Tests item-level access — fetches one transaction and tries its detail endpoint
+function getItemsTest(params) {
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+  const store  = params.store || 'River';
+  const apiKey = STORE_KEYS[store];
+  const auth   = Utilities.base64Encode(apiKey + ':');
+  const hdrs   = { Authorization: 'Basic ' + auth, Accept: 'application/json' };
+  const today  = new Date();
+  const from   = new Date(today - 2 * 86400000).toISOString().replace('.000', '');
+  const to     = today.toISOString().replace('.000', '');
+
+  // Fetch with includeLineItems param variant
+  const resp1 = UrlFetchApp.fetch(
+    BASE + '/reporting/transactions?fromLastModifiedDateUTC=' + encodeURIComponent(from)
+      + '&toLastModifiedDateUTC=' + encodeURIComponent(to) + '&includeLineItems=true',
+    { method: 'get', headers: hdrs, muteHttpExceptions: true }
+  );
+  const raw1  = JSON.parse(resp1.getContentText());
+  const rows1 = Array.isArray(raw1) ? raw1 : (raw1.data || raw1.items || []);
+  const retail1 = rows1.filter(r => !r.isVoid && (r.transactionType||'').toLowerCase() === 'retail');
+  const withItems1 = retail1.filter(r => (r.items||r.lineItems||r.orderItems||[]).length > 0);
+
+  output.setContent(JSON.stringify({
+    includeLineItems_variant: { retail: retail1.length, withItems: withItems1.length },
+    firstTxId: retail1[0]?.transactionId || null,
+  }));
+  return output;
+}
+
+// Returns keys + first 3 items from /reporting/inventory for field discovery
+function getInvFields(params) {
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+  const store  = params.store || 'River';
+  const apiKey = STORE_KEYS[store];
+  const auth   = Utilities.base64Encode(apiKey + ':');
+  const resp   = UrlFetchApp.fetch(BASE + '/reporting/inventory', {
+    method: 'get',
+    headers: { Authorization: 'Basic ' + auth, Accept: 'application/json' },
+    muteHttpExceptions: true,
+  });
+  const raw   = JSON.parse(resp.getContentText());
+  const items = Array.isArray(raw) ? raw : (raw.data || raw.items || []);
+  const sample = items.slice(0, 3);
+  output.setContent(JSON.stringify({
+    totalItems: items.length,
+    keys: sample[0] ? Object.keys(sample[0]) : [],
+    samples: sample,
+  }));
+  return output;
+}
+
+// Returns current inventory with stock levels and value per store.
+// Response: { store, products: [{ name, category, vendor, qty, value, sku }] }
+// qty=0 means OOS (recently active package with no remaining stock)
+function getInventory(params) {
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+
+  const store = params.store;
+  if (!store || !STORE_KEYS[store]) {
+    output.setContent(JSON.stringify({ error: 'Unknown store: ' + store }));
+    return output;
+  }
+
+  const cacheKey = 'inv_' + store;
+  const cached = cacheGet_(cacheKey);
+  if (cached) { output.setContent(cached); return output; }
+
+  try {
+    const apiKey = STORE_KEYS[store];
+    const auth   = Utilities.base64Encode(apiKey + ':');
+    const hdrs   = { Authorization: 'Basic ' + auth, Accept: 'application/json' };
+
+    const invResp = UrlFetchApp.fetch(BASE + '/reporting/inventory', {
+      method: 'get', headers: hdrs, muteHttpExceptions: true,
+    });
+    const invCode = invResp.getResponseCode();
+    if (invCode !== 200) {
+      output.setContent(JSON.stringify({
+        error: 'Inventory endpoint returned HTTP ' + invCode
+          + '. Body: ' + invResp.getContentText().slice(0, 300),
+        store,
+      }));
+      return output;
+    }
+    const invRaw   = JSON.parse(invResp.getContentText());
+    const invItems = Array.isArray(invRaw) ? invRaw : (invRaw.data || invRaw.items || []);
+
+    // Aggregate all packages by productName (including qty=0 for OOS detection).
+    // Keep OOS entries modified within 1 year so recently-sold-out products count.
+    // Only drop truly ancient zero-qty entries (ghost products never re-ordered).
+    const cutoff = new Date(Date.now() - 365 * 86400000).toISOString();
+    const productMap = {};
+    for (const item of invItems) {
+      const lastMod = item.lastModifiedDateUtc || '';
+      const qty     = Number(item.quantityAvailable || 0);
+      if (qty <= 0 && lastMod < cutoff) continue;
+      const name = item.productName || 'Unknown';
+      if (!productMap[name]) {
+        productMap[name] = {
+          name,
+          category: item.masterCategory || item.category || 'Other',
+          vendor:   item.brandName || item.vendor || '',
+          qty:      0,
+          value:    0,
+          sku:      item.sku || '',
+          lastMod:  lastMod,
+        };
+      }
+      productMap[name].qty   += qty;
+      productMap[name].value += qty * Number(item.unitCost || 0);
+      if (lastMod > productMap[name].lastMod) productMap[name].lastMod = lastMod;
+    }
+
+    const result = Object.values(productMap).map(p => ({
+      name:     p.name,
+      category: p.category,
+      vendor:   p.vendor,
+      qty:      Math.round(p.qty   * 10)  / 10,
+      value:    Math.round(p.value * 100) / 100,
+      sku:      p.sku,
+    }));
+
+    const content = JSON.stringify({ store, products: result });
+    cacheSet_(cacheKey, content, 300); // 5 min
+    output.setContent(content);
+  } catch (err) {
+    output.setContent(JSON.stringify({ error: err.message, store }));
+  }
+  return output;
+}
+
+const ATM_SHEET_GID    = 1349619595;
+const SUBLET_SHEET_GID = 1274502465;
+
+function getOtherRevenue() {
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+  const cached = cacheGet_('otherrev');
+  if (cached) { output.setContent(cached); return output; }
+  try {
+    const ss = SpreadsheetApp.openById(BUDGET_SHEET_ID);
+    const MONTHS_12 = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    // ── ATM ──────────────────────────────────────────────────────────────────
+    const atmSheet = ss.getSheets().find(s => s.getSheetId() === ATM_SHEET_GID);
+    if (!atmSheet) throw new Error('ATM sheet not found');
+    const atmData = atmSheet.getDataRange().getValues();
+
+    // The multiplier row has a decimal (1.75) in col A; its cols B-M are the revenue
+    let atmRevRow = null;
+    for (let i = 0; i < atmData.length; i++) {
+      const v = atmData[i][0];
+      if (typeof v === 'number' && v > 1 && v < 3) { atmRevRow = atmData[i]; break; }
+    }
+    const atm = {};
+    MONTHS_12.forEach((m, j) => {
+      atm[m] = atmRevRow ? (Number(atmRevRow[j + 1]) || 0) : 0;
+    });
+
+    // ── Sublet ────────────────────────────────────────────────────────────────
+    const subSheet = ss.getSheets().find(s => s.getSheetId() === SUBLET_SHEET_GID);
+    if (!subSheet) throw new Error('Sublet sheet not found');
+    const subData = subSheet.getDataRange().getValues();
+
+    let subTotalRow = null;
+    for (let i = 0; i < subData.length; i++) {
+      if (String(subData[i][0]).trim().toUpperCase() === 'TOTAL') { subTotalRow = subData[i]; break; }
+    }
+    const sublet = {};
+    MONTHS_12.forEach((m, j) => {
+      sublet[m] = subTotalRow ? (Number(subTotalRow[j + 1]) || 0) : 0;
+    });
+
+    const content = JSON.stringify({ atm, sublet });
+    cacheSet_('otherrev', content, 3600); // 1 hour
+    output.setContent(content);
+  } catch(e) {
+    output.setContent(JSON.stringify({ error: e.message }));
+  }
+  return output;
+}
