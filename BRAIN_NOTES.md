@@ -11,37 +11,13 @@ Backend GAS: `dutchie_proxy.gs` (Dutchie + QuickBooks proxy; no dedicated GAS we
 | GXCore library pin        | ❌ Not started | No shared library referenced |
 | Shared login / roles      | ❌ Not started | No auth layer — open URL = access |
 | `gxIngestBug` forwarding  | ❌ Not started | No bug surface in app yet → build-then-wire |
-| Changelog from GX Core `version_history` | ❌ Not started | UI **exists** but is hardcoded `vhist-row`s in `index.html` — repoint at GX Core (already holds v1–v39) |
+| Changelog from GX Core `version_history` | ✅ **Live** | JSONP fetch replaces hardcoded rows; verified 2026-08-09 |
 | `deploy_version` auto-record | ✅ **Live** | `deploy.sh` wired; v39 verified in GX Core 2026-08-09 |
 | GX2 reads                 | ✅ None        | App reads only Dutchie + QuickBooks via proxy; never touches GX2 |
 
 ## Pending
 
-### 1. Changelog → read from GX Core (repoint the hardcoded Version History)
-Single-source Sales' Version History from GX Core's release log — same pattern Inventory + Leaderboard used.
-GX Core already serves Sales' history (`v1`–`v39`).
-
-**Version-format fix FIRST (else the list shows a duplicate).** Auto-record wrote a bare **`39`**, but every
-historical entry is **`vNN`** (`v39`, `v38`, …) — so GX Core currently holds *both* `39` and `v39`.
-- Standardize on the **`vNN`** format: make `APP_VERSION` the single source (e.g. `APP_VERSION = 'v39'`) and
-  have the `<title>` read from it (today the title still says "v38" while `APP_VERSION` was `'39'` —
-  reconcile to ONE value that reflects what actually shipped).
-- `deploy.sh` then records that `vNN` string, which upserts onto the matching historical entry (no dup).
-- The stray bare **`39`** row is being removed from GX Core brain-side (Sky / `delete_version`) — just don't
-  record bare numbers again.
-
-**The repoint:**
-1. Remove the static `vhist-row` block from `index.html`.
-2. On load, JSONP-fetch `…/exec?action=version_history&app=sales&callback=cb` (public, read-only).
-3. Render each entry into a row: `version → .vhist-tag`, `deployed_at → .vhist-date` (format "Mon YYYY" in
-   **America/Los_Angeles** — suite convention), `notes → .vhist-desc`. The route returns newest-first already.
-4. Empty-`notes` entries still render (tag + date, no desc); keep it tidy.
-5. Graceful fallback: fetch fails/empty → one "version history momentarily unavailable" row, never break the
-   page. `APP_VERSION` stays the on-screen version badge.
-6. Verify the rendered list matches the cockpit, then move this to **## Archive** (date + commit) and give a
-   sync report.
-
-### 2. Bug reports → GX Core (build-then-wire — last)
+### 1. Bug reports → GX Core (build-then-wire — last)
 No bug surface today, so: add a minimal "report a problem" control, then forward via
 `gxIngestBug('sales', reporter, payload)` (bound library) or the public `report_bug` route. Payload keys map
 like the other apps (`priority/desc/appVer/appStore/appTab`). Lowest priority of the three.
@@ -62,4 +38,5 @@ like the other apps (`priority/desc/appVer/appStore/appTab`). Lowest priority of
 
 <!-- Completed pending items land here: - [x] Task — done YYYY-MM-DD commit XXXXXXX -->
 
-- [x] #1 Auto-record deploys — `APP_VERSION = '39'` in `index.html`; `deploy.sh` wired; v39 verified in GX Core (`deployed_by:"app"`) — done 2026-08-09 commits 849920c / 1a78cdc
+- [x] #1 Auto-record deploys — `APP_VERSION = 'v39'` in `index.html`; `deploy.sh` wired; v39 verified in GX Core (`deployed_by:"app"`) — done 2026-08-09 commits 849920c / 1a78cdc
+- [x] #2 Changelog → GX Core — JSONP fetch replaces 39 hardcoded rows; lazy-loads on first open; graceful fallback; verified in browser — done 2026-08-09 commit 5219271
