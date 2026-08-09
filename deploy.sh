@@ -24,7 +24,7 @@ fi
 GX_NOTES="${GX_NOTES:-}"
 SHA=$(git rev-parse --short HEAD)
 
-echo "==> Deploying Sales v${VERSION} (${SHA})"
+echo "==> Deploying Sales ${VERSION} (${SHA})"
 
 # 1. Push backend to GAS (clasp push — does NOT cut a new version; only deploy does that)
 echo "==> Pushing backend via clasp..."
@@ -48,7 +48,7 @@ echo "GX Core response: $RESPONSE"
 
 # Verify the response contains a success indicator
 if echo "$RESPONSE" | grep -qi '"ok":\s*true\|"status":\s*"ok"\|success'; then
-  echo "==> Deploy recorded. v${VERSION} is live."
+  echo "==> Deploy recorded. ${VERSION} is live."
 else
   echo "WARNING: GX Core response did not confirm success — check manually:" >&2
   echo "$RESPONSE" >&2
