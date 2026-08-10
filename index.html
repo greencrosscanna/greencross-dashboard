@@ -109,6 +109,12 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .bar-fill{height:4px;border-radius:3px}
 .sval{font-size:12px;font-weight:500;color:var(--text);text-align:right;min-width:52px}
 .sdiff{font-size:10px;text-align:right;min-width:44px}
+.sparkline-cell{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.sparkline-cell .spark-delta{font-size:10px;color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap}
+.sparkline-cell .spark-delta.up{color:var(--green)}
+.sparkline-cell .spark-delta.down{color:var(--red)}
+.sparkline-cell polyline{stroke-dasharray:1;stroke-dashoffset:1;animation:spark-draw 0.5s ease-out forwards}
+@keyframes spark-draw{to{stroke-dashoffset:0}}
 .top-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--border)}
 .top-row:last-child{border-bottom:none;padding-bottom:0}
 .top-rank{font-size:11px;color:var(--muted);width:14px;flex-shrink:0;text-align:center}
@@ -945,7 +951,7 @@ async function backfillDailyHistory(proxyUrl) {
     } catch {}
   }));
 
-  if (activeDay || activeWeek) render();
+  render(); // refresh sparklines and DOW chart with full-year backfill data
 }
 
 async function loadGoals() {
@@ -1467,6 +1473,37 @@ function _incomeKpiHtml(net, gross, orders, disc, cost, aov,
     </div>`;
 }
 
+function storeSparklineHtml(storeName) {
+  const today = new Date();
+  function dayNet(daysAgo) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - daysAgo);
+    const ds = iso(d);
+    return getDailyNet(liveDateMaps[storeName]?.[ds]) || getDailyNet(allDailyData[storeName]?.[ds]) || 0;
+  }
+  const recent = Array.from({length: 30}, (_, i) => dayNet(29 - i));
+  const prior  = Array.from({length: 30}, (_, i) => dayNet(59 - i));
+  const sumR = recent.reduce((a, b) => a + b, 0);
+  const sumP = prior.reduce((a, b) => a + b, 0);
+  if (sumR === 0) return '';
+  const max = Math.max(...recent);
+  if (max <= 0) return '';
+  const trendPct = sumP > 0 ? (sumR - sumP) / sumP : null;
+  const w = 60, h = 20;
+  const pts = recent.map((v, i) => {
+    const x = Math.round((i / 29) * w);
+    const y = Math.round(h - 1 - (v / max) * (h - 2));
+    return x + ',' + y;
+  }).join(' ');
+  const up     = trendPct == null || trendPct >= 0;
+  const stroke = up ? 'var(--green)' : 'var(--red)';
+  const cls    = up ? 'up' : 'down';
+  const label  = trendPct != null
+    ? (trendPct >= 0 ? '+' : '−') + Math.round(Math.abs(trendPct * 100)) + '%'
+    : '';
+  return `<span class="sparkline-cell"><svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline pathLength="1" fill="none" stroke="${stroke}" stroke-width="1.5" points="${pts}"/></svg>${label ? `<span class="spark-delta ${cls}">${label}</span>` : ''}</span>`;
+}
+
 function _incomeStoreBreakdownHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo) {
   return `<div class="sec-lbl">Store breakdown</div>
     <div class="card">
@@ -1496,6 +1533,7 @@ function _incomeStoreBreakdownHtml(stores, storeNets, isClosed, pacingPct, yr, d
             </div>` : ''}
           </div>
           <div class="sval">${fmtK(snet)}</div>
+          ${storeSparklineHtml(s)}
           ${sPeriodGoal>0 ? `<div style="text-align:right;min-width:44px">
             <div style="font-size:10px;color:#888">${sGoalPct}%</div>
             <div class="sdiff ${diff>=0?'good':'bad'}">${diff>=0?'+':''}${fmtK(diff)}</div>
