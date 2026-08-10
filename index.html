@@ -632,7 +632,7 @@ const THRESHOLDS = Object.freeze({
   GOAL_BAR_FILL_RATIO:   0.8,   // bar fills to 80 % of container width
   DOW_MIN_SAMPLES:       4,     // minimum days per DOW for weighted average
   CRITICAL_DOH_DAYS:     3,     // inventory days-on-hand red threshold
-  BACKFILL_MONTH_COUNT:  4,     // how many prior months to back-fill for DOW weights
+  BACKFILL_MONTH_COUNT:  12,    // full year — DOW chart needs all occurrences of each weekday
 });
 
 // Single read-point for the proxy URL — avoids 7+ places querying the DOM directly.
@@ -910,9 +910,9 @@ async function backfillDailyHistory(proxyUrl) {
   const curYear = new Date().getFullYear();
   const curMo   = new Date().getMonth() + 1;
   const maxMo   = activeYear < curYear ? 12 : curMo - 1; // stop before current month
-  // Only backfill the most recent N months — older data adds little to DOW weights
-  // and quickly exhausts localStorage quota.
-  const minMo = Math.max(1, maxMo - THRESHOLDS.BACKFILL_MONTH_COUNT + 1);
+  // Backfill all months in the active year so the DOW chart shows the full year.
+  // Data lives in allDailyData (in-memory only), never written to localStorage.
+  const minMo = 1;
 
   // Build the full list of (store, month) pairs that are missing data, then
   // fetch them all in parallel rather than month-by-month sequentially.
