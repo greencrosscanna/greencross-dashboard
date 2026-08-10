@@ -112,9 +112,13 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .sbar-wrap{position:relative;height:4px;margin-top:5px}
 .sbar-track{position:absolute;inset:0;background:var(--border);border-radius:2px}
 .sbar-fill{position:absolute;top:0;bottom:0;left:0;width:0%;border-radius:2px;transition:width 1s ease-out}
-.sbar-fill.green{background:linear-gradient(to right,rgba(74,222,128,.18) 0%,var(--green) 100%)}
+.sbar-fill.green{background:linear-gradient(to right,rgba(74,222,128,.18) 0%,#4ade80 100%)}
 .sbar-fill.amber{background:linear-gradient(to right,rgba(234,179,8,.18) 0%,var(--amber) 100%)}
+.sbar-fill.over{overflow:visible}
+.sbar-fill.over::after{content:'';position:absolute;top:0;bottom:0;left:var(--mark-in-fill,100%);right:0;background:#4ade80;border-radius:0 2px 2px 0;animation:sbarGlowPulse 2s ease-in-out infinite}
+@keyframes sbarGlowPulse{0%,100%{box-shadow:0 0 4px #86efac,0 0 8px rgba(134,239,172,.5)}50%{box-shadow:0 0 7px #4ade80,0 0 14px rgba(134,239,172,.7)}}
 .sbar-mark{position:absolute;top:-2px;bottom:-2px;width:1.5px;background:rgba(255,255,255,.22);border-radius:1px;pointer-events:none}
+.sbar-fill.over~.sbar-mark{background:#4ade80;opacity:.7;box-shadow:0 0 4px #86efac}
 .sparkline-cell{display:flex;align-items:center;gap:4px;flex-shrink:0}
 .sparkline-cell .spark-delta{font-size:10px;color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap}
 .sparkline-cell .spark-delta.up{color:var(--green)}
@@ -1479,12 +1483,17 @@ function _incomeKpiHtml(net, gross, orders, disc, cost, aov,
     </div>`;
 }
 
-function animateStorePacingBars() {
+let _storeBarsAnimated = false;
+function animateStorePacingBars(animate) {
   document.querySelectorAll('#income-store-breakdown .sbar-fill[data-final]').forEach(function(el, i) {
-    el.style.width = '0%';
-    setTimeout(function() {
-      if (el.isConnected) el.style.width = el.getAttribute('data-final');
-    }, i * 120);
+    if (animate) {
+      el.style.transition = '';
+      el.style.width = '0%';
+      setTimeout(function() { if (el.isConnected) el.style.width = el.getAttribute('data-final'); }, i * 120);
+    } else {
+      el.style.transition = 'none';
+      el.style.width = el.getAttribute('data-final');
+    }
   });
 }
 
@@ -1535,16 +1544,19 @@ function _incomeStoreBreakdownHtml(stores, storeNets, isClosed, pacingPct, yr, d
         const sCompareGoal = isClosed ? sPeriodGoal : Math.round(sPeriodGoal * pacingPct / 100);
         const diff         = snet - sCompareGoal;
         const sGoalPct     = sPeriodGoal > 0 ? Math.round(snet / sPeriodGoal * 100) : 0;
-        const sPaceCls     = sGoalPct >= pacingPct ? 'green' : 'amber';
+        const sOnPace      = sGoalPct >= pacingPct;
         const sBarW        = Math.min(sGoalPct * THRESHOLDS.GOAL_BAR_FILL_RATIO, 100);
         const sPacePos     = pacingPct * THRESHOLDS.GOAL_BAR_FILL_RATIO;
+        const markInFill   = sOnPace && sBarW > 0 ? (sPacePos / sBarW * 100).toFixed(1) : 100;
+        const sFillCls     = sOnPace ? 'green over' : 'amber';
+        const sFillStyle   = sOnPace ? `--mark-in-fill:${markInFill}%` : '';
         return `<div class="srow">
           <div class="swatch" style="background:${col}"></div>
           <div class="sname" style="flex:1">
             ${st?.display||s}
             ${sPeriodGoal>0 ? `<div class="sbar-wrap">
               <div class="sbar-track"></div>
-              <div class="sbar-fill ${sPaceCls}" data-final="${sBarW}%"></div>
+              <div class="sbar-fill ${sFillCls}" data-final="${sBarW}%" style="${sFillStyle}"></div>
               <div class="sbar-mark" style="left:${sPacePos}%"></div>
             </div>` : ''}
           </div>
@@ -1699,7 +1711,7 @@ function renderIncome() {
       </div>
       <div id="income-top-products">${topHtml}</div>
       <div class="last-sync" id="income-last-sync">Updated ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</div>`;
-    requestAnimationFrame(() => { drawWeekChart(weekly); animateStorePacingBars(); });
+    requestAnimationFrame(() => { drawWeekChart(weekly); animateStorePacingBars(true); });
   } else {
     // ── Patch: update only changed nodes, preserve the chart canvas ─────────
     // Parse new KPI HTML into a fragment and swap each card's innerHTML individually.
@@ -1711,7 +1723,7 @@ function renderIncome() {
       if (fresh && live) live.innerHTML = fresh.innerHTML;
     });
     document.getElementById('income-store-breakdown').innerHTML = storeHtml;
-    animateStorePacingBars();
+    animateStorePacingBars(false);
     document.getElementById('income-other-rev').innerHTML       = otherHtml;
     document.getElementById('income-chart-label').textContent   = chartLabel;
     document.getElementById('income-top-products').innerHTML    = topHtml;
