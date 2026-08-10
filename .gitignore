@@ -6,7 +6,5 @@
 .claude/settings.local.json
 # clasp OAuth credentials — never commit
 .clasprc.json
-# Netlify local state
-.netlify
 # Local GX Core deploy secret — never commit (used by deploy auto-record)
 .gx_deploy_secret
