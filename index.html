@@ -109,6 +109,12 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .bar-fill{height:4px;border-radius:3px}
 .sval{font-size:12px;font-weight:500;color:var(--text);text-align:right;min-width:52px}
 .sdiff{font-size:10px;text-align:right;min-width:44px}
+.sbar-wrap{position:relative;height:4px;margin-top:5px}
+.sbar-track{position:absolute;inset:0;background:var(--border);border-radius:2px}
+.sbar-fill{position:absolute;top:0;bottom:0;left:0;width:0%;border-radius:2px;transition:width 1s ease-out}
+.sbar-fill.green{background:linear-gradient(to right,rgba(74,222,128,.18) 0%,var(--green) 100%)}
+.sbar-fill.amber{background:linear-gradient(to right,rgba(234,179,8,.18) 0%,var(--amber) 100%)}
+.sbar-mark{position:absolute;top:-2px;bottom:-2px;width:1.5px;background:rgba(255,255,255,.22);border-radius:1px;pointer-events:none}
 .sparkline-cell{display:flex;align-items:center;gap:4px;flex-shrink:0}
 .sparkline-cell .spark-delta{font-size:10px;color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap}
 .sparkline-cell .spark-delta.up{color:var(--green)}
@@ -1473,6 +1479,15 @@ function _incomeKpiHtml(net, gross, orders, disc, cost, aov,
     </div>`;
 }
 
+function animateStorePacingBars() {
+  document.querySelectorAll('#income-store-breakdown .sbar-fill[data-final]').forEach(function(el, i) {
+    el.style.width = '0%';
+    setTimeout(function() {
+      if (el.isConnected) el.style.width = el.getAttribute('data-final');
+    }, i * 120);
+  });
+}
+
 function storeSparklineHtml(storeName) {
   const today = new Date();
   function dayNet(daysAgo) {
@@ -1520,16 +1535,17 @@ function _incomeStoreBreakdownHtml(stores, storeNets, isClosed, pacingPct, yr, d
         const sCompareGoal = isClosed ? sPeriodGoal : Math.round(sPeriodGoal * pacingPct / 100);
         const diff         = snet - sCompareGoal;
         const sGoalPct     = sPeriodGoal > 0 ? Math.round(snet / sPeriodGoal * 100) : 0;
-        const sPaceColor   = sGoalPct >= pacingPct ? 'var(--green)' : 'var(--amber)';
+        const sPaceCls     = sGoalPct >= pacingPct ? 'green' : 'amber';
         const sBarW        = Math.min(sGoalPct * THRESHOLDS.GOAL_BAR_FILL_RATIO, 100);
         const sPacePos     = pacingPct * THRESHOLDS.GOAL_BAR_FILL_RATIO;
         return `<div class="srow">
           <div class="swatch" style="background:${col}"></div>
           <div class="sname" style="flex:1">
             ${st?.display||s}
-            ${sPeriodGoal>0 ? `<div style="position:relative;height:3px;background:var(--border-strong);border-radius:2px;margin-top:4px">
-              <div style="width:${sBarW}%;height:100%;background:${sPaceColor};border-radius:2px"></div>
-              <div style="position:absolute;top:-2px;left:${sPacePos}%;width:1.5px;height:7px;background:rgba(255,255,255,0.2);transform:translateX(-50%)"></div>
+            ${sPeriodGoal>0 ? `<div class="sbar-wrap">
+              <div class="sbar-track"></div>
+              <div class="sbar-fill ${sPaceCls}" data-final="${sBarW}%"></div>
+              <div class="sbar-mark" style="left:${sPacePos}%"></div>
             </div>` : ''}
           </div>
           <div class="sval">${fmtK(snet)}</div>
@@ -1683,7 +1699,7 @@ function renderIncome() {
       </div>
       <div id="income-top-products">${topHtml}</div>
       <div class="last-sync" id="income-last-sync">Updated ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</div>`;
-    requestAnimationFrame(() => drawWeekChart(weekly));
+    requestAnimationFrame(() => { drawWeekChart(weekly); animateStorePacingBars(); });
   } else {
     // ── Patch: update only changed nodes, preserve the chart canvas ─────────
     // Parse new KPI HTML into a fragment and swap each card's innerHTML individually.
@@ -1695,6 +1711,7 @@ function renderIncome() {
       if (fresh && live) live.innerHTML = fresh.innerHTML;
     });
     document.getElementById('income-store-breakdown').innerHTML = storeHtml;
+    animateStorePacingBars();
     document.getElementById('income-other-rev').innerHTML       = otherHtml;
     document.getElementById('income-chart-label').textContent   = chartLabel;
     document.getElementById('income-top-products').innerHTML    = topHtml;
