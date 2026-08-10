@@ -1520,22 +1520,22 @@ function _incomeStoreBreakdownHtml(stores, storeNets, isClosed, pacingPct, yr, d
         const sCompareGoal = isClosed ? sPeriodGoal : Math.round(sPeriodGoal * pacingPct / 100);
         const diff         = snet - sCompareGoal;
         const sGoalPct     = sPeriodGoal > 0 ? Math.round(snet / sPeriodGoal * 100) : 0;
-        const sPaceColor   = sGoalPct >= pacingPct ? '#1D9E75' : '#EF9F27';
+        const sPaceColor   = sGoalPct >= pacingPct ? 'var(--green)' : 'var(--amber)';
         const sBarW        = Math.min(sGoalPct * THRESHOLDS.GOAL_BAR_FILL_RATIO, 100);
         const sPacePos     = pacingPct * THRESHOLDS.GOAL_BAR_FILL_RATIO;
         return `<div class="srow">
           <div class="swatch" style="background:${col}"></div>
           <div class="sname" style="flex:1">
             ${st?.display||s}
-            ${sPeriodGoal>0 ? `<div style="position:relative;height:3px;background:linear-gradient(to right,#333 80%,#3a3a3a 80%);border-radius:2px;margin-top:4px">
+            ${sPeriodGoal>0 ? `<div style="position:relative;height:3px;background:var(--border-strong);border-radius:2px;margin-top:4px">
               <div style="width:${sBarW}%;height:100%;background:${sPaceColor};border-radius:2px"></div>
-              <div style="position:absolute;top:-2px;left:${sPacePos}%;width:1.5px;height:7px;background:rgba(255,255,255,0.3);transform:translateX(-50%)"></div>
+              <div style="position:absolute;top:-2px;left:${sPacePos}%;width:1.5px;height:7px;background:rgba(255,255,255,0.2);transform:translateX(-50%)"></div>
             </div>` : ''}
           </div>
           <div class="sval">${fmtK(snet)}</div>
           ${storeSparklineHtml(s)}
           ${sPeriodGoal>0 ? `<div style="text-align:right;min-width:44px">
-            <div style="font-size:10px;color:#888">${sGoalPct}%</div>
+            <div style="font-size:10px;color:var(--muted)">${sGoalPct}%</div>
             <div class="sdiff ${diff>=0?'good':'bad'}">${diff>=0?'+':''}${fmtK(diff)}</div>
           </div>` : ''}
         </div>`;
