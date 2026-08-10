@@ -452,6 +452,9 @@ let velocityData = null; // { stores: { velStoreName: { productName: { vel7, vel
 // Fast O(1) lookup by store name — replaces repeated inline STORES.find() calls.
 const STORE_MAP = new Map(STORES.map(s => [s.name, s]));
 
+// GX Core dutchie_name → Sales internal key (only where they differ)
+const GX_DUTCHIE_TO_SALES = { 'River Rd': 'River' };
+
 // Velocity store name → dashboard store name mapping (only exceptions needed)
 const VEL_STORE_MAP = { 'River Rd': 'River' };
 // Invert: dashboard name → velocity name
@@ -959,6 +962,28 @@ async function loadGoals() {
   }
 }
 
+async function fetchStoresMeta() {
+  const proxyUrl = getProxyUrl();
+  const token    = getToken();
+  if (!proxyUrl || !token) return;
+  try {
+    const url  = `${proxyUrl}?action=stores&token=${encodeURIComponent(token)}`;
+    const res  = await fetch(url);
+    const data = await res.json();
+    if (!data.stores) return;
+    data.stores.forEach(gxStore => {
+      const key   = GX_DUTCHIE_TO_SALES[gxStore.dutchie_name] || gxStore.dutchie_name;
+      const local = STORE_MAP.get(key);
+      if (!local) return;
+      if (gxStore.color)        local.color   = gxStore.color;
+      if (gxStore.display_name) local.display = gxStore.display_name;
+    });
+    buildStoreTabs();
+  } catch(e) {
+    console.warn('fetchStoresMeta failed:', e.message);
+  }
+}
+
 let _loadAllStoresInFlight = false;
 async function loadAllStores() {
   if (_loadAllStoresInFlight) return;          // prevent double-tap race
@@ -972,6 +997,8 @@ async function loadAllStores() {
   document.getElementById('setup-err').style.display = 'none';
   document.getElementById('load-btn').disabled = true;
   document.getElementById('load-btn').innerHTML = '<span class="spinner-inline"></span>Loading…';
+
+  await fetchStoresMeta();
 
   // Proactively free space before any writes.
   // Remove large items that should no longer be in localStorage (legacy cleanup).
@@ -1268,7 +1295,7 @@ function buildTimeNav() {
 function buildStoreTabs() {
   document.getElementById('store-tabs').innerHTML = ['All',...STORES.map(s=>s.name)].map(name => {
     const s   = STORE_MAP.get(name);
-    const col = s ? s.color : '#1D9E75';
+    const col = s ? s.color : 'var(--green)';
     const on  = name === activeStore;
     const lbl = s ? (s.display||s.name) : 'All';
     return `<button class="store-btn${on?' on':''}" data-s="${name}"

@@ -182,6 +182,7 @@ function doGet(e) {
   const auth = requireAuth_(params);
   if (!auth.ok) return jsonOut_({ ok: false, error: auth.error, code: 401 });
 
+  if (params.action === 'stores')      return getStoresMeta_();
   if (params.action === 'goals')       return getGoals();
   if (params.action === 'expenses')    return getExpenses(params);
   if (params.action === 'qbaccounts')  return getQBAccountNames();
@@ -333,6 +334,22 @@ function getISOWeek(date) {
   d.setUTCDate(d.getUTCDate() + 4 - day);
   var yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
+
+function getStoresMeta_() {
+  try {
+    const rows = GXCore.getStores().map(function(s) {
+      return {
+        dutchie_name: s.dutchie_name,
+        display_name: s.display_name,
+        color:        s.color || '',
+        sort_order:   Number(s.sort_order) || 0,
+      };
+    });
+    return jsonOut_({ stores: rows });
+  } catch(e) {
+    return jsonOut_({ error: e.message });
+  }
 }
 
 function getGoals() {
