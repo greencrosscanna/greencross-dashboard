@@ -57,6 +57,92 @@ function cacheSet_(key, value, ttl) {
   } catch(e) { /* cache write failure is non-fatal */ }
 }
 
+// ── JSON response helper ──────────────────────────────────────────────────────
+function jsonOut_(data) {
+  return ContentService.createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ── Session auth (mirrors Inventory Phase-1 pattern) ─────────────────────────
+// Tokens are signed with GC_SESSION_SECRET (shared across the suite) so a token
+// issued by GXCore.login() validates identically in requireAuth_() here.
+const GC_SESSION_SECRET_KEY = 'GC_SESSION_SECRET'; // MUST match GXCore + Inventory
+const GC_SESSION_TTL_MS     = 7 * 24 * 60 * 60 * 1000; // 7 days
+const GC_USERS_KEY          = 'gc_sales_users';    // local fallback user store
+
+function sessionSecret_() {
+  const props = PropertiesService.getScriptProperties();
+  let secret = props.getProperty(GC_SESSION_SECRET_KEY);
+  if (!secret) {
+    // Bootstrap: generate once. For shared-secret operation, Sky must copy the
+    // same value from GXCore / Inventory ScriptProperties here after first deploy.
+    secret = Utilities.getUuid() + ':' + Utilities.getUuid();
+    props.setProperty(GC_SESSION_SECRET_KEY, secret);
+  }
+  return secret;
+}
+
+function hashPass_(pass) {
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(pass));
+  return bytes.map(b => ('0' + (b & 0xFF).toString(16)).slice(-2)).join('');
+}
+
+function signSession_(payload) {
+  const sig = Utilities.computeHmacSha256Signature(payload, sessionSecret_());
+  return Utilities.base64EncodeWebSafe(sig);
+}
+
+function issueSessionToken_(user) {
+  const exp = Date.now() + GC_SESSION_TTL_MS;
+  const payload = [String(user).toLowerCase().trim(), exp].join(':');
+  return payload + ':' + signSession_(payload);
+}
+
+function validateSessionToken_(token) {
+  if (!token) return { ok: false, error: 'Auth required' };
+  const parts = String(token).split(':');
+  if (parts.length !== 3) return { ok: false, error: 'Invalid session' };
+  const [user, expStr, sig] = parts;
+  const exp = Number(expStr || 0);
+  if (!user || !exp || Date.now() > exp) return { ok: false, error: 'Session expired' };
+  const payload = user + ':' + exp;
+  if (sig !== signSession_(payload)) return { ok: false, error: 'Invalid session' };
+  return { ok: true, user };
+}
+
+function requireAuth_(params) {
+  return validateSessionToken_(params.token || params.session || params.auth || '');
+}
+
+// Phase-2 shared sign-on: validate through GXCore (which checks app access grant),
+// with a local fallback so a GXCore hiccup never locks anyone out.
+function loginUser(params) {
+  try {
+    if (typeof GXCore !== 'undefined' && GXCore && GXCore.login) {
+      const r = GXCore.login(params.user, params.pass, 'sales');
+      if (r && r.ok) return r;
+      const local = _loginUserLocal_(params);
+      if (local && local.ok) return local;
+      return r;
+    }
+  } catch(e) {
+    Logger.log('[Sales login/GXCore] ' + e.message);
+  }
+  return _loginUserLocal_(params);
+}
+
+function _loginUserLocal_(params) {
+  if (!params.user || !params.pass) return { ok: false, error: 'Missing credentials' };
+  const props = PropertiesService.getScriptProperties();
+  const users = JSON.parse(props.getProperty(GC_USERS_KEY) || '{}');
+  const key   = String(params.user).toLowerCase().trim();
+  const hash  = hashPass_(String(params.pass));
+  if (users[key] && users[key] === hash) {
+    return { ok: true, user: key, token: issueSessionToken_(key), expiresAt: new Date(Date.now() + GC_SESSION_TTL_MS).toISOString() };
+  }
+  return { ok: false, error: 'Invalid username or password' };
+}
+
 function doGet(e) {
   const params = e.parameter;
 
@@ -67,6 +153,34 @@ function doGet(e) {
       .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, viewport-fit=cover')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
+
+  // ── Public actions (no token required) ──────────────────
+  if (params.action === 'login') return jsonOut_(loginUser(params));
+
+  // Temporary debug — protected by deploy secret
+  if (params.action === 'debuglogin') {
+    const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
+    if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
+    try {
+      const r = GXCore.login(params.user || '__probe__', params.pass || '__probe__', 'sales');
+      return jsonOut_({ gxcore: { ok: r.ok, user: r.user, role: r.role, error: r.error, hasToken: !!r.token } });
+    } catch(e) {
+      return jsonOut_({ gxcore: null, error: e.message });
+    }
+  }
+
+  // Heartbeat: renew a still-valid token to extend the session
+  if (params.action === 'ping') {
+    const pAuth = requireAuth_(params);
+    if (!pAuth.ok) return jsonOut_({ ok: false, error: pAuth.error });
+    const newExp = Date.now() + GC_SESSION_TTL_MS;
+    const payload = pAuth.user + ':' + newExp;
+    return jsonOut_({ ok: true, token: payload + ':' + signSession_(payload), expiresAt: new Date(newExp).toISOString() });
+  }
+
+  // ── Auth gate — all data actions require a valid session ─
+  const auth = requireAuth_(params);
+  if (!auth.ok) return jsonOut_({ ok: false, error: auth.error, code: 401 });
 
   if (params.action === 'goals')       return getGoals();
   if (params.action === 'expenses')    return getExpenses(params);
