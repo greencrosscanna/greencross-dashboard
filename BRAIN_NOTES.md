@@ -10,29 +10,48 @@ Backend GAS: `dutchie_proxy.gs` (Dutchie + QuickBooks proxy; no dedicated GAS we
 |---------------------------|---------------|-------|
 | GXCore library pin        | ✅ **Live** | bound (lib v19, userSymbol GXCore) as part of task #1 |
 | Shared login / roles      | ✅ **Live** | auth gate on all proxy actions; login screen in frontend; verified 2026-08-09 |
-| `gxIngestBug` forwarding  | ❌ Not started | No bug surface in app yet → build-then-wire |
+| `gxIngestBug` forwarding  | 🔜 **task #1** | add 🐞 button+modal → forward (Leaderboard pattern) |
 | Changelog from GX Core `version_history` | ✅ **Live** | JSONP fetch replaces hardcoded rows; verified 2026-08-09 |
 | `deploy_version` auto-record | ✅ **Live** | `deploy.sh` wired; v39 verified in GX Core 2026-08-09 |
+| gx-theme adoption         | 🔜 **task #2** | link shared `gx-theme.css`; swap hardcoded `:root` (Inventory is the reference) |
 | GX2 reads                 | ✅ None        | App reads only Dutchie + QuickBooks via proxy; never touches GX2 |
 
 ## Pending
 
-### 2. Bug reports → GX Core (build-then-wire — after login)
-No bug surface today, so: add a minimal "report a problem" control, then forward via
-`gxIngestBug('sales', reporter, payload)` (you'll have GXCore bound after #1) or the public `report_bug`
-route. Payload keys map like the other apps (`priority/desc/appVer/appStore/appTab`). Lowest priority.
+### 1. Bug reports → GX Core (last service seam)
+Add a bug-report surface and forward to the single GX Core bug log. **Replicate Leaderboard's pattern**
+(`greencross-leaderboard`): a floating **🐞 button** (`.bug-btn`, `id="bugBtn"`, `onclick="…bug.open()"`)
+that opens a small **modal** (`.bug-modal`) with severity + a description field; on submit, POST to a proxy
+action that forwards via **`GXCore.gxIngestBug('sales', reporter, payload)`** (the real fn — NOT
+`ingestBug`; it maps the app keys server-side).
+- **Reporter** = the logged-in session user (you have this now, post-login) — don't ask for a name.
+- **Payload** keys map like the other apps: `priority/desc/appVer/appStore/appTab` → severity/title/detail/
+  app_version/store/tab. Pass `appVer = APP_VERSION`; Sales is single-view, so `appTab` can be omitted.
+- Backend: add the forward in `dutchie_proxy.gs` **behind `requireAuth_`** (only logged-in users file bugs).
+- Verify: file a test bug → it lands in the Master Control cockpit bug panel as `app=sales`. Archive + sync report.
+
+### 2. Adopt gx-theme (shared design language)
+Swap Sales' hardcoded styling for the shared theme so the family stays visually consistent. **Reference:
+Inventory** (`greencross-inventory/index.html` — the first adopter).
+- Add to `index.html` `<head>`:
+  `<link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css">`
+- Replace Sales' hardcoded `:root` color/spacing tokens with the theme's `--gx-*` tokens; **delete the local
+  duplicates** so a token edit in gx-theme propagates here automatically.
+- Point the logo at `https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png`.
+- Reconcile buttons/inputs/cards to the `.gx-*` primitives (`.gx-btn`, `.gx-input`, `.gx-card`, `.gx-pill`)
+  where it's a clean swap — don't force it on Sales' bespoke charts/tables. **No store colors in the theme** —
+  those come from GX Core `?action=stores`, so leave any store-color logic as-is.
+- Verify the dashboard still reads correctly, then deploy + sync report.
 
 ## Notes back to the brain
 
 <!-- Things only the brain can act on (cross-app contracts, GX Core schema changes, etc.) -->
 
-- Sales app has **no auth layer** — anyone with the GitHub Pages URL can view all store data. When Command Center Phase 2 brings Sales onto GX Core shared login, this will need a login gate + role check. Flag for Phase 2 planning.
 - This app reads leaderboard goals from a separate GAS endpoint (`lbGoals`). That endpoint's URL is currently hardcoded in the proxy config. If the Leaderboard app moves its GAS, the proxy URL will need updating. Consider formalizing this as a GX Core config entry.
 
-> **Brain (2026-08-09):** both logged in the GX roadmap and kept open until acted on. Auth exposure →
-> tracked as the **Phase-2 shared-login + role-gate** item (real exposure now; deliberate decision, not an
-> accident). `lbGoals` hardcoded URL → tracked as a candidate **GX Core config entry** so a Leaderboard GAS
-> move can't silently break Sales. Neither blocks the seam work above.
+> **Brain (2026-08-09):** `lbGoals` hardcoded URL → tracked in the GX roadmap as a candidate **GX Core
+> config entry** so a Leaderboard GAS move can't silently break Sales. *(The earlier "no auth layer" note is
+> **RESOLVED** — shared login shipped 2026-08-09; brain verified the proxy now rejects un-tokened calls.)*
 
 ## Archive
 
