@@ -13,7 +13,7 @@ Backend GAS: `dutchie_proxy.gs` (Dutchie + QuickBooks proxy; no dedicated GAS we
 | `gxIngestBug` forwarding  | 🔜 **task #1** | add 🐞 button+modal → forward (Leaderboard pattern) |
 | Changelog from GX Core `version_history` | ✅ **Live** | JSONP fetch replaces hardcoded rows; verified 2026-08-09 |
 | `deploy_version` auto-record | ✅ **Live** | `deploy.sh` wired; v39 verified in GX Core 2026-08-09 |
-| gx-theme adoption         | 🔜 **task #2** | link shared `gx-theme.css`; swap hardcoded `:root` (Inventory is the reference) |
+| gx-theme adoption         | ✅ **Live** | `gx-theme.css` linked; `:root` aliases wired; logo → shared URL; verified 2026-08-09 |
 | GX2 reads                 | ✅ None        | App reads only Dutchie + QuickBooks via proxy; never touches GX2 |
 
 ## Pending
@@ -29,19 +29,6 @@ action that forwards via **`GXCore.gxIngestBug('sales', reporter, payload)`** (t
   app_version/store/tab. Pass `appVer = APP_VERSION`; Sales is single-view, so `appTab` can be omitted.
 - Backend: add the forward in `dutchie_proxy.gs` **behind `requireAuth_`** (only logged-in users file bugs).
 - Verify: file a test bug → it lands in the Master Control cockpit bug panel as `app=sales`. Archive + sync report.
-
-### 2. Adopt gx-theme (shared design language)
-Swap Sales' hardcoded styling for the shared theme so the family stays visually consistent. **Reference:
-Inventory** (`greencross-inventory/index.html` — the first adopter).
-- Add to `index.html` `<head>`:
-  `<link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css">`
-- Replace Sales' hardcoded `:root` color/spacing tokens with the theme's `--gx-*` tokens; **delete the local
-  duplicates** so a token edit in gx-theme propagates here automatically.
-- Point the logo at `https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png`.
-- Reconcile buttons/inputs/cards to the `.gx-*` primitives (`.gx-btn`, `.gx-input`, `.gx-card`, `.gx-pill`)
-  where it's a clean swap — don't force it on Sales' bespoke charts/tables. **No store colors in the theme** —
-  those come from GX Core `?action=stores`, so leave any store-color logic as-is.
-- Verify the dashboard still reads correctly, then deploy + sync report.
 
 ## Notes back to the brain
 
@@ -60,3 +47,4 @@ Inventory** (`greencross-inventory/index.html` — the first adopter).
 - [x] #1 Auto-record deploys — `APP_VERSION = 'v39'` in `index.html`; `deploy.sh` wired; v39 verified in GX Core (`deployed_by:"app"`) — done 2026-08-09 commits 849920c / 1a78cdc
 - [x] #2 Changelog → GX Core — JSONP fetch replaces 39 hardcoded rows; lazy-loads on first open; graceful fallback; verified in browser — done 2026-08-09 commit 5219271
 - [x] #1 Shared login (Phase-2 auth) — GXCore lib bound (v19); `requireAuth_` gates all proxy actions; login screen matches Leaderboard design; session heartbeat + logout wired; Sky verified login works; deployed @82 — done 2026-08-09
+- [x] #2 gx-theme adoption — `gx-theme.css` linked; `:root` aliases wired to `--gx-*` tokens with fallbacks; all hardcoded hex in CSS replaced; logo → shared URL; base64 removed (~20KB savings); verified in browser — done 2026-08-09
