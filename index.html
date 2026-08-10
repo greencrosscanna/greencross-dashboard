@@ -1478,7 +1478,7 @@ function storeSparklineHtml(storeName) {
   function dayNet(daysAgo) {
     const d = new Date(today);
     d.setDate(d.getDate() - daysAgo);
-    const ds = iso(d);
+    const ds = toDateStr(d);
     return getDailyNet(liveDateMaps[storeName]?.[ds]) || getDailyNet(allDailyData[storeName]?.[ds]) || 0;
   }
   const recent = Array.from({length: 30}, (_, i) => dayNet(29 - i));
