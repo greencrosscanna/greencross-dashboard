@@ -1,4 +1,9 @@
-# BRAIN_NOTES — Sales / Cashflow
+# BRAIN_NOTES — Sales / Cashflow — RETIRED (2026-08-09) → central GX Core inbox
+
+> ⚠️ **This per-repo file is retired.** Cross-app coordination moved to GX Core's central **brain_notes**
+> inbox. `/gxbrain` and the hook now read notes addressed to `to_app=sales`, resolve via `resolve_note`, and
+> write note-backs via `add_note`. The remaining local items were **migrated to the central inbox**: the
+> bug-reports task (→ `sales`) and the `lbGoals` note-back (→ `core-admin`). Kept only as a local archive.
 
 Owner: Shawn (code access: Sky)
 Repo: `greencross-sales` → GitHub Pages at https://skygreencross.github.io/greencross-dashboard/
@@ -18,17 +23,7 @@ Backend GAS: `dutchie_proxy.gs` (Dutchie + QuickBooks proxy; no dedicated GAS we
 
 ## Pending
 
-### 1. Bug reports → GX Core (last service seam)
-Add a bug-report surface and forward to the single GX Core bug log. **Replicate Leaderboard's pattern**
-(`greencross-leaderboard`): a floating **🐞 button** (`.bug-btn`, `id="bugBtn"`, `onclick="…bug.open()"`)
-that opens a small **modal** (`.bug-modal`) with severity + a description field; on submit, POST to a proxy
-action that forwards via **`GXCore.gxIngestBug('sales', reporter, payload)`** (the real fn — NOT
-`ingestBug`; it maps the app keys server-side).
-- **Reporter** = the logged-in session user (you have this now, post-login) — don't ask for a name.
-- **Payload** keys map like the other apps: `priority/desc/appVer/appStore/appTab` → severity/title/detail/
-  app_version/store/tab. Pass `appVer = APP_VERSION`; Sales is single-view, so `appTab` can be omitted.
-- Backend: add the forward in `dutchie_proxy.gs` **behind `requireAuth_`** (only logged-in users file bugs).
-- Verify: file a test bug → it lands in the Master Control cockpit bug panel as `app=sales`. Archive + sync report.
+_(retired — migrated to the central GX Core inbox as a note to `to_app=sales`; read it via `/gxbrain`)_
 
 ## Notes back to the brain
 

@@ -8,10 +8,14 @@ app key in GX Core is **`sales`**.
 
 ## Sync with the brain — run `/gxbrain` (or say "brain sync")
 
-This app is on the shared brain. **`/gxbrain`** loads the shared rules and then reconciles this repo's
-`BRAIN_NOTES.md` (does **## Pending**, reports sync status) — the sync protocol lives in that one command,
-not copied here. **"brain sync" / "sync brain"** = the reconcile-and-report step alone (skips orientation).
+This app is on the shared brain. **`/gxbrain`** loads the shared rules and reconciles this chat with GX Core
+— the sync protocol lives in that one command, not copied here. **"brain sync" / "sync brain"** = the
+reconcile-and-report step alone (skips orientation).
 
-Integration status (2026-08-09): **channel established; seams being wired.** App key **`sales`**. Deploys
-via clasp (backend) + GitHub Pages (frontend). Shared login live as of Phase-2 (2026-08-09).
-Current app version **v38**; changelog live from GX Core `version_history`.
+Coordination is now the **central brain-notes inbox** in GX Core (not this repo's `BRAIN_NOTES.md`, which is
+retired): `/gxbrain` reads notes addressed to `to_app=sales`, resolves done ones (`resolve_note`), and writes
+note-backs to any app (`add_note`). The SessionStart hook surfaces the same inbox.
+
+Integration status: app key **`sales`**; deploys clasp (backend) + GitHub Pages (frontend). ✅ shared login
+(Phase-2), ✅ auto-record (`deploy_version`), ✅ changelog from `version_history`, ✅ gx-theme. ⬜ bug
+forwarding (`gxIngestBug`) — the last seam, now a note in the central inbox.
