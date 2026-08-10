@@ -125,6 +125,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .sparkline-cell{display:flex;align-items:center;gap:4px;flex-shrink:0}
 .sparkline-cell .spark-delta{font-size:10px;color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap}
 .sparkline-cell .spark-delta.up{color:var(--green)}
+.sparkline-cell .spark-delta.mid{color:var(--amber)}
 .sparkline-cell .spark-delta.down{color:var(--red)}
 .sparkline-cell polyline{stroke-dasharray:1;stroke-dashoffset:1;animation:spark-draw 0.5s ease-out forwards}
 @keyframes spark-draw{to{stroke-dashoffset:0}}
@@ -1559,9 +1560,13 @@ function storeSparklineHtml(storeName) {
     const y = Math.round(h - 1 - (v / max) * (h - 2));
     return x + ',' + y;
   }).join(' ');
-  const up     = trendPct == null || trendPct >= 0;
-  const stroke = up ? 'var(--green)' : 'var(--red)';
-  const cls    = up ? 'up' : 'down';
+  const trendRatio = trendPct != null ? 100 + trendPct * 100 : 100;
+  const tier   = trendPct == null    ? 'up'
+               : trendRatio >= PACE_GREEN ? 'up'
+               : trendRatio >= PACE_AMBER ? 'mid'
+               : 'down';
+  const stroke = tier === 'up' ? 'var(--green)' : tier === 'mid' ? 'var(--amber)' : 'var(--red)';
+  const cls    = tier;
   const label  = trendPct != null
     ? (trendPct >= 0 ? '+' : '−') + Math.round(Math.abs(trendPct * 100)) + '%'
     : '';
