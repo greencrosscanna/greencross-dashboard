@@ -46,9 +46,11 @@ directly. A frontend-only gate does NOT fix this; the gate must be **server-side
    logs in and his daily flow works end-to-end; (d) token expiry/heartbeat OK; (e) a direct proxy-URL hit
    without login is dead. Then archive + sync report. **Verify carefully — Shawn uses this daily; don't break him.**
 
-**Dependency (brain handles):** GX Core must **grant `sales` access** to the right users or login returns no
-access. That's a GX Core admin action — the brain is setting it up once Sky confirms the user list (Shawn +
-Sky at minimum). Login won't succeed until those grants exist.
+**Access (resolved — no grant needed to build/test):** Sky is the seeded **superadmin** (`is_superadmin=TRUE`),
+and superadmins get `admin` on every app automatically (`gxRoleForApp_`) — so **`sky` already has `sales`
+access**; `GXCore.login('sky', <pass>, 'sales')` returns `role:'admin'` out of the box. Build + verify with
+Sky's login. Adding **Shawn** (or anyone else — they're not superadmins) needs an explicit `sales` grant
+later via the Master Control **Grants** panel; note it back to the brain when you're ready for that.
 
 ### 2. Bug reports → GX Core (build-then-wire — after login)
 No bug surface today, so: add a minimal "report a problem" control, then forward via
