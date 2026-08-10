@@ -68,10 +68,12 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 /* Store status grid */
 .store-status-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-bottom:8px}
 .store-status-card{background:var(--bg);border-radius:6px;padding:8px 10px;display:flex;align-items:center;gap:7px}
+.ss-spark{margin-left:auto}
 .ss-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--border-strong)}
 .ss-dot.ok{background:var(--green)}.ss-dot.err{background:var(--red)}.ss-dot.loading{background:var(--amber);animation:pulse 1s ease-in-out infinite}
 .ss-name{font-size:11px;color:var(--dim);flex:1}
 .ss-val{font-size:11px;font-weight:500;color:var(--text)}
+.ss-spark{display:none}
 
 /* Nav */
 .section-tabs{display:flex;gap:6px;margin-bottom:12px}
@@ -172,6 +174,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   .store-scroll{flex-wrap:wrap;overflow-x:visible;padding-bottom:0;gap:4px}
   .store-status-grid{grid-template-columns:1fr}
   .logo-row{margin-bottom:16px}
+  .ss-spark{display:flex}
 }
 .mtab.future{opacity:0.25;cursor:default;pointer-events:none}
 
@@ -325,6 +328,29 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
         <input type="checkbox" id="toggle-sublet" onchange="toggleOtherRev('sublet')" checked>
         <span class="s-slider"></span>
       </label>
+    </div>
+
+    <!-- PACING -->
+    <div class="s-section">Pacing thresholds</div>
+    <div class="s-row">
+      <div>
+        <div class="s-label">Amber floor</div>
+        <div class="s-sublabel">Below this % of pace → red</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px">
+        <input class="s-input" id="pace-amber-input" type="number" min="50" max="100" step="0.5" style="width:58px;text-align:right;padding:4px 6px" onchange="savePaceThresholds()">
+        <span style="font-size:12px;color:var(--muted)">%</span>
+      </div>
+    </div>
+    <div class="s-row">
+      <div>
+        <div class="s-label">Green floor</div>
+        <div class="s-sublabel">Above this % of pace → green</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px">
+        <input class="s-input" id="pace-green-input" type="number" min="50" max="200" step="0.5" style="width:58px;text-align:right;padding:4px 6px" onchange="savePaceThresholds()">
+        <span style="font-size:12px;color:var(--muted)">%</span>
+      </div>
     </div>
 
     <!-- DATA -->
@@ -652,6 +678,10 @@ const THRESHOLDS = Object.freeze({
   BACKFILL_MONTH_COUNT:  12,    // full year — DOW chart needs all occurrences of each weekday
 });
 
+// Pacing thresholds — user-adjustable, persisted to localStorage
+let PACE_AMBER = Number(localStorage.getItem('gc_pace_amber') || 85);
+let PACE_GREEN = Number(localStorage.getItem('gc_pace_green') || 95);
+
 // Single read-point for the proxy URL — avoids 7+ places querying the DOM directly.
 function getProxyUrl() {
   return (document.getElementById('proxy-url')?.value || '').trim();
@@ -754,6 +784,7 @@ function buildStatusGrid(state) {
     return `<div class="store-status-card">
       <div class="ss-dot ${cls}"></div>
       <div class="ss-name">${s.display||s.name}</div>
+      <span class="ss-spark">${storeSparklineHtml(s.name)}</span>
       <div class="ss-val">${val}</div>
     </div>`;
   }).join('');
@@ -1445,17 +1476,21 @@ function getStorePeriodNet(s) {
 
 function _incomeKpiHtml(net, gross, orders, disc, cost, aov,
                         periodGoal, goalLabel, goalPct, pacingPct, isClosed, under) {
-  const paceLinePos = pacingPct * THRESHOLDS.GOAL_BAR_FILL_RATIO;
+  const paceLinePos  = pacingPct * THRESHOLDS.GOAL_BAR_FILL_RATIO;
   const kpiPaceRatio = pacingPct > 0 ? goalPct / pacingPct * 100 : (goalPct > 0 ? 100 : 0);
-  const barColor    = kpiPaceRatio >= 95 ? 'var(--green)' : kpiPaceRatio >= 85 ? 'var(--amber)' : 'var(--red)';
-  const barW        = Math.min(goalPct * THRESHOLDS.GOAL_BAR_FILL_RATIO, 100);
-  const vsGoal      = periodGoal - net;
+  const barW         = Math.min(goalPct * THRESHOLDS.GOAL_BAR_FILL_RATIO, 100);
+  const kpiOnPace    = kpiPaceRatio >= PACE_GREEN;
+  const kpiMarkIn    = kpiOnPace && barW > 0 ? (paceLinePos / barW * 100).toFixed(1) : 100;
+  const kpiBarCls    = kpiPaceRatio >= PACE_GREEN ? 'green over' : kpiPaceRatio >= PACE_AMBER ? 'amber' : 'red';
+  const kpiBarStyle  = kpiOnPace ? `--mark-in-fill:${kpiMarkIn}%` : '';
+  const vsGoal       = periodGoal - net;
   return `<div class="kpi wide" id="kpi-net">
       <div class="klabel">Net sales — ${getPeriodLabel()}</div>
       <div class="kval">${fmtK(net)}</div>
-      <div style="position:relative;height:4px;background:var(--border);border-radius:2px;margin:7px 0 5px">
-        <div style="width:${barW}%;height:100%;background:${barColor};border-radius:2px"></div>
-        <div style="position:absolute;top:-4px;left:${paceLinePos}%;width:2px;height:12px;background:rgba(255,255,255,0.45);transform:translateX(-50%);border-radius:1px"></div>
+      <div class="sbar-wrap" style="margin:7px 0 5px">
+        <div class="sbar-track"></div>
+        <div class="sbar-fill ${kpiBarCls}" data-final="${barW}%" style="${kpiBarStyle}"></div>
+        <div class="sbar-mark" style="left:${paceLinePos}%"></div>
       </div>
       <div class="ksub">
         ${goalLabel} ${fmtK(periodGoal)} &nbsp;·&nbsp; ${goalPct}%
@@ -1487,7 +1522,7 @@ function _incomeKpiHtml(net, gross, orders, disc, cost, aov,
 
 let _storeBarsAnimated = false;
 function animateStorePacingBars(animate) {
-  document.querySelectorAll('#income-store-breakdown .sbar-fill[data-final]').forEach(function(el, i) {
+  document.querySelectorAll('.sbar-fill[data-final]').forEach(function(el, i) {
     if (animate) {
       el.style.transition = '';
       el.style.width = '0%';
@@ -1547,11 +1582,11 @@ function _incomeStoreBreakdownHtml(stores, storeNets, isClosed, pacingPct, yr, d
         const diff         = snet - sCompareGoal;
         const sGoalPct     = sPeriodGoal > 0 ? Math.round(snet / sPeriodGoal * 100) : 0;
         const sPaceRatio   = pacingPct > 0 ? sGoalPct / pacingPct * 100 : (sGoalPct > 0 ? 100 : 0);
-        const sOnPace      = sPaceRatio >= 95;
+        const sOnPace      = sPaceRatio >= PACE_GREEN;
         const sBarW        = Math.min(sGoalPct * THRESHOLDS.GOAL_BAR_FILL_RATIO, 100);
         const sPacePos     = pacingPct * THRESHOLDS.GOAL_BAR_FILL_RATIO;
         const markInFill   = sOnPace && sBarW > 0 ? (sPacePos / sBarW * 100).toFixed(1) : 100;
-        const sFillCls     = sPaceRatio >= 95 ? 'green over' : sPaceRatio >= 85 ? 'amber' : 'red';
+        const sFillCls     = sPaceRatio >= PACE_GREEN ? 'green over' : sPaceRatio >= PACE_AMBER ? 'amber' : 'red';
         const sFillStyle   = sOnPace ? `--mark-in-fill:${markInFill}%` : '';
         return `<div class="srow">
           <div class="swatch" style="background:${col}"></div>
@@ -2552,6 +2587,16 @@ function renderVhistFallback(list) {
   list.innerHTML = '<div class="vhist-row"><span class="vhist-desc" style="color:#555">Version history momentarily unavailable.</span></div>';
 }
 
+function savePaceThresholds() {
+  const rawA = parseFloat(document.getElementById('pace-amber-input')?.value);
+  const rawG = parseFloat(document.getElementById('pace-green-input')?.value);
+  if (!isNaN(rawA)) PACE_AMBER = Math.max(0, Math.min(rawA, 200));
+  if (!isNaN(rawG)) PACE_GREEN = Math.max(0, Math.min(rawG, 200));
+  localStorage.setItem('gc_pace_amber', PACE_AMBER);
+  localStorage.setItem('gc_pace_green', PACE_GREEN);
+  render();
+}
+
 function updateSettingsBadges() {
   const expEl = document.getElementById('hidden-exp-count');
   const revEl = document.getElementById('hidden-rev-count');
@@ -2562,6 +2607,11 @@ function updateSettingsBadges() {
   const subletToggle = document.getElementById('toggle-sublet');
   if (atmToggle) atmToggle.checked = !hiddenOtherRevs.has('atm');
   if (subletToggle) subletToggle.checked = !hiddenOtherRevs.has('sublet');
+  // Sync pacing threshold inputs
+  const amberIn = document.getElementById('pace-amber-input');
+  const greenIn = document.getElementById('pace-green-input');
+  if (amberIn) amberIn.value = PACE_AMBER;
+  if (greenIn) greenIn.value = PACE_GREEN;
 }
 
 // ── Login screen ─────────────────────────────────────────────────────────
