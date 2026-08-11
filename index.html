@@ -2719,6 +2719,10 @@ function showLoginScreen() {
     userInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') passInput.focus(); });
   }
   el.style.display = 'flex';
+  var btnEl = document.getElementById('gc-login-btn');
+  if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Sign in'; }
+  var errEl = document.getElementById('gc-login-err');
+  if (errEl) errEl.classList.remove('visible');
   setTimeout(function() {
     var u = document.getElementById('gc-login-user');
     if (u) u.focus();
