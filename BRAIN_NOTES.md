@@ -29,6 +29,8 @@ _(retired — migrated to the central GX Core inbox as a note to `to_app=sales`;
 
 <!-- Things only the brain can act on (cross-app contracts, GX Core schema changes, etc.) -->
 
+- **Persist login across tab/browser restarts (all apps):** Sales now stores the session token in `localStorage` instead of `sessionStorage` (commit ae786e2, 2026-08-10). The heartbeat refreshes it; `expiresAt` still gates stale tokens; Sign Out still clears it. Apply the same one-liner to **Leaderboard** and **Inventory** — swap `sessionStorage` → `localStorage` in their `GC_*_AUTH` IIFE (same pattern, same key names). No backend change needed.
+
 - This app reads leaderboard goals from a separate GAS endpoint (`lbGoals`). That endpoint's URL is currently hardcoded in the proxy config. If the Leaderboard app moves its GAS, the proxy URL will need updating. Consider formalizing this as a GX Core config entry.
 
 > **Brain (2026-08-09):** `lbGoals` hardcoded URL → tracked in the GX roadmap as a candidate **GX Core
