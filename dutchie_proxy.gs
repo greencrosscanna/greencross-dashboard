@@ -400,6 +400,8 @@ function getISOWeek(date) {
 }
 
 function getStoresMeta_() {
+  const HIT = cacheGet_('stores_meta');
+  if (HIT) return ContentService.createTextOutput(HIT).setMimeType(ContentService.MimeType.JSON);
   try {
     const rows = GXCore.getStores().map(function(s) {
       return {
@@ -409,7 +411,9 @@ function getStoresMeta_() {
         sort_order:   Number(s.sort_order) || 0,
       };
     });
-    return jsonOut_({ stores: rows });
+    const body = JSON.stringify({ stores: rows });
+    cacheSet_('stores_meta', body, 3600); // 1-hour TTL — store list rarely changes
+    return ContentService.createTextOutput(body).setMimeType(ContentService.MimeType.JSON);
   } catch(e) {
     return jsonOut_({ error: e.message });
   }

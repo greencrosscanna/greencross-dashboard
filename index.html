@@ -264,7 +264,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 
     <div class="logo-row">
       <img src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png"" style="width:min(40vw,140px);height:auto;display:block">
-      <div class="pill pill-gray" id="status-pill" onclick="loadAllStores()" title="Tap to refresh" style="cursor:pointer">
+      <div class="pill pill-gray" id="status-pill" onclick="refreshLiveData()" title="Tap to refresh" style="cursor:pointer">
         <div class="dot dot-gray" id="status-dot"></div>
         <span id="status-txt">Loading…</span>
       </div>
@@ -464,7 +464,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v41';
+const APP_VERSION = 'v42';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1010,6 +1010,17 @@ async function refreshDutchieData() {
   await loadAllStores();
 }
 
+function refreshLiveData() {
+  // Clear only the current month's localStorage so the next loadAllStores call
+  // is forced to re-fetch today's Dutchie numbers, while preserving all historical months.
+  const curYear = new Date().getFullYear();
+  const curMo   = new Date().getMonth() + 1;
+  STORES.forEach(s => localStorage.removeItem(`gc_sales_${s.name}_${curYear}_${curMo}`));
+  liveData = {};
+  _invalidateDerivedCaches();
+  loadAllStores();
+}
+
 function updateCacheStatus() {
   const keys = Object.keys(localStorage).filter(k => k.startsWith('gc_cache_') || k.startsWith('gc_sales_'));
   const el = document.getElementById('cache-status');
@@ -1123,8 +1134,6 @@ async function loadAllStores() {
   document.getElementById('load-btn').innerHTML = '<span class="spinner-inline"></span>Loading…';
 
   try {
-  await fetchStoresMeta();
-
   // Proactively free space before any writes.
   // Remove large items that should no longer be in localStorage (legacy cleanup).
   localStorage.removeItem('gc_cache_costs');
@@ -1132,9 +1141,14 @@ async function loadAllStores() {
   localStorage.removeItem('gc_daily_acc');
   evictHistoricalSalesCache();
 
-  // Expenses loads after income; velocity (inventory) loads last — see end of this function
-  loadExpenses();
-  await Promise.all([loadGoals(), loadLeaderboardGoals(), loadCosts(), loadExpBudgets(), loadOtherRevenue()]);
+  // Fire aux fetches concurrently with store fetches — don't block store loading on them.
+  // fetchStoresMeta updates colors/display names; goals/costs fill in goal bars on render.
+  const auxDataPromise = Promise.all([
+    fetchStoresMeta(),
+    loadGoals(), loadLeaderboardGoals(), loadCosts(), loadExpBudgets(), loadOtherRevenue()
+  ]);
+  loadExpenses(); // fire-and-forget (expenses tab)
+
   liveData = {};
   const stateMap = Object.fromEntries(STORES.map(s => [s.name, 'loading']));
   buildStatusGrid(stateMap);
@@ -1206,9 +1220,13 @@ async function loadAllStores() {
         stateMap[store.name] = 'err';
       }
       buildStatusGrid(stateMap);
+      render(); // progressive: paint each store as it arrives instead of waiting for all 6
     });
     await Promise.all(promises);
   }
+
+  // Ensure aux data (goals, costs, store colors) is done before the final authoritative render
+  await auxDataPromise;
 
   const ok  = Object.values(stateMap).filter(s => s === 'ok').length;
   const err = Object.values(stateMap).filter(s => s === 'err').length;
