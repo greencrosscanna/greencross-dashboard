@@ -235,6 +235,25 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .login-submit:disabled{opacity:0.5;cursor:not-allowed}
 .login-error{margin-top:12px;padding:10px 12px;background:var(--red-soft);border:1px solid rgba(239,68,68,.3);border-radius:6px;color:var(--red);font-size:12px;text-align:center;display:none}
 .login-error.visible{display:block}
+/* ── Bug report FAB + modal ─────────────────────────── */
+.bug-fab{position:fixed;bottom:20px;right:20px;z-index:300;width:36px;height:36px;border-radius:50%;background:var(--card);border:0.5px solid var(--border);cursor:pointer;display:none;align-items:center;justify-content:center;font-size:16px;color:var(--muted);box-shadow:0 2px 8px rgba(0,0,0,0.25);transition:color 0.15s,border-color 0.15s}
+.bug-fab:hover{color:var(--text);border-color:var(--border-strong)}
+.bug-fab.visible{display:flex}
+.bug-modal-wrap{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:400;backdrop-filter:blur(2px);align-items:center;justify-content:center}
+.bug-modal-wrap.open{display:flex}
+.bug-modal{background:var(--bg);border:0.5px solid var(--border-strong);border-radius:12px;padding:22px;width:320px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,0.4)}
+.bug-modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.bug-modal-title{font-size:13px;font-weight:600;color:var(--text)}
+.bug-modal-close{background:none;border:none;cursor:pointer;color:var(--muted);padding:2px;line-height:0;border-radius:6px}
+.bug-modal-close:hover{color:var(--dim)}
+.bug-field-label{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em;margin:12px 0 4px}
+.bug-select,.bug-textarea{width:100%;font-size:12px;background:var(--card);border:0.5px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;padding:7px 9px;box-sizing:border-box}
+.bug-select:focus,.bug-textarea:focus{outline:none;border-color:var(--green)}
+.bug-textarea{resize:vertical;min-height:72px;margin:0}
+.bug-submit{margin-top:14px;width:100%;background:var(--red);color:#fff;border:none;border-radius:7px;padding:9px;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;transition:opacity 0.15s}
+.bug-submit:hover{opacity:0.85}
+.bug-submit:disabled{opacity:0.45;cursor:not-allowed}
+.bug-status{font-size:11px;color:var(--muted);margin-top:8px;text-align:center;min-height:16px}
 </style>
 </head>
 <body>
@@ -279,6 +298,31 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
     </div>
   </div>
 
+</div>
+
+<!-- ── Bug report FAB ── -->
+<button class="bug-fab" id="bug-fab" onclick="openBugModal()" title="Report a bug">🐞</button>
+
+<!-- ── Bug report modal ── -->
+<div class="bug-modal-wrap" id="bug-modal-wrap" onclick="if(event.target===this)closeBugModal()">
+  <div class="bug-modal">
+    <div class="bug-modal-head">
+      <span class="bug-modal-title">Report a Bug</span>
+      <button class="bug-modal-close" onclick="closeBugModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="bug-field-label">Priority</div>
+    <select class="bug-select" id="bug-priority">
+      <option value="low">Low — minor annoyance</option>
+      <option value="medium" selected>Medium — something's wrong</option>
+      <option value="high">High — blocking my work</option>
+    </select>
+    <div class="bug-field-label">Description</div>
+    <textarea class="bug-textarea" id="bug-desc" placeholder="What happened? What did you expect?"></textarea>
+    <button class="bug-submit" id="bug-submit" onclick="submitBugReport()">Submit Bug Report</button>
+    <div class="bug-status" id="bug-status"></div>
+  </div>
 </div>
 
 <!-- ── Settings overlay + drawer ── -->
@@ -455,8 +499,11 @@ const STORES = [
   { name:'River',       display:'River',      color:'#D4537E' },
 ];
 
+const GXCORE = 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec';
+
 // Leaderboard GAS — computed rolling/YoY goals, authoritative for current month
-const LEADERBOARD_GAS = 'https://script.google.com/macros/s/AKfycbxXqtL-rKjuzFQkyADWnHGEoM2ZSYp9g4t1J6vhyDTgHcfkEuQocYrN9DXV7_84Masuqg/exec';
+// URL is kept in GX Core config (key=lbGoals); hardcode is offline fallback only
+let LEADERBOARD_GAS = 'https://script.google.com/macros/s/AKfycbxXqtL-rKjuzFQkyADWnHGEoM2ZSYp9g4t1J6vhyDTgHcfkEuQocYrN9DXV7_84Masuqg/exec';
 let lbGoals = null; // { month, year, stores: { locationName: { monthly, dow:[7] 0=Sun } } }
 
 let goals = {};       // loaded from budget spreadsheet via proxy (historical months)
@@ -577,6 +624,13 @@ function getDailyGoal(storeName, dow, month /* 1–12 */, year, daysInMo) {
 
 async function loadLeaderboardGoals() {
   try {
+    // Resolve the authoritative GAS URL from GX Core config (offline-safe)
+    try {
+      const cfgRes = await fetch(`${GXCORE}?action=config&key=lbGoals`);
+      const cfg = await cfgRes.json();
+      if (cfg.ok && cfg.value) LEADERBOARD_GAS = cfg.value;
+    } catch(e) { /* use hardcoded fallback */ }
+
     const now = new Date();
     const curMonth = MONTHS[now.getMonth()];
     const curYear  = now.getFullYear();
@@ -2551,7 +2605,6 @@ function toggleVhist() {
 }
 
 function loadVhist() {
-  const GXCORE = 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec';
   const list   = document.getElementById('vhist-list');
   const cbName = '_vhistCb_' + Date.now();
   const script = document.createElement('script');
@@ -2693,6 +2746,7 @@ async function doSalesLogin() {
       var userEl = document.getElementById('s-logged-in-user');
       if (userEl) userEl.textContent = 'Signed in as ' + data.user;
       hideLoginScreen();
+      document.getElementById('bug-fab').classList.add('visible');
       startSalesHeartbeat();
       loadAllStores();
     } else {
@@ -2737,10 +2791,52 @@ buildStoreTabs();
 buildStatusGrid({});
 document.getElementById('proxy-url').value = DEFAULT_PROXY;
 updateCacheStatus();
+// ── Bug report ────────────────────────────────────────────────────────────────
+function openBugModal() {
+  document.getElementById('bug-modal-wrap').classList.add('open');
+  document.getElementById('bug-desc').value = '';
+  document.getElementById('bug-status').textContent = '';
+  document.getElementById('bug-submit').disabled = false;
+  document.getElementById('bug-desc').focus();
+}
+function closeBugModal() {
+  document.getElementById('bug-modal-wrap').classList.remove('open');
+}
+async function submitBugReport() {
+  const desc     = document.getElementById('bug-desc').value.trim();
+  const priority = document.getElementById('bug-priority').value;
+  if (!desc) { document.getElementById('bug-status').textContent = 'Please describe the issue.'; return; }
+  const btn = document.getElementById('bug-submit');
+  btn.disabled = true;
+  document.getElementById('bug-status').textContent = 'Sending…';
+  try {
+    const proxyUrl = getProxyUrl();
+    const session  = GC_SALES_AUTH.load();
+    const params   = new URLSearchParams({
+      action: 'reportbug', priority, desc,
+      appVer: APP_VERSION,
+      token:  session?.token || ''
+    });
+    const res  = await fetch(`${proxyUrl}?${params}`);
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById('bug-status').textContent = 'Reported! Thanks.';
+      setTimeout(closeBugModal, 1400);
+    } else {
+      document.getElementById('bug-status').textContent = data.error || 'Failed — try again.';
+      btn.disabled = false;
+    }
+  } catch(e) {
+    document.getElementById('bug-status').textContent = 'Network error — try again.';
+    btn.disabled = false;
+  }
+}
+
 if (GC_SALES_AUTH.isAuthed()) {
   var _initSession = GC_SALES_AUTH.load();
   var _initUserEl = document.getElementById('s-logged-in-user');
   if (_initUserEl && _initSession && _initSession.user) _initUserEl.textContent = 'Signed in as ' + _initSession.user;
+  document.getElementById('bug-fab').classList.add('visible');
   startSalesHeartbeat();
   loadAllStores();
 } else {

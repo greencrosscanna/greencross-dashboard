@@ -198,6 +198,7 @@ function doGet(e) {
   if (params.action === 'invfields')     return getInvFields(params);
   if (params.action === 'itemstest')     return getItemsTest(params);
   if (params.action === 'txdetail')      return getTxDetail(params);
+  if (params.action === 'reportbug')     return reportBug_(params, auth.user);
 
   const store  = params.store;
   const from   = params.from;  // e.g. "2026-04-01T08:00:00Z"
@@ -1164,4 +1165,21 @@ function getOtherRevenue() {
     output.setContent(JSON.stringify({ error: e.message }));
   }
   return output;
+}
+
+function reportBug_(params, reporter) {
+  try {
+    const priority = params.priority || 'medium';
+    const desc     = params.desc     || '';
+    if (!desc) return jsonOut_({ ok: false, error: 'desc required' });
+    GXCore.gxIngestBug('sales', reporter, {
+      priority, desc,
+      appVer:   params.appVer   || '',
+      appStore: params.appStore || '',
+      appTab:   params.appTab   || ''
+    });
+    return jsonOut_({ ok: true });
+  } catch(e) {
+    return jsonOut_({ ok: false, error: e.message });
+  }
 }
