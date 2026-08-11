@@ -200,133 +200,187 @@ function doGet(e) {
   if (params.action === 'txdetail')      return getTxDetail(params);
   if (params.action === 'reportbug')     return reportBug_(params, auth.user);
 
-  const store  = params.store;
-  const from   = params.from;  // e.g. "2026-04-01T08:00:00Z"
-  const to     = params.to;
+  const store = params.store;
+  const from  = params.from;
+  const to    = params.to;
 
-  const output = ContentService.createTextOutput();
-  output.setMimeType(ContentService.MimeType.JSON);
+  if (!store || !STORE_KEYS[store]) return jsonOut_({ error: 'Unknown store: ' + store });
 
-  if (!store || !STORE_KEYS[store]) {
-    output.setContent(JSON.stringify({ error: 'Unknown store: ' + store }));
-    return output;
-  }
+  return getStoreSales_(store, from, to);
+}
 
+// ── GX Core sales cache + live Dutchie split ──────────────────────────────────
+// Settled days (yesterday and earlier) come from GXCore.getSalesDaily — fast,
+// no Dutchie quota.  Today (intraday) still uses a live Dutchie transaction pull.
+
+function getStoreSales_(store, from, to) {
   try {
-    const apiKey = STORE_KEYS[store];
-    const auth   = Utilities.base64Encode(apiKey + ':');
+    const todayPT  = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM-dd');
+    const fromDate = from.slice(0, 10);
+    const toDate   = to.slice(0, 10);
 
-    // Fetch a wide window by lastModified; client-side filter below narrows to actual transaction date
-    const url = BASE + '/reporting/transactions'
-      + '?fromLastModifiedDateUTC=' + encodeURIComponent(from)
-      + '&toLastModifiedDateUTC='   + encodeURIComponent(to)
-      + '&includeItems=true';
+    // Settled: [fromDate .. min(toDate, yesterday)]
+    const settledTo  = toDate < todayPT ? toDate : dayBefore_(todayPT);
+    const cacheRows  = fromDate <= settledTo
+      ? (GXCore.getSalesDaily(store, fromDate, settledTo) || [])
+      : [];
 
-    const resp = UrlFetchApp.fetch(url, {
-      method: 'get',
-      headers: { Authorization: 'Basic ' + auth, Accept: 'application/json' },
-      muteHttpExceptions: true
-    });
+    // Live: today only (if the requested range includes today)
+    const liveResult = toDate >= todayPT ? dutchieTodayFetch_(store, todayPT, to) : null;
 
-    const raw  = JSON.parse(resp.getContentText());
-    const rows = Array.isArray(raw) ? raw : (raw.data || raw.items || []);
+    let net = 0, gros = 0, disc = 0, cogs = 0, tx = 0, ord = 0;
+    const dailyMap = {}, weeklyMap = {};
 
-    // Date range strings for client-side guard (YYYY-MM-DD, local date)
-    const dateFrom = from.slice(0, 10);
-    const dateTo   = to.slice(0, 10);
-
-    const sales = rows.filter(r => {
-      if (r.isVoid) return false;
-      if ((r.transactionType || '').toLowerCase() !== 'retail') return false;
-      // Client-side date guard using local transaction date
-      const txDate = (r.transactionDateLocalTime || r.transactionDate || '').slice(0, 10);
-      if (txDate && (txDate < dateFrom || txDate > dateTo)) return false;
-      return true;
-    });
-
-    let netSales = 0, grossSales = 0, discounts = 0, cost = 0, tax = 0;
-    const weeklyMap = {};
-    const dailyMap  = {};
-    const productMap = {};
-
-    for (const tx of sales) {
-      const net  = Number(tx.totalBeforeTax || tx.subtotal || 0);
-      const disc = Number(tx.totalDiscount  || 0);
-      const txTax= Number(tx.tax            || tx.taxAmount || 0);
-
-      netSales   += net;
-      grossSales += net + disc;
-      discounts  += disc;
-      tax        += txTax;
-
-      // Cost: sum from line items if available
-      const items = tx.items || tx.lineItems || tx.orderItems || [];
-      for (const item of items) {
-        const itemCost = Number(item.costOfGoods || item.cost || item.unitCost || 0);
-        const qty      = Number(item.quantity || item.qty || 1);
-        cost += itemCost * qty;
-
-        const name = item.productName || item.name || 'Unknown';
-        const rev  = Number(item.totalPrice || item.price || item.lineTotal || 0);
-        if (!productMap[name]) productMap[name] = { revenue: 0, units: 0 };
-        productMap[name].revenue += rev;
-        productMap[name].units   += qty;
-      }
-
-      // Daily + weekly rollup
-      const dateStr = (tx.transactionDateLocalTime || tx.transactionDate || '').slice(0, 10);
-      if (dateStr) {
-        if (!dailyMap[dateStr]) dailyMap[dateStr] = { netSales: 0, grossSales: 0, orders: 0, discounts: 0 };
-        dailyMap[dateStr].netSales   += net;
-        dailyMap[dateStr].grossSales += net + disc;
-        dailyMap[dateStr].orders     += 1;
-        dailyMap[dateStr].discounts  += disc;
-
-        const wk = getISOWeek(new Date(dateStr)) - 1;
-        weeklyMap['WK' + wk] = (weeklyMap['WK' + wk] || 0) + net;
+    for (const r of cacheRows) {
+      const rNet  = Number(r.net      || 0);
+      const rGros = Number(r.gross    || 0);
+      const rDisc = Number(r.discount || 0);
+      const rTax  = Number(r.tax      || 0);
+      const rCogs = Number(r.cogs     || 0);
+      const rOrd  = Number(r.orders   || 0);
+      net  += rNet; gros += rGros; disc += rDisc;
+      cogs += rCogs; tx   += rTax;  ord  += rOrd;
+      if (r.date) {
+        dailyMap[r.date] = {
+          netSales:   Math.round(rNet  * 100) / 100,
+          grossSales: Math.round(rGros * 100) / 100,
+          orders:     rOrd,
+          discounts:  Math.round(rDisc * 100) / 100,
+        };
+        const wk = getISOWeek(new Date(r.date + 'T12:00:00')) - 1;
+        weeklyMap['WK' + wk] = (weeklyMap['WK' + wk] || 0) + rNet;
       }
     }
 
-    const orders = sales.length;
-    const topProducts = Object.entries(productMap)
-      .sort((a, b) => b[1].revenue - a[1].revenue)
-      .slice(0, 10)
-      .map(([name, d]) => ({ name, revenue: d.revenue, units: d.units }));
+    if (liveResult) {
+      net  += liveResult.netSales;  gros += liveResult.grossSales;
+      disc += liveResult.discounts; cogs += liveResult.cost;
+      tx   += liveResult.tax;       ord  += liveResult.orders;
+      for (const d of (liveResult.daily || [])) {
+        dailyMap[d.date] = { netSales: d.netSales, grossSales: d.grossSales, orders: d.orders, discounts: d.discounts };
+        const wk = getISOWeek(new Date(d.date + 'T12:00:00')) - 1;
+        weeklyMap['WK' + wk] = (weeklyMap['WK' + wk] || 0) + d.netSales;
+      }
+    }
 
     const weekly = Object.entries(weeklyMap)
-      .sort((a, b) => parseInt(a[0].replace('Wk ', '')) - parseInt(b[0].replace('Wk ', '')))
+      .sort((a, b) => Number(a[0].slice(2)) - Number(b[0].slice(2)))
       .map(([label, amount]) => ({ label, amount }));
 
-    output.setContent(JSON.stringify({
-      store,
-      orders,
-      netSales:   Math.round(netSales   * 100) / 100,
-      grossSales: Math.round(grossSales * 100) / 100,
-      discounts:  Math.round(discounts  * 100) / 100,
-      cost:       Math.round(cost       * 100) / 100,
-      tax:        Math.round(tax        * 100) / 100,
-      profit:     Math.round((netSales - cost) * 100) / 100,
-      aov:        orders > 0 ? Math.round(netSales / orders * 100) / 100 : 0,
-      margin:     netSales > 0 ? Math.round((netSales - cost) / netSales * 10000) / 100 : 0,
+    return jsonOut_({
+      store, orders: ord,
+      netSales:   Math.round(net  * 100) / 100,
+      grossSales: Math.round(gros * 100) / 100,
+      discounts:  Math.round(disc * 100) / 100,
+      cost:       Math.round(cogs * 100) / 100,
+      tax:        Math.round(tx   * 100) / 100,
+      profit:     Math.round((net - cogs) * 100) / 100,
+      aov:        ord > 0 ? Math.round(net / ord * 100) / 100 : 0,
+      margin:     net > 0 ? Math.round((net - cogs) / net * 10000) / 100 : 0,
       weekly,
-      topProducts,
+      topProducts: liveResult ? (liveResult.topProducts || []) : [],
       daily: Object.entries(dailyMap)
         .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([date, d]) => ({ date,
-          netSales:   Math.round(d.netSales   * 100) / 100,
-          grossSales: Math.round(d.grossSales * 100) / 100,
-          orders:     d.orders,
-          discounts:  Math.round(d.discounts  * 100) / 100,
-        })),
-      rawCount:   rows.length,
-      salesCount: sales.length,
-    }));
-
+        .map(([date, d]) => ({ date, netSales: d.netSales, grossSales: d.grossSales, orders: d.orders, discounts: d.discounts })),
+      cacheRows:  cacheRows.length,
+      liveOrders: liveResult ? liveResult.orders : 0,
+    });
   } catch (err) {
-    output.setContent(JSON.stringify({ error: err.message }));
+    return jsonOut_({ error: err.message });
+  }
+}
+
+// Live intraday Dutchie fetch — today only, same logic as the old full handler.
+function dutchieTodayFetch_(store, todayPT, toISO) {
+  const apiKey = STORE_KEYS[store];
+  const auth   = Utilities.base64Encode(apiKey + ':');
+  // Wide lastModified window (approx Pacific midnight); filter by transaction date below.
+  const fromUTC = todayPT + 'T07:00:00Z';
+  const url = BASE + '/reporting/transactions'
+    + '?fromLastModifiedDateUTC=' + encodeURIComponent(fromUTC)
+    + '&toLastModifiedDateUTC='   + encodeURIComponent(toISO)
+    + '&includeItems=true';
+
+  const resp = UrlFetchApp.fetch(url, {
+    method: 'get',
+    headers: { Authorization: 'Basic ' + auth, Accept: 'application/json' },
+    muteHttpExceptions: true,
+  });
+
+  const raw  = JSON.parse(resp.getContentText());
+  const rows = Array.isArray(raw) ? raw : (raw.data || raw.items || []);
+
+  const sales = rows.filter(r => {
+    if (r.isVoid) return false;
+    if ((r.transactionType || '').toLowerCase() !== 'retail') return false;
+    const txDate = (r.transactionDateLocalTime || r.transactionDate || '').slice(0, 10);
+    return txDate === todayPT;
+  });
+
+  let netSales = 0, grossSales = 0, discounts = 0, cost = 0, tax = 0;
+  const dailyMap   = {};
+  const productMap = {};
+
+  for (const tx of sales) {
+    const net  = Number(tx.totalBeforeTax || tx.subtotal || 0);
+    const disc = Number(tx.totalDiscount  || 0);
+    const txTax= Number(tx.tax            || tx.taxAmount || 0);
+    netSales   += net;
+    grossSales += net + disc;
+    discounts  += disc;
+    tax        += txTax;
+
+    const items = tx.items || tx.lineItems || tx.orderItems || [];
+    for (const item of items) {
+      const itemCost = Number(item.costOfGoods || item.cost || item.unitCost || 0);
+      const qty      = Number(item.quantity || item.qty || 1);
+      cost += itemCost * qty;
+      const name = item.productName || item.name || 'Unknown';
+      const rev  = Number(item.totalPrice || item.price || item.lineTotal || 0);
+      if (!productMap[name]) productMap[name] = { revenue: 0, units: 0 };
+      productMap[name].revenue += rev;
+      productMap[name].units   += qty;
+    }
+
+    const dateStr = (tx.transactionDateLocalTime || tx.transactionDate || '').slice(0, 10);
+    if (dateStr) {
+      if (!dailyMap[dateStr]) dailyMap[dateStr] = { netSales: 0, grossSales: 0, orders: 0, discounts: 0 };
+      dailyMap[dateStr].netSales   += net;
+      dailyMap[dateStr].grossSales += net + disc;
+      dailyMap[dateStr].orders     += 1;
+      dailyMap[dateStr].discounts  += disc;
+    }
   }
 
-  return output;
+  const topProducts = Object.entries(productMap)
+    .sort((a, b) => b[1].revenue - a[1].revenue)
+    .slice(0, 10)
+    .map(([name, d]) => ({ name, revenue: d.revenue, units: d.units }));
+
+  return {
+    netSales:   Math.round(netSales   * 100) / 100,
+    grossSales: Math.round(grossSales * 100) / 100,
+    discounts:  Math.round(discounts  * 100) / 100,
+    cost:       Math.round(cost       * 100) / 100,
+    tax:        Math.round(tax        * 100) / 100,
+    orders:     sales.length,
+    topProducts,
+    daily: Object.entries(dailyMap)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, d]) => ({
+        date,
+        netSales:   Math.round(d.netSales   * 100) / 100,
+        grossSales: Math.round(d.grossSales * 100) / 100,
+        orders:     d.orders,
+        discounts:  Math.round(d.discounts  * 100) / 100,
+      })),
+  };
+}
+
+function dayBefore_(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00');
+  d.setDate(d.getDate() - 1);
+  return Utilities.formatDate(d, 'America/Los_Angeles', 'yyyy-MM-dd');
 }
 
 function getISOWeek(date) {
