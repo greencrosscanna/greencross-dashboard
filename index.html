@@ -425,13 +425,13 @@ document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
 
-// ── Session auth (sessionStorage; cleared when tab closes) ───────────────────
+// ── Session auth (localStorage; persists across tabs/restarts, heartbeat refreshes token) ──
 const GC_SALES_AUTH = (function() {
   const KEY = 'gc_sales_token';
-  function save(data) { try { sessionStorage.setItem(KEY, JSON.stringify(data)); } catch(e) {} }
+  function save(data) { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch(e) {} }
   function load() {
     try {
-      const raw = sessionStorage.getItem(KEY);
+      const raw = localStorage.getItem(KEY);
       if (!raw) return null;
       const s = JSON.parse(raw);
       if (!s || !s.token || !s.expiresAt) return null;
@@ -439,7 +439,7 @@ const GC_SALES_AUTH = (function() {
       return s;
     } catch(e) { return null; }
   }
-  function clear() { try { sessionStorage.removeItem(KEY); } catch(e) {} }
+  function clear() { try { localStorage.removeItem(KEY); } catch(e) {} }
   function isAuthed() { return load() !== null; }
   return { save, load, clear, isAuthed };
 })();
