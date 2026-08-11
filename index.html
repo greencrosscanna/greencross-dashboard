@@ -897,13 +897,20 @@ function readCache(key) {
 
 /** Evict ALL historical (non-current-month) sales cache entries to free space. */
 function evictHistoricalSalesCache() {
-  const now = new Date();
-  const curKey = `${now.getFullYear()}_${now.getMonth() + 1}`;
+  const curYear = new Date().getFullYear();
   let n = 0;
   Object.keys(localStorage)
-    .filter(k => k.startsWith('gc_sales_') && k !== 'gc_sales_token' && !k.endsWith('_' + curKey))
+    .filter(k => {
+      if (!k.startsWith('gc_sales_')) return false;
+      if (k === 'gc_sales_token') return false;
+      // Key format: gc_sales_<store>_<year>_<month> — year is second-to-last segment
+      const parts = k.split('_');
+      if (parts.length < 4) return false;
+      const year = Number(parts[parts.length - 2]);
+      return !isNaN(year) && year < curYear; // only evict past years, not current-year past months
+    })
     .forEach(k => { localStorage.removeItem(k); n++; });
-  if (n > 0) console.log(`[cache] evicted ${n} historical sales entries to free space`);
+  if (n > 0) console.log(`[cache] evicted ${n} prior-year sales entries`);
 }
 
 function writeCache(key, data) {
@@ -1087,7 +1094,7 @@ async function fetchStoresMeta() {
     const url  = `${proxyUrl}?action=stores&token=${encodeURIComponent(token)}`;
     const res  = await fetch(url);
     const data = await res.json();
-    if (!data.stores) return;
+    if (!data.stores) { console.warn('fetchStoresMeta: unexpected response', JSON.stringify(data).slice(0, 200)); return; }
     data.stores.forEach(gxStore => {
       const key   = GX_DUTCHIE_TO_SALES[gxStore.dutchie_name] || gxStore.dutchie_name;
       const local = STORE_MAP.get(key);
@@ -1115,6 +1122,7 @@ async function loadAllStores() {
   document.getElementById('load-btn').disabled = true;
   document.getElementById('load-btn').innerHTML = '<span class="spinner-inline"></span>Loading…';
 
+  try {
   await fetchStoresMeta();
 
   // Proactively free space before any writes.
@@ -1216,8 +1224,6 @@ async function loadAllStores() {
     else closeSettings();
   }
 
-  document.getElementById('load-btn').disabled = false;
-  document.getElementById('load-btn').textContent = 'Load live data';
   updateCacheStatus();
   render();
   backfillDailyHistory(proxyUrl);
@@ -1234,7 +1240,11 @@ async function loadAllStores() {
       render();
     }
   }
-  _loadAllStoresInFlight = false;
+  } finally {
+    document.getElementById('load-btn').disabled = false;
+    document.getElementById('load-btn').textContent = 'Load live data';
+    _loadAllStoresInFlight = false;
+  }
 }
 
 // ── Navigation ────────────────────────────────────────────────────────────────

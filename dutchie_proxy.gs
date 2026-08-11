@@ -220,10 +220,18 @@ function getStoreSales_(store, from, to) {
     const toDate   = to.slice(0, 10);
 
     // Settled: [fromDate .. min(toDate, yesterday)]
-    const settledTo  = toDate < todayPT ? toDate : dayBefore_(todayPT);
-    const cacheRows  = fromDate <= settledTo
-      ? (GXCore.getSalesDaily(store, fromDate, settledTo) || [])
-      : [];
+    const settledTo = toDate < todayPT ? toDate : dayBefore_(todayPT);
+    let cacheRows = [];
+    if (fromDate <= settledTo) {
+      const gasCacheKey = 'sdaily_' + store + '_' + fromDate + '_' + settledTo;
+      const hit = cacheGet_(gasCacheKey);
+      if (hit) {
+        cacheRows = JSON.parse(hit);
+      } else {
+        cacheRows = GXCore.getSalesDaily(store, fromDate, settledTo) || [];
+        cacheSet_(gasCacheKey, JSON.stringify(cacheRows), 14400); // 4-hour TTL
+      }
+    }
 
     // Live: today only (if the requested range includes today)
     const liveResult = toDate >= todayPT ? dutchieTodayFetch_(store, todayPT, to) : null;
