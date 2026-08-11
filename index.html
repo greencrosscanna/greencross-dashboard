@@ -625,10 +625,21 @@ function getDailyGoal(storeName, dow, month /* 1–12 */, year, daysInMo) {
 async function loadLeaderboardGoals() {
   try {
     // Resolve the authoritative GAS URL from GX Core config (offline-safe)
+    // Resolve authoritative GAS URL from GX Core — cached 24h so only one slow GAS round-trip
+    const LB_URL_KEY = 'gc_lb_gas_url';
+    const LB_URL_TTL = 24 * 60 * 60 * 1000;
     try {
-      const cfgRes = await fetch(`${GXCORE}?action=config&key=lbGoals`);
-      const cfg = await cfgRes.json();
-      if (cfg.ok && cfg.value) LEADERBOARD_GAS = cfg.value;
+      const cached_url = JSON.parse(localStorage.getItem(LB_URL_KEY) || 'null');
+      if (cached_url && cached_url.v && Date.now() - cached_url.ts < LB_URL_TTL) {
+        LEADERBOARD_GAS = cached_url.v;
+      } else {
+        const cfgRes = await fetch(`${GXCORE}?action=config&key=lbGoals`);
+        const cfg = await cfgRes.json();
+        if (cfg.ok && cfg.value) {
+          LEADERBOARD_GAS = cfg.value;
+          localStorage.setItem(LB_URL_KEY, JSON.stringify({ v: cfg.value, ts: Date.now() }));
+        }
+      }
     } catch(e) { /* use hardcoded fallback */ }
 
     const now = new Date();
