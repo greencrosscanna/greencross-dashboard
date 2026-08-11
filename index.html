@@ -1080,7 +1080,10 @@ async function loadAllStores() {
     const res = await fetch(url);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
-    if (data.error) throw new Error(data.error);
+    if (data.error) {
+      if (data.error === 'Auth required') { salesLogout(); throw new Error(data.error); }
+      throw new Error(data.error);
+    }
     writeSalesCache(store.name, year, month, data);
     stateMap[store.name] = 'ok';
     return data;
