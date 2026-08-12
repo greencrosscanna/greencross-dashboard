@@ -464,7 +464,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v42';
+const APP_VERSION = '1.43';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1021,6 +1021,35 @@ function refreshLiveData() {
   loadAllStores();
 }
 
+// ── Auto-refresh ──────────────────────────────────────────────────────────────
+const AUTO_REFRESH_MS = 60 * 1000; // 60 seconds
+let _autoRefreshTimer = null;
+
+function scheduleAutoRefresh() {
+  clearAutoRefresh();
+  // Only auto-refresh on the current month — historical views are static
+  const curYear = new Date().getFullYear();
+  const curMo   = new Date().getMonth() + 1;
+  if (activeYear !== curYear || activeMonth !== curMo) return;
+  _autoRefreshTimer = setInterval(function() {
+    if (!_loadAllStoresInFlight && !document.hidden) refreshLiveData();
+  }, AUTO_REFRESH_MS);
+}
+
+function clearAutoRefresh() {
+  if (_autoRefreshTimer) { clearInterval(_autoRefreshTimer); _autoRefreshTimer = null; }
+}
+
+// Pause when tab goes to background; catch up immediately on return
+document.addEventListener('visibilitychange', function() {
+  if (document.hidden) {
+    clearAutoRefresh();
+  } else if (Object.keys(liveData).length > 0) {
+    refreshLiveData();      // immediate catch-up refresh
+    scheduleAutoRefresh();  // then resume the timer
+  }
+});
+
 function updateCacheStatus() {
   const keys = Object.keys(localStorage).filter(k => k.startsWith('gc_cache_') || k.startsWith('gc_sales_'));
   const el = document.getElementById('cache-status');
@@ -1123,6 +1152,7 @@ let _loadAllStoresInFlight = false;
 async function loadAllStores() {
   if (_loadAllStoresInFlight) return;          // prevent double-tap race
   _loadAllStoresInFlight = true;
+  const _scrollY = window.scrollY;            // preserve scroll position across refresh
   const proxyUrl = getProxyUrl();
   if (!proxyUrl) {
     _loadAllStoresInFlight = false;            // must reset — early return skips the finally
@@ -1244,6 +1274,8 @@ async function loadAllStores() {
 
   updateCacheStatus();
   render();
+  window.scrollTo(0, _scrollY);  // restore position (no jump on auto-refresh)
+  scheduleAutoRefresh();          // restart 60s timer for current month
   backfillDailyHistory(proxyUrl);
   loadVelocity(); // inventory loads last — lowest priority
   // Auto-select today on initial page load only
@@ -1280,6 +1312,7 @@ function setMonth(m) {
   activeWeek    = null;
   activeDay     = null;
   expandedGroup = null;
+  clearAutoRefresh(); // stops timer; scheduleAutoRefresh() in loadAllStores restarts it if current month
   buildTimeNav();
   if (Object.keys(liveData).length > 0) loadAllStores();
 }
