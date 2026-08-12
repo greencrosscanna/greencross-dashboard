@@ -19,3 +19,5 @@ note-backs to any app (`add_note`). The SessionStart hook surfaces the same inbo
 Integration status: app key **`sales`**; deploys clasp (backend) + GitHub Pages (frontend). ✅ shared login
 (Phase-2), ✅ auto-record (`deploy_version`), ✅ changelog from `version_history`, ✅ gx-theme. ⬜ bug
 forwarding (`gxIngestBug`) — the last seam, now a note in the central inbox.
+
+**What to build next — `/whatsnext`:** run `/whatsnext` in this chat to pull this app's next prioritized work — the Command Center's dependency-ordered build sequence, filtered to this app — so you can build here without switching to the CC. It reads the app key above automatically.
