@@ -468,7 +468,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = '1.46';
+const APP_VERSION = '1.47';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1135,12 +1135,10 @@ async function fetchStoresMeta() {
   const proxyUrl = getProxyUrl();
   const token    = getToken();
   if (!proxyUrl || !token) return;
-  try {
-    const url  = `${proxyUrl}?action=stores&token=${encodeURIComponent(token)}`;
-    const res  = await fetch(url);
-    const data = await res.json();
-    if (!data.stores) { console.warn('fetchStoresMeta: unexpected response', JSON.stringify(data).slice(0, 200)); return; }
-    data.stores.forEach(gxStore => {
+
+  function applyStoreMeta(stores) {
+    if (!stores || !stores.length) return;
+    stores.forEach(gxStore => {
       const key   = GX_DUTCHIE_TO_SALES[gxStore.dutchie_name] || gxStore.dutchie_name;
       const local = STORE_MAP.get(key);
       if (!local) return;
@@ -1148,6 +1146,23 @@ async function fetchStoresMeta() {
       if (gxStore.display_name) local.display = gxStore.display_name;
     });
     buildStoreTabs();
+  }
+
+  // Apply cached colors immediately so progressive renders use GXCore colors, not hardcoded fallbacks
+  try {
+    const cached = JSON.parse(localStorage.getItem('gc_stores_meta') || 'null');
+    if (cached && cached.stores) applyStoreMeta(cached.stores);
+  } catch(e) {}
+
+  try {
+    const url  = `${proxyUrl}?action=stores&token=${encodeURIComponent(token)}`;
+    const res  = await fetch(url);
+    const data = await res.json();
+    if (!data.stores) { console.warn('fetchStoresMeta: unexpected response', JSON.stringify(data).slice(0, 200)); return; }
+    if (data.stores.length > 0) {
+      applyStoreMeta(data.stores);
+      try { localStorage.setItem('gc_stores_meta', JSON.stringify({ stores: data.stores, ts: Date.now() })); } catch(e) {}
+    }
   } catch(e) {
     console.warn('fetchStoresMeta failed:', e.message);
   }

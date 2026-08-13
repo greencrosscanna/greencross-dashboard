@@ -228,8 +228,13 @@ function getStoreSales_(store, from, to) {
       if (hit) {
         cacheRows = JSON.parse(hit);
       } else {
-        cacheRows = GXCore.getSalesDaily(store, fromDate, settledTo) || [];
-        cacheSet_(gasCacheKey, JSON.stringify(cacheRows), 14400); // 4-hour TTL
+        try {
+          cacheRows = GXCore.getSalesDaily(store, fromDate, settledTo) || [];
+          cacheSet_(gasCacheKey, JSON.stringify(cacheRows), 14400); // 4-hour TTL
+        } catch(gxErr) {
+          // GXCore hiccup — degrade to live-only (today's data still loads below)
+          Logger.log('GXCore.getSalesDaily failed for ' + store + ': ' + gxErr.message);
+        }
       }
     }
 
@@ -421,7 +426,9 @@ function getStoresMeta_() {
     cacheSet_('stores_meta', body, 3600); // 1-hour TTL — store list rarely changes
     return ContentService.createTextOutput(body).setMimeType(ContentService.MimeType.JSON);
   } catch(e) {
-    return jsonOut_({ error: e.message });
+    // GXCore hiccup — return empty list so frontend keeps its hardcoded fallback colors
+    Logger.log('getStoresMeta_ GXCore.getStores failed: ' + e.message);
+    return jsonOut_({ stores: [] });
   }
 }
 
