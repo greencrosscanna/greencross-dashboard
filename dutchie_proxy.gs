@@ -330,8 +330,12 @@ function dutchieTodayFetch_(store, todayPT, toISO) {
   const productMap = {};
 
   for (const tx of sales) {
-    const net  = Number(tx.totalBeforeTax || tx.subtotal || 0);
-    const disc = Number(tx.totalDiscount  || 0);
+    // LOCKED canonical definitions — mirror GXCore.txNet / txDiscount / txCogs (nullish `??`, NOT truthy `||`,
+    // and net now includes the `total` fallback that was missing here). See the Command Center's
+    // GX_CONSOLIDATION_MAP.md 🔒 section. Kept inline for the intraday hot loop; settled days already read
+    // GXCore.getSalesDaily. Intraday only. Keep in sync with GXCore.
+    const net  = Number(tx.totalBeforeTax != null ? tx.totalBeforeTax : (tx.subtotal != null ? tx.subtotal : tx.total)) || 0;
+    const disc = Number(tx.totalDiscount != null ? tx.totalDiscount : tx.discountTotal) || 0;
     const txTax= Number(tx.tax            || tx.taxAmount || 0);
     netSales   += net;
     grossSales += net + disc;
@@ -340,9 +344,11 @@ function dutchieTodayFetch_(store, todayPT, toISO) {
 
     const items = tx.items || tx.lineItems || tx.orderItems || [];
     for (const item of items) {
-      const itemCost = Number(item.costOfGoods || item.cost || item.unitCost || 0);
-      const qty      = Number(item.quantity || item.qty || 1);
-      cost += itemCost * qty;
+      const qty = Number(item.quantity != null ? item.quantity : (item.qty != null ? item.qty : 1)) || 1;
+      if (!(item && item.isReturned)) {   // canonical txCogs excludes returned line items
+        const itemCost = Number(item.costOfGoods != null ? item.costOfGoods : (item.cost != null ? item.cost : item.unitCost)) || 0;
+        cost += itemCost * qty;
+      }
       const name = item.productName || item.name || 'Unknown';
       const rev  = Number(item.totalPrice || item.price || item.lineTotal || 0);
       if (!productMap[name]) productMap[name] = { revenue: 0, units: 0 };
