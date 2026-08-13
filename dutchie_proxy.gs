@@ -497,6 +497,7 @@ function getQBAccessToken_() {
   if (!refresh)  throw new Error('No QB_REFRESH_TOKEN — run exchangeQBCode() first.');
   if (!clientId) throw new Error('No QB_CLIENT_ID in Script Properties — run exchangeQBCode() first.');
 
+  const _t0 = Date.now();
   const resp = UrlFetchApp.fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer', {
     method: 'post',
     headers: {
@@ -508,8 +509,18 @@ function getQBAccessToken_() {
     muteHttpExceptions: true,
   });
 
-  const data = JSON.parse(resp.getContentText());
-  if (!data.access_token) throw new Error('QB token refresh failed: ' + resp.getContentText());
+  let data; try { data = JSON.parse(resp.getContentText()); } catch (e) { data = {}; }
+  const ok = !!(data && data.access_token);
+  // Record QuickBooks health into GX Core's shared api_health surface (Master Control INTEGRATIONS panel).
+  // getQBAccessToken_ runs on every QB operation, so this is the one chokepoint that reflects QB reachability.
+  // Guarded + best-effort — never breaks QB auth. Requires GXCore lib ≥ v86 (gxHealthRecord_).
+  try {
+    if (typeof GXCore !== 'undefined' && GXCore.gxHealthRecord_) {
+      GXCore.gxHealthRecord_('quickbooks', ok, Date.now() - _t0,
+        ok ? 'token refresh' : ('token refresh failed: ' + String(resp.getContentText()).slice(0, 120)));
+    }
+  } catch (e) { /* health telemetry is best-effort */ }
+  if (!ok) throw new Error('QB token refresh failed: ' + resp.getContentText());
   props.setProperty('QB_REFRESH_TOKEN', data.refresh_token);
   return data.access_token;
 }
