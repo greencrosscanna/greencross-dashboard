@@ -468,7 +468,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = '1.44';
+const APP_VERSION = '1.45';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1687,7 +1687,7 @@ function storeSparklineHtml(storeName) {
   const max = Math.max(...recent);
   if (max <= 0) return '';
   const trendPct = sumP > 0 ? (sumR - sumP) / sumP : null;
-  const w = 60, h = 20;
+  const w = 120, h = 20;
   const pts = recent.map((v, i) => {
     const x = Math.round((i / 29) * w);
     const y = Math.round(h - 1 - (v / max) * (h - 2));
