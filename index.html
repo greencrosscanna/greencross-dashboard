@@ -445,6 +445,8 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<!-- Resilient GX Core client (retries the Drive-HTML two-hop failure). Same-origin (org Pages). -->
+<script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-client.js"></script>
 <script>
 // Re-inject tags that GAS strips from <head>
 (function(){
@@ -2679,26 +2681,12 @@ function toggleVhist() {
 }
 
 function loadVhist() {
-  const list   = document.getElementById('vhist-list');
-  const cbName = '_vhistCb_' + Date.now();
-  const script = document.createElement('script');
-  const timer  = setTimeout(() => {
-    cleanup();
-    renderVhistFallback(list);
-  }, 6000);
-
-  function cleanup() {
-    clearTimeout(timer);
-    delete window[cbName];
-    if (script.parentNode) script.parentNode.removeChild(script);
-  }
-
-  window[cbName] = function(data) {
-    cleanup();
-    if (!data || !data.ok || !Array.isArray(data.history) || !data.history.length) {
-      renderVhistFallback(list);
-      return;
-    }
+  const list = document.getElementById('vhist-list');
+  // Route through the shared retry-aware client — GX Core's /exec intermittently serves a Drive HTML page
+  // that silently blanks a naive one-shot JSONP (the old code just timed out to the fallback on any miss).
+  if (typeof GXClient === 'undefined') { renderVhistFallback(list); return; }
+  GXClient(GXCORE).jsonp('version_history', { app: 'sales' }).then(function(data) {
+    if (!data || !data.ok || !Array.isArray(data.history) || !data.history.length) { renderVhistFallback(list); return; }
     list.innerHTML = data.history.map(entry => {
       const tag  = escHtml(entry.version || '');
       const date = entry.deployed_at ? fmtVhistDate(entry.deployed_at) : '';
@@ -2706,11 +2694,7 @@ function loadVhist() {
       return `<div class="vhist-row"><span class="vhist-tag">${tag}</span><span class="vhist-date">${date}</span>${desc ? `<span class="vhist-desc">${desc}</span>` : ''}</div>`;
     }).join('');
     list.dataset.loaded = '1';
-  };
-
-  script.onerror = function() { cleanup(); renderVhistFallback(list); };
-  script.src = `${GXCORE}?action=version_history&app=sales&callback=${cbName}`;
-  document.head.appendChild(script);
+  }).catch(function() { renderVhistFallback(list); });
 }
 
 function fmtVhistDate(iso) {
