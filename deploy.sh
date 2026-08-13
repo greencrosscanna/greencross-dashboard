@@ -26,9 +26,18 @@ SHA=$(git rev-parse --short HEAD)
 
 echo "==> Deploying Sales ${VERSION} (${SHA})"
 
-# 1. Push backend to GAS (clasp push — does NOT cut a new version; only deploy does that)
+# 1. Push backend to GAS HEAD (clasp push — does NOT cut a version / update the live proxy; deploy does that)
 echo "==> Pushing backend via clasp..."
-bash clasp.sh push
+bash clasp.sh push --force
+
+# 1b. Deploy the pushed code to the LIVE versioned proxy the app actually serves (DEFAULT_PROXY in index.html).
+#     WITHOUT THIS, backend changes sit in @HEAD forever and never reach the running app — clasp push is NOT
+#     enough. (This gap silently shipped stale backend twice before it was caught.)
+DEPLOY_ID=$(grep -o "const DEFAULT_PROXY = 'https://script.google.com/macros/s/[^']*'" index.html \
+  | grep -o "AKfycb[A-Za-z0-9_-]*" | head -1)
+DEPLOY_ID="${DEPLOY_ID:-AKfycbzju5HeWTGq_5uND_o6M-Gzdcy-lRQw7flOwzI013Me03SumhV8lYV_O_Z4-cIBn-lp}"
+echo "==> Deploying to live proxy ${DEPLOY_ID:0:20}…"
+bash clasp.sh deploy -i "$DEPLOY_ID" -d "${VERSION} ${SHA} ${GX_NOTES:-}"
 
 # 2. Push frontend to GitHub Pages
 echo "==> Pushing frontend to GitHub..."
