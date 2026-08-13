@@ -1238,12 +1238,17 @@ function reportBug_(params, reporter) {
     const priority = params.priority || 'medium';
     const desc     = params.desc     || '';
     if (!desc) return jsonOut_({ ok: false, error: 'desc required' });
-    GXCore.gxIngestBug('sales', reporter, {
-      priority, desc,
+    // GX Core requires a title; the Sales form collects only a description, so derive one from its first
+    // line. Without this, the pinned GXCore library rejected the report ("title required") and the old code
+    // ignored that result — returning ok:true, so the report was silently lost while the user saw success.
+    const title = (params.title && String(params.title).trim()) || desc.split('\n')[0].slice(0, 80).trim();
+    const r = GXCore.gxIngestBug('sales', reporter, {
+      title, priority, desc,
       appVer:   params.appVer   || '',
       appStore: params.appStore || '',
       appTab:   params.appTab   || ''
     });
+    if (!r || !r.ok) return jsonOut_({ ok: false, error: (r && r.error) || 'bug report was not saved' });
     return jsonOut_({ ok: true });
   } catch(e) {
     return jsonOut_({ ok: false, error: e.message });
