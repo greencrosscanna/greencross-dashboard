@@ -603,6 +603,54 @@ function walkQBRows_(rows, cols, result) {
   }
 }
 
+// QB Profit & Loss raw report. Prefer the centralized GX Core connector (the single token owner); fall back
+// to the local Sales token only if GX Core is unreachable or not yet connected — so the Expenses tab keeps
+// working right through the cutover and auto-switches to GX Core the moment it's connected.
+function qbProfitAndLoss_(start, end) {
+  try {
+    const r = qbReportViaGXCore_(start, end);
+    if (r) return r;
+  } catch (e) {
+    Logger.log('QB via GX Core unavailable, falling back to local token: ' + e.message);
+  }
+  return qbReportLocal_(start, end);
+}
+
+// Fetch the P&L through GX Core's centralized, health-instrumented QB connector (secret-gated qb_pnl route).
+// Retries the intermittent Drive-HTML two-hop 404. Returns the raw QB report, or throws.
+function qbReportViaGXCore_(start, end) {
+  const GXCORE_EXEC = 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec';
+  const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
+  if (!secret) return null;   // no secret configured → skip straight to local
+  const url = GXCORE_EXEC + '?action=qb_pnl&secret=' + encodeURIComponent(secret)
+    + '&start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end) + '&by=Month';
+  for (let i = 0; i < 5; i++) {
+    const resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    let data = null; try { data = JSON.parse(resp.getContentText()); } catch (e) {}
+    if (data && data.ok === true && data.report) return data.report;
+    if (data && data.ok === false) throw new Error(data.error || 'qb_pnl error');   // connected but errored → let caller fall back
+    Utilities.sleep(500);   // transient Drive-HTML miss → retry
+  }
+  throw new Error('qb_pnl unreachable after retries');
+}
+
+// Legacy local path — Sales refreshes its own QB token. Retained as the cutover fallback; remove once GX Core
+// is the proven sole owner (it and Sales must NOT both actively refresh — that's the invalid_grant desync).
+function qbReportLocal_(start, end) {
+  const props   = PropertiesService.getScriptProperties();
+  const token   = getQBAccessToken_();
+  const realmId = props.getProperty('QB_REALM_ID');
+  const qbBase  = (props.getProperty('QB_SANDBOX') === 'true')
+    ? 'https://sandbox-quickbooks.api.intuit.com'
+    : 'https://quickbooks.api.intuit.com';
+  const url = qbBase + '/v3/company/' + realmId + '/reports/ProfitAndLoss'
+    + '?start_date=' + start + '&end_date=' + end + '&summarize_column_by=Month';
+  const resp   = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }, muteHttpExceptions: true });
+  const report = JSON.parse(resp.getContentText());
+  if (report.Fault) throw new Error(JSON.stringify(report.Fault));
+  return report;
+}
+
 function getExpenses(params) {
   const output = ContentService.createTextOutput();
   output.setMimeType(ContentService.MimeType.JSON);
@@ -612,32 +660,17 @@ function getExpenses(params) {
     if (cached) { output.setContent(cached); return output; }
   }
   try {
-    const props   = PropertiesService.getScriptProperties();
-    const token   = getQBAccessToken_();
-    const realmId = props.getProperty('QB_REALM_ID');
     const today   = new Date();
     const yr      = today.getFullYear();
     const start   = yr + '-01-01';
     const end     = yr + '-' + String(today.getMonth() + 1).padStart(2, '0')
                         + '-' + String(today.getDate()).padStart(2, '0');
 
-    const isSandbox = (props.getProperty('QB_SANDBOX') === 'true');
-    const qbBase    = isSandbox
-      ? 'https://sandbox-quickbooks.api.intuit.com'
-      : 'https://quickbooks.api.intuit.com';
-
-    const url = qbBase + '/v3/company/' + realmId
-      + '/reports/ProfitAndLoss'
-      + '?start_date=' + start + '&end_date=' + end
-      + '&summarize_column_by=Month';
-
-    const resp   = UrlFetchApp.fetch(url, {
-      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
-      muteHttpExceptions: true,
-    });
-
-    const raw    = resp.getContentText();
-    const report = JSON.parse(raw);
+    // Prefer the centralized GX Core QB connector (single token owner — no two-refresher desync); fall back
+    // to the local Sales token only if GX Core is unreachable/unconnected, so Expenses never gaps during the
+    // cutover. Once GX Core is the proven owner, the local fallback (qbReportLocal_) can be removed.
+    const report = qbProfitAndLoss_(start, end);
+    const raw    = JSON.stringify(report);
     if (report.Fault) throw new Error(JSON.stringify(report.Fault));
 
     // Column titles e.g. ["Jan 2026", "Feb 2026", ...]
