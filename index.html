@@ -2836,6 +2836,7 @@ async function doSalesLogin() {
       document.getElementById('bug-fab').classList.add('visible');
       startSalesHeartbeat();
       loadAllStores();
+      loadWhatsNewSales();
     } else {
       showError(data.error || 'Invalid username or password.');
       btnEl.disabled = false;
@@ -2927,6 +2928,74 @@ async function submitBugReport() {
   }
 }
 
+// ── What's New popup ──────────────────────────────────────────────────────────
+// Adopts the shared What's New standard: reads GX Core's consolidated `releases` feed (meaningful
+// upgrades only) and shows unseen releases once per login. The existing "Version history" list keeps
+// the full raw log; this popup is the staff-facing summary. Self-contained (injects its own CSS + modal).
+(function () {
+  var LS_SEEN = 'gc_wn_seen_sales';
+  var RELEASES = [];
+  var css = ''
+    + '.wn-wrap{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:420;backdrop-filter:blur(2px);align-items:center;justify-content:center}'
+    + '.wn-wrap.open{display:flex}'
+    + '.wn-modal{background:var(--bg);border:.5px solid var(--border-strong);border-radius:14px;width:400px;max-width:92vw;max-height:82vh;display:flex;flex-direction:column;box-shadow:0 18px 50px rgba(0,0,0,.5);overflow:hidden}'
+    + '.wn-head{display:flex;align-items:center;gap:12px;padding:18px 20px;border-bottom:.5px solid var(--card)}'
+    + '.wn-icon{width:34px;height:34px;flex:none;display:flex;align-items:center;justify-content:center;font-size:28px;line-height:1}'
+    + '.wn-title{font-size:15px;font-weight:700;color:var(--text)}'
+    + '.wn-sub{font-size:11px;color:var(--muted);margin-top:1px}'
+    + '.wn-x{margin-left:auto;background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:2px 4px}'
+    + '.wn-body{padding:6px 20px 2px;overflow-y:auto}'
+    + '.wn-rel{padding:12px 0;border-bottom:.5px solid var(--card)}.wn-rel:last-child{border-bottom:none}'
+    + '.wn-rel-head{display:flex;align-items:baseline;gap:10px;margin-bottom:6px}'
+    + '.wn-rel-ver{font-size:12px;font-weight:700;color:var(--green)}'
+    + '.wn-rel-date{font-size:11px;color:var(--muted)}'
+    + '.wn-items{margin:0;padding-left:16px;color:var(--text);font-size:12.5px;line-height:1.6}.wn-items li{margin:2px 0}'
+    + '.wn-foot{padding:14px 20px;border-top:.5px solid var(--card);display:flex;justify-content:flex-end}'
+    + '.wn-ok{background:var(--green);color:#0a0e0d;border:none;border-radius:8px;padding:8px 18px;font-size:12.5px;font-weight:700;cursor:pointer}';
+  var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
+  var wrap = document.createElement('div'); wrap.className = 'wn-wrap'; wrap.id = 'wn-wrap';
+  wrap.addEventListener('click', function (e) { if (e.target === wrap) close(); });
+  document.body.appendChild(wrap);
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function fmtDate(raw) {
+    if (!raw) return '';
+    var s = String(raw).trim(), M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    if (/T/.test(s) || /[zZ]$/.test(s) || /[+\-]\d\d:?\d\d$/.test(s)) { var dt = new Date(s); if (!isNaN(dt.getTime())) { try { return new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', year: 'numeric', month: 'short', day: 'numeric' }).format(dt); } catch (e) {} } }
+    var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/), d = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(s);
+    return isNaN(d.getTime()) ? s : (M[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear());
+  }
+  function mark() { try { localStorage.setItem(LS_SEEN, (RELEASES[0] || {}).version || ''); } catch (e) {} }
+  function close() { wrap.classList.remove('open'); mark(); }
+  function show(list) {
+    var body = list.map(function (e) {
+      var items = (e.bullets && e.bullets.length ? e.bullets : String(e.notes || '').split('\n'))
+        .map(function (x) { return String(x).replace(/^[-•\s]+/, '').trim(); }).filter(Boolean);
+      return '<div class="wn-rel"><div class="wn-rel-head"><span class="wn-rel-ver">' + esc(e.version) + '</span><span class="wn-rel-date">' + esc(fmtDate(e.deployed_at)) + '</span></div><ul class="wn-items">' + items.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul></div>';
+    }).join('');
+    wrap.innerHTML = '<div class="wn-modal"><div class="wn-head"><div class="wn-icon"><img src="https://greencrosscanna.github.io/greencross-gx-theme/gc-icon.png" alt="GC" style="width:28px;height:28px;object-fit:contain;display:block;" onerror="this.replaceWith(this.ownerDocument.createTextNode(String.fromCodePoint(127807)))"></div><div><div class="wn-title">What’s New</div><div class="wn-sub">Green Cross Sales · ' + esc(APP_VERSION) + '</div></div><button class="wn-x" onclick="closeWhatsNewSales()" title="Close">✕</button></div><div class="wn-body">' + body + '</div><div class="wn-foot"><button class="wn-ok" onclick="closeWhatsNewSales()">Got it</button></div></div>';
+    wrap.classList.add('open');
+  }
+  window.closeWhatsNewSales = close;
+  window.checkWhatsNewSales = function () {
+    if (window._wnSalesChecked) return;
+    if (!RELEASES.length) return;                 // not loaded yet — the loader re-invokes us
+    window._wnSalesChecked = true;
+    var seen = ''; try { seen = localStorage.getItem(LS_SEEN) || ''; } catch (e) {}
+    var unseen;
+    if (!seen) { unseen = RELEASES.slice(0, 3); } // first run: latest few, don't flood
+    else { var i = RELEASES.findIndex(function (r) { return r.version === seen; }); unseen = i > 0 ? RELEASES.slice(0, i) : (i === 0 ? [] : RELEASES.slice(0, 1)); }
+    if (unseen.length) show(unseen); else mark();
+  };
+  window.loadWhatsNewSales = function () {
+    if (typeof GXClient === 'undefined') return;
+    GXClient(GXCORE).jsonp('version_history', { app: 'sales' }).then(function (d) {
+      RELEASES = (d && d.ok && (d.releases || d.history)) || [];
+      window._wnSalesChecked = false; window.checkWhatsNewSales();
+    }).catch(function () {});
+  };
+})();
+
 if (GC_SALES_AUTH.isAuthed()) {
   var _initSession = GC_SALES_AUTH.load();
   var _initUserEl = document.getElementById('s-logged-in-user');
@@ -2934,6 +3003,7 @@ if (GC_SALES_AUTH.isAuthed()) {
   document.getElementById('bug-fab').classList.add('visible');
   startSalesHeartbeat();
   loadAllStores();
+  loadWhatsNewSales();
 } else {
   showLoginScreen();
 }
