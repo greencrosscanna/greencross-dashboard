@@ -340,19 +340,12 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 
     <!-- CONNECTION -->
     <div class="s-section">Connection</div>
-    <div style="margin-bottom:6px">
-      <div style="font-size:11px;color:#666;margin-bottom:4px">Google Apps Script proxy URL</div>
-      <input class="s-input" id="proxy-url" type="url" placeholder="https://script.google.com/macros/s/…/exec">
-    </div>
+    <input id="proxy-url" type="hidden">
     <button class="s-btn primary" id="load-btn" onclick="loadAllStores()">Load live data</button>
     <button class="s-btn full" onclick="refreshDutchieData()" style="margin-top:6px">↻ Refresh Dutchie data</button>
     <button class="s-btn full" onclick="clearCacheAndReload()" style="margin-top:4px">↻ Clear all cache &amp; reload</button>
     <div id="cache-status" style="font-size:10px;color:#444;margin-top:6px;line-height:1.5">No cache</div>
     <div id="setup-err" class="err-msg" style="display:none"></div>
-    <div class="s-hint">
-      Deploy your Apps Script as a Web App with <code>Execute as: Me</code> and <code>Who has access: Anyone</code>. Paste the /exec URL above.<br>
-      <a href="https://developers.google.com/apps-script/guides/web" target="_blank">Apps Script deploy guide →</a>
-    </div>
 
     <!-- DISPLAY -->
     <div class="s-section">Display</div>
@@ -468,7 +461,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = '1.48';
+const APP_VERSION = '1.49';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -755,7 +748,7 @@ let PACE_GREEN = Number(localStorage.getItem('gc_pace_green') || 95);
 
 // Single read-point for the proxy URL — avoids 7+ places querying the DOM directly.
 function getProxyUrl() {
-  return (document.getElementById('proxy-url')?.value || '').trim();
+  return (document.getElementById('proxy-url')?.value || '').trim() || DEFAULT_PROXY;
 }
 
 // Safe HTML escape — prevents raw strings from backend injecting markup.
@@ -1174,11 +1167,6 @@ async function loadAllStores() {
   _loadAllStoresInFlight = true;
   const _scrollY = window.scrollY;            // preserve scroll position across refresh
   const proxyUrl = getProxyUrl();
-  if (!proxyUrl) {
-    _loadAllStoresInFlight = false;            // must reset — early return skips the finally
-    showErr('setup-err', 'Paste your Google Apps Script Web App URL first.');
-    return;
-  }
   document.getElementById('setup-err').style.display = 'none';
   document.getElementById('load-btn').disabled = true;
   document.getElementById('load-btn').innerHTML = '<span class="spinner-inline"></span>Loading…';
