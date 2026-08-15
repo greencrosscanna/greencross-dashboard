@@ -223,14 +223,19 @@ function getStoreSales_(store, from, to) {
     const settledTo = toDate < todayPT ? toDate : dayBefore_(todayPT);
     let cacheRows = [];
     if (fromDate <= settledTo) {
-      const gasCacheKey = 'sdaily_' + store + '_' + fromDate + '_' + settledTo;
+      // Version prefix (v2): bump to instantly orphan stale server-cache entries — CacheService has no
+      // clear-all, and the client 'clear cache' buttons only touch localStorage, so a stale settled-month
+      // snapshot (e.g. July showing 736k after re-pull corrected it to 711k) had no way to be flushed.
+      const gasCacheKey = 'sdaily_v2_' + store + '_' + fromDate + '_' + settledTo;
       const hit = cacheGet_(gasCacheKey);
       if (hit) {
         cacheRows = JSON.parse(hit);
       } else {
         try {
           cacheRows = GXCore.getSalesDaily(store, fromDate, settledTo) || [];
-          cacheSet_(gasCacheKey, JSON.stringify(cacheRows), 14400); // 4-hour TTL
+          // 1-hour TTL (was 4h): getSalesDaily is authoritative + cheap, so retroactive returns / re-pull
+          // corrections to settled days surface within the hour instead of lingering.
+          cacheSet_(gasCacheKey, JSON.stringify(cacheRows), 3600);
         } catch(gxErr) {
           // GXCore hiccup — degrade to live-only (today's data still loads below)
           Logger.log('GXCore.getSalesDaily failed for ' + store + ': ' + gxErr.message);
