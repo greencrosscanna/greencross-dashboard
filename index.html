@@ -461,7 +461,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = '1.49';
+const APP_VERSION = '1.50';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -925,8 +925,18 @@ function writeCache(key, data) {
 }
 
 // ── Sales cache helpers (per store/year/month) ────────────────────────────────
-const SALES_TTL_HIST = 30 * 24 * 60 * 60 * 1000; // 30 days — past months never change
+const SALES_TTL_HIST =      60 * 60 * 1000;        // 1 hour (was 6h) — past months DO change (retroactive
+                                                   //           returns/voids land ~2wks after month-end, and
+                                                   //           net-definition re-pulls rewrite settled days), so a
+                                                   //           correction can't linger. Reads hit GX Core's cache,
+                                                   //           not live Dutchie — cheap, no quota.
 const SALES_TTL_CURR =      10 * 60 * 1000;        // 10 min  — current month updates live
+
+// Bump this to instantly orphan EVERY stale month cache on next load — e.g. after a suite-wide net-definition
+// / re-pull correction that rewrote settled days (a stale July read 736k vs the corrected 711k). Old keys are
+// simply never read again; the clear/evict sweeps (startsWith 'gc_sales_') still tidy them up.
+const SALES_CACHE_VER = 'v2';
+function salesCacheKey(store, year, month) { return `gc_sales_${SALES_CACHE_VER}_${store}_${year}_${month}`; }
 
 function isCurrMonth(year, month) {
   const n = new Date();
@@ -935,7 +945,7 @@ function isCurrMonth(year, month) {
 
 function readSalesCache(store, year, month) {
   try {
-    const raw = localStorage.getItem(`gc_sales_${store}_${year}_${month}`);
+    const raw = localStorage.getItem(salesCacheKey(store, year, month));
     if (!raw) return null;
     const entry = JSON.parse(raw);
     const ttl = isCurrMonth(year, month) ? SALES_TTL_CURR : SALES_TTL_HIST;
@@ -948,13 +958,13 @@ function writeSalesCache(store, year, month, data) {
   const payload = JSON.stringify({ data, ts: Date.now() });
   const isCurrentMonth = isCurrMonth(year, month);
   try {
-    localStorage.setItem(`gc_sales_${store}_${year}_${month}`, payload);
+    localStorage.setItem(salesCacheKey(store, year, month), payload);
   } catch(e) {
     if (!isCurrentMonth) return; // Historical data is dispensable — skip silently
     // Current month is critical — evict all historical sales and retry
     evictHistoricalSalesCache();
     try {
-      localStorage.setItem(`gc_sales_${store}_${year}_${month}`, payload);
+      localStorage.setItem(salesCacheKey(store, year, month), payload);
     } catch(e2) { console.warn('Sales cache write failed:', e2.message); }
   }
 }
@@ -987,6 +997,7 @@ function clearAllCache() {
   Object.keys(sessionMemCache).forEach(k => delete sessionMemCache[k]);
   inventoryData = {};
   allDailyData  = {};
+  liveData      = {};   // was missing — without it the on-screen figure survived a "clear" (the July 736k trap)
   lbGoals       = null;
   costData      = null;
   costLoadError = null;
@@ -1008,11 +1019,15 @@ async function refreshDutchieData() {
 }
 
 function refreshLiveData() {
-  // Clear only the current month's localStorage so the next loadAllStores call
-  // is forced to re-fetch today's Dutchie numbers, while preserving all historical months.
-  const curYear = new Date().getFullYear();
-  const curMo   = new Date().getMonth() + 1;
-  STORES.forEach(s => localStorage.removeItem(`gc_sales_${s.name}_${curYear}_${curMo}`));
+  // Bust the current month AND whatever month/year is being VIEWED, so Refresh always re-fetches what's on
+  // screen — including a past month whose GX Core numbers were corrected (retroactive returns / net-definition
+  // re-pull). Historical re-fetch is a cheap GX Core cache read, not live Dutchie.
+  const curYear = new Date().getFullYear(), curMo = new Date().getMonth() + 1;
+  STORES.forEach(s => {
+    localStorage.removeItem(salesCacheKey(s.name, curYear, curMo));
+    if (activeMonth === 0) { for (let m = 1; m <= 12; m++) localStorage.removeItem(salesCacheKey(s.name, activeYear, m)); } // YTD/full-year
+    else localStorage.removeItem(salesCacheKey(s.name, activeYear, activeMonth));
+  });
   liveData = {};
   _invalidateDerivedCaches();
   loadAllStores();
