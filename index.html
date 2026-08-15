@@ -461,7 +461,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = '1.50';
+const APP_VERSION = '1.51';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -807,14 +807,19 @@ function monthRange(m, year) {
   const curYear = now.getFullYear();
   const curMo   = now.getMonth() + 1;
   const iso = d => d.toISOString().replace('.000','');
+  const pad = n => String(n).padStart(2, '0');
+  // Date boundaries are built as plain LOCAL 'YYYY-MM-DD' strings — NOT via toISOString(). A local end-of-day
+  // (e.g. Jul 31 23:59:59 PT) toISOString()s to the NEXT UTC day (Aug 1), and the proxy slices `to` to a date
+  // (to.slice(0,10)) — which pulled the 1st of the NEXT month's sales into this month (July read 736k vs the
+  // real 711k; every past month, and past-year YTD via Dec 31→Jan 1, was inflated by one day).
   if (m === 0) {
-    const end = yr < curYear ? new Date(yr, 12, 0, 23, 59, 59) : now;
-    return { from: iso(new Date(yr, 0, 1)), to: iso(end) };
+    const to = yr < curYear ? `${yr}-12-31` : iso(now);   // past year → Dec 31 exactly; current year → now (today is live)
+    return { from: `${yr}-01-01`, to };
   }
-  const start = new Date(yr, m-1, 1);
-  const isCur = yr === curYear && m === curMo;
-  const end   = isCur ? now : new Date(yr, m, 0, 23, 59, 59);
-  return { from: iso(start), to: iso(end) };
+  const isCur   = yr === curYear && m === curMo;
+  const lastDay = new Date(yr, m, 0).getDate();           // last calendar day of month m (1-based)
+  const to      = isCur ? iso(now) : `${yr}-${pad(m)}-${pad(lastDay)}`;
+  return { from: `${yr}-${pad(m)}-01`, to };
 }
 
 function pill(color, text) {
