@@ -116,6 +116,50 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .mob-sticky .logo-row{padding-top:0;margin-bottom:8px}
 .desk-gear{display:none}
 
+/* 1c mobile layout: sidebar hidden — nav in pinned bottom bar */
+.sidebar{display:none}
+.main-col{padding-bottom:68px}
+/* Mobile hero */
+.mob-hero{padding:18px 0 14px}
+.mh-label{font-size:11px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;display:flex;align-items:center;gap:5px;line-height:1}
+.mh-dot{width:7px;height:7px;border-radius:50%;background:var(--border-strong);flex-shrink:0}
+.mh-dot.ok{background:var(--green)}.mh-dot.loading{background:var(--amber);animation:pulse 1s ease-in-out infinite}.mh-dot.err{background:var(--red)}
+.mh-num{font-size:40px;font-weight:600;color:var(--text);line-height:1.05;letter-spacing:-0.02em;margin-bottom:4px;min-height:44px;display:flex;align-items:center}
+.mh-sub{font-size:12px;color:var(--muted);line-height:1.4}
+/* Pinned bottom navigation bar */
+.mob-bottom-bar{position:fixed;bottom:0;left:0;right:0;z-index:200;background:rgba(10,14,13,.96);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-top:0.5px solid var(--border);display:flex;align-items:center;gap:2px;padding:0 8px;padding-bottom:env(safe-area-inset-bottom);height:calc(52px + env(safe-area-inset-bottom))}
+.mbb-filter{font-size:12px;font-weight:500;color:var(--text);background:var(--card);border:0.5px solid var(--border-strong);border-radius:20px;padding:5px 9px;cursor:pointer;white-space:nowrap;flex-shrink:0;display:flex;align-items:center;gap:3px;-webkit-tap-highlight-color:transparent}
+.mbb-arrow{font-size:9px;opacity:0.6}
+.mbb-sep{width:0.5px;height:22px;background:var(--border);flex-shrink:0;margin:0 3px}
+.mbb-section{flex:1;font-size:11px;font-weight:500;padding:7px 2px;border:none;background:transparent;color:var(--muted);cursor:pointer;text-align:center;border-radius:6px;-webkit-tap-highlight-color:transparent}
+.mbb-section.on{color:var(--green)}
+.mbb-gear{background:none;border:none;cursor:pointer;color:var(--muted);padding:7px 5px;border-radius:6px;line-height:0;-webkit-tap-highlight-color:transparent;flex-shrink:0}
+/* Bottom-sheet trays */
+.mob-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:300;backdrop-filter:blur(2px)}
+.mob-overlay.open{display:block}
+.mob-tray{position:fixed;bottom:0;left:0;right:0;z-index:301;background:var(--bg);border-radius:16px 16px 0 0;border-top:0.5px solid var(--border);transform:translateY(100%);transition:transform 0.28s cubic-bezier(.4,0,.2,1);max-height:78vh;display:flex;flex-direction:column}
+.mob-tray.open{transform:translateY(0)}
+.mob-tray-handle{width:36px;height:4px;background:var(--border-strong);border-radius:2px;margin:10px auto 0;flex-shrink:0}
+.mob-tray-head{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:0.5px solid var(--border);flex-shrink:0}
+.mob-tray-title{font-size:14px;font-weight:600;color:var(--text)}
+.mob-tray-done{font-size:13px;font-weight:600;color:var(--green);background:none;border:none;cursor:pointer;padding:4px 0}
+.mob-tray-body{flex:1;overflow-y:auto;padding:14px 18px 24px;-webkit-overflow-scrolling:touch}
+.pt-sec-lbl{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em;margin:16px 0 8px}
+.pt-sec-lbl:first-child{margin-top:0}
+.pt-chips{display:flex;flex-wrap:wrap;gap:5px}
+.pt-chip{font-size:12px;font-weight:500;padding:8px 14px;min-height:40px;border-radius:20px;border:0.5px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;white-space:nowrap;display:flex;align-items:center;-webkit-tap-highlight-color:transparent}
+.pt-chip.on{background:var(--green);color:var(--green-ink);border-color:var(--green)}
+.pt-chip.future{opacity:0.3;pointer-events:none}
+.st-row{display:flex;align-items:center;gap:10px;padding:13px 0;border-bottom:0.5px solid var(--border);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.st-row:last-child{border-bottom:none}
+.st-sdot{width:8px;height:8px;border-radius:50%;background:var(--border-strong);flex-shrink:0}
+.st-sdot.ok{background:var(--green)}.st-sdot.loading{background:var(--amber)}.st-sdot.err{background:var(--red)}
+.st-name{font-size:13px;font-weight:500;color:var(--text);flex:1}
+.st-meta{font-size:11px;color:var(--muted)}
+.st-radio{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--border-strong);flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:border-color 0.15s,background 0.15s}
+.st-radio.on{border-color:var(--green);background:var(--green)}
+.st-radio.on::after{content:'';width:8px;height:8px;border-radius:50%;background:var(--green-ink)}
+
 /* KPI cards */
 .kpi-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-bottom:14px}
 .kpi{background:var(--card);border-radius:8px;padding:11px}
@@ -188,9 +232,13 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
    This means phones are excluded even when GAS serves inside a wide iframe. */
 @media(min-width:768px) and (hover:hover) and (pointer:fine){
   .w{max-width:1400px;padding:24px;display:grid;grid-template-columns:360px 1fr;gap:0 32px;align-items:start}
-  .sidebar{position:sticky;top:24px;max-height:calc(100vh - 48px);overflow-y:auto;overflow-x:hidden;padding-right:4px;scrollbar-width:none}
+  .sidebar{display:block;position:sticky;top:24px;max-height:calc(100vh - 48px);overflow-y:auto;overflow-x:hidden;padding-right:4px;scrollbar-width:none}
   .sidebar::-webkit-scrollbar{display:none}
-  .main-col{min-width:0}
+  .main-col{min-width:0;padding-bottom:0}
+  .mob-hero{display:none}
+  .mob-bottom-bar{display:none}
+  .mob-overlay{display:none!important}
+  .mob-tray{display:none!important}
   .kpi-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
   .kpi.wide{grid-column:span 4}
   .section-tabs{flex-direction:column;gap:3px;margin-bottom:10px;background:transparent;border:none;padding:0}
@@ -338,11 +386,57 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 
   <!-- ── Main content ── -->
   <div class="main-col">
+    <!-- 1c: hero net-sales number (mobile only) -->
+    <div class="mob-hero" id="mob-hero">
+      <div class="mh-label">
+        <div class="mh-dot loading" id="mh-dot"></div>
+        <span id="mh-label-text">Net sales</span>
+      </div>
+      <div class="mh-num" id="mh-num"><span class="spinner-inline"></span></div>
+      <div class="mh-sub" id="mh-sub"></div>
+    </div>
     <div id="main-content">
       <div class="empty-state"><span class="spinner-inline"></span>Connecting…</div>
     </div>
   </div>
 
+</div>
+
+<!-- 1c: pinned mobile bottom bar -->
+<div class="mob-bottom-bar" id="mob-bottom-bar">
+  <button class="mbb-filter" id="mbb-period" onclick="openPeriodTray()">
+    <span id="mbb-period-lbl">Period</span><span class="mbb-arrow">▴</span>
+  </button>
+  <button class="mbb-filter" id="mbb-stores" onclick="openStoreTray()">
+    <span id="mbb-stores-lbl">All stores</span><span class="mbb-arrow">▴</span>
+  </button>
+  <div class="mbb-sep"></div>
+  <button class="mbb-section on" data-s="income" onclick="mobSetSection('income')">Income</button>
+  <button class="mbb-section" data-s="expenses" onclick="mobSetSection('expenses')">Expenses</button>
+  <button class="mbb-section" data-s="inventory" onclick="mobSetSection('inventory')">Inventory</button>
+  <div class="mbb-sep"></div>
+  <button class="mbb-gear" onclick="openSettings()" title="Settings">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </button>
+</div>
+
+<!-- 1c: overlay + bottom-sheet trays -->
+<div class="mob-overlay" id="mob-overlay" onclick="closeMobTrays()"></div>
+<div class="mob-tray" id="mob-period-tray">
+  <div class="mob-tray-handle"></div>
+  <div class="mob-tray-head">
+    <span class="mob-tray-title">Period</span>
+    <button class="mob-tray-done" onclick="closePeriodTray()">Done</button>
+  </div>
+  <div class="mob-tray-body" id="mob-period-tray-body"></div>
+</div>
+<div class="mob-tray" id="mob-store-tray">
+  <div class="mob-tray-handle"></div>
+  <div class="mob-tray-head">
+    <span class="mob-tray-title">Stores</span>
+    <button class="mob-tray-done" onclick="closeStoreTray()">Done</button>
+  </div>
+  <div class="mob-tray-body" id="mob-store-tray-body"></div>
 </div>
 
 <!-- ── Bug report FAB ── -->
@@ -506,7 +600,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = '1.52';
+const APP_VERSION = '1.53';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1453,6 +1547,7 @@ function setStore(s) {
     t.style.borderColor  = on && st ? st.color : '';
   });
   buildStoreChipGrid();
+  updateMobBottomBar();
   render();
 }
 
@@ -1559,6 +1654,7 @@ function buildTimeNav() {
 
   document.getElementById('time-nav').innerHTML = parts.join('');
   buildPeriodBar();
+  updateMobBottomBar();
 }
 
 function buildStoreTabs() {
@@ -1649,6 +1745,7 @@ function buildPeriodExpanded() {
   const curWeek = getUserWeek(new Date());
   const today   = new Date(); today.setHours(0, 0, 0, 0);
   const isPast  = activeYear < curYear;
+  const _years  = [curYear - 2, curYear - 1, curYear];
   let html = '';
   if (expandedGroup === 'year') {
     html = _years.map(yr =>
@@ -1679,6 +1776,139 @@ function buildPeriodExpanded() {
     }).join('');
   }
   el.innerHTML = html;
+}
+
+// ── 1c Mobile hero + bottom bar ──────────────────────────────────────────────
+
+function updateMobHero() {
+  const dot    = document.getElementById('mh-dot');
+  const lbl    = document.getElementById('mh-label-text');
+  const numEl  = document.getElementById('mh-num');
+  const subEl  = document.getElementById('mh-sub');
+  if (!dot || !lbl || !numEl || !subEl) return;
+  const stores = getActiveStores();
+  const { net } = getPeriodTotals(stores);
+  lbl.textContent = 'Net sales · ' + getPeriodLabel();
+  numEl.textContent = fmtK(net);
+  subEl.textContent = '';
+  dot.className = 'mh-dot ' + (Object.keys(liveData).length > 0 ? 'ok' : 'loading');
+}
+
+function updateMobBottomBar() {
+  const periodLbl = document.getElementById('mbb-period-lbl');
+  const storesLbl = document.getElementById('mbb-stores-lbl');
+  if (periodLbl) periodLbl.textContent = getPeriodLabel();
+  if (storesLbl) storesLbl.textContent = activeStore === 'All' ? 'All stores' : activeStore;
+  document.querySelectorAll('.mbb-section').forEach(t =>
+    t.classList.toggle('on', t.dataset.s === section)
+  );
+}
+
+function mobSetSection(s) {
+  setSection(s);
+  updateMobBottomBar();
+}
+
+// Period tray
+function openPeriodTray() {
+  buildPeriodTray();
+  document.getElementById('mob-overlay').classList.add('open');
+  document.getElementById('mob-period-tray').classList.add('open');
+}
+function closePeriodTray() {
+  document.getElementById('mob-overlay').classList.remove('open');
+  document.getElementById('mob-period-tray').classList.remove('open');
+}
+function buildPeriodTray() {
+  const body = document.getElementById('mob-period-tray-body');
+  if (!body) return;
+  const curYear  = new Date().getFullYear();
+  const curMo    = new Date().getMonth() + 1;
+  const curWeek  = getUserWeek(new Date());
+  const today    = new Date(); today.setHours(0, 0, 0, 0);
+  const isPast   = activeYear < curYear;
+  const _years   = [curYear - 2, curYear - 1, curYear];
+  const yearChips = _years.map(yr =>
+    `<button class="pt-chip${yr === activeYear ? ' on' : ''}" onclick="ptSetYear(${yr})">${yr}</button>`
+  ).join('');
+  const allLbl = isPast ? 'Full Year' : 'YTD';
+  const moChips = `<button class="pt-chip${activeMonth === 0 ? ' on' : ''}" onclick="ptSetMonth(0)">${allLbl}</button>` +
+    MONTHS.map((m, i) => {
+      const mo = i + 1, future = !isPast && mo > curMo;
+      return `<button class="pt-chip${mo === activeMonth ? ' on' : ''}${future ? ' future' : ''}" onclick="ptSetMonth(${mo})">${m}</button>`;
+    }).join('');
+  let wkSection = '';
+  if (activeMonth > 0) {
+    const weeks = getWeeksInMonth(activeYear, activeMonth);
+    const wkChips = `<button class="pt-chip${!activeWeek ? ' on' : ''}" onclick="ptSetWeek(null)">All weeks</button>` +
+      weeks.map(w => {
+        const future = activeYear === curYear && (activeMonth > curMo || (activeMonth === curMo && w > curWeek));
+        return `<button class="pt-chip${w === activeWeek ? ' on' : ''}${future ? ' future' : ''}" onclick="ptSetWeek(${w})">WK${w}</button>`;
+      }).join('');
+    wkSection = `<div class="pt-sec-lbl">Week</div><div class="pt-chips">${wkChips}</div>`;
+    if (activeWeek) {
+      const dayChips = getDaysOfISOWeek(activeYear, activeWeek).map(d => {
+        const ds  = d.toISOString().slice(0, 10);
+        const lbl = DAY_LETTERS[d.getDay()] + ' ' + d.getDate();
+        const future = d > today;
+        const inMonth = d.getMonth() + 1 === activeMonth;
+        return `<button class="pt-chip${activeDay === ds ? ' on' : ''}${future ? ' future' : ''}" style="${!inMonth && !future ? 'opacity:0.3' : ''}" onclick="ptSetDay('${ds}')">${lbl}</button>`;
+      }).join('');
+      wkSection += `<div class="pt-sec-lbl">Day</div><div class="pt-chips">${dayChips}</div>`;
+    }
+  }
+  body.innerHTML =
+    `<div class="pt-sec-lbl">Year</div><div class="pt-chips">${yearChips}</div>` +
+    `<div class="pt-sec-lbl">Month</div><div class="pt-chips">${moChips}</div>` +
+    wkSection;
+}
+function ptSetYear(yr)   { setYear(yr);      buildPeriodTray(); updateMobBottomBar(); }
+function ptSetMonth(m)   { setMonth(m);      buildPeriodTray(); updateMobBottomBar(); }
+function ptSetWeek(w)    {
+  if (w === null) { setWeekAll(); } else { setWeek(w); }
+  buildPeriodTray(); updateMobBottomBar();
+}
+function ptSetDay(ds)    { setDay(ds);       buildPeriodTray(); updateMobBottomBar(); }
+
+// Store tray
+function openStoreTray() {
+  buildStoreTray();
+  document.getElementById('mob-overlay').classList.add('open');
+  document.getElementById('mob-store-tray').classList.add('open');
+}
+function closeStoreTray() {
+  document.getElementById('mob-overlay').classList.remove('open');
+  document.getElementById('mob-store-tray').classList.remove('open');
+}
+function buildStoreTray() {
+  const body = document.getElementById('mob-store-tray-body');
+  if (!body) return;
+  const rows = [{ name: 'All', label: 'All stores', net: null }]
+    .concat(STORES.map(s => ({ name: s.name, label: s.name, net: getStorePeriodNet(s.name) })));
+  body.innerHTML = rows.map(r => {
+    const isOn  = activeStore === r.name;
+    const meta  = r.net !== null ? fmtK(r.net) : '';
+    const st    = STORE_MAP.get(r.name);
+    const dotCls = st ? (liveData[r.name] ? 'ok' : 'loading') : 'ok';
+    const dotEl  = r.name === 'All' ? '' : `<div class="st-sdot ${dotCls}"></div>`;
+    return `<div class="st-row" onclick="storeTraySel('${r.name}')">
+      ${dotEl}
+      <span class="st-name">${r.label}</span>
+      ${meta ? `<span class="st-meta">${meta}</span>` : ''}
+      <div class="st-radio${isOn ? ' on' : ''}"></div>
+    </div>`;
+  }).join('');
+}
+function storeTraySel(s) {
+  setStore(s);
+  closeStoreTray();
+  updateMobBottomBar();
+  updateMobHero();
+}
+function closeMobTrays() {
+  document.getElementById('mob-overlay').classList.remove('open');
+  document.getElementById('mob-period-tray').classList.remove('open');
+  document.getElementById('mob-store-tray').classList.remove('open');
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -1729,15 +1959,17 @@ function render() {
   }
   _lastRenderedSection = section;
 
-  if (section === 'expenses')  { renderExpenses();  return; }
-  if (section === 'inventory') { renderInventory(); return; }
+  if (section === 'expenses')  { renderExpenses();  updateMobHero(); return; }
+  if (section === 'inventory') { renderInventory(); updateMobHero(); return; }
   if (Object.keys(liveData).length === 0) {
     _incomeMounted = false;
     document.getElementById('main-content').innerHTML =
       `<div class="empty-state">No data loaded yet.</div>`;
+    updateMobHero();
     return;
   }
   renderIncome();
+  updateMobHero();
 }
 
 function destroyCharts() {
@@ -3046,6 +3278,7 @@ buildStoreTabs();
 buildStatusGrid({});
 buildPeriodBar();
 buildStoreChipGrid();
+updateMobBottomBar();
 document.getElementById('proxy-url').value = DEFAULT_PROXY;
 updateCacheStatus();
 // ── Bug report ────────────────────────────────────────────────────────────────
