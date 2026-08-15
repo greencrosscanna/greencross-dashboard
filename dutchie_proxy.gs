@@ -223,10 +223,9 @@ function getStoreSales_(store, from, to) {
     const settledTo = toDate < todayPT ? toDate : dayBefore_(todayPT);
     let cacheRows = [];
     if (fromDate <= settledTo) {
-      // Version prefix (v2): bump to instantly orphan stale server-cache entries — CacheService has no
-      // clear-all, and the client 'clear cache' buttons only touch localStorage, so a stale settled-month
-      // snapshot (e.g. July showing 736k after re-pull corrected it to 711k) had no way to be flushed.
-      const gasCacheKey = 'sdaily_v2_' + store + '_' + fromDate + '_' + settledTo;
+      // Version prefix (v3): bumped 2026-08-15 to bust stale entries after GXCore backfill (8/13–8/14 rows
+      // were missing; proxy had cached the incomplete result for up to 1h). CacheService has no clear-all.
+      const gasCacheKey = 'sdaily_v3_' + store + '_' + fromDate + '_' + settledTo;
       const hit = cacheGet_(gasCacheKey);
       if (hit) {
         cacheRows = JSON.parse(hit);
