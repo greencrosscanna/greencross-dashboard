@@ -118,7 +118,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 
 /* 1c mobile layout: sidebar hidden — nav in pinned bottom bar */
 .sidebar{display:none}
-.main-col{padding-bottom:68px}
+.main-col{padding-bottom:140px}
 /* Mobile hero */
 .mob-hero{padding:18px 0 14px}
 .mh-label{font-size:11px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;display:flex;align-items:center;gap:5px;line-height:1}
@@ -126,14 +126,18 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .mh-dot.ok{background:var(--green)}.mh-dot.loading{background:var(--amber);animation:pulse 1s ease-in-out infinite}.mh-dot.err{background:var(--red)}
 .mh-num{font-size:40px;font-weight:600;color:var(--text);line-height:1.05;letter-spacing:-0.02em;margin-bottom:4px;min-height:44px;display:flex;align-items:center}
 .mh-sub{font-size:12px;color:var(--muted);line-height:1.4}
-/* Pinned bottom navigation bar */
-.mob-bottom-bar{position:fixed;bottom:0;left:0;right:0;z-index:200;background:rgba(10,14,13,.96);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-top:0.5px solid var(--border);display:flex;align-items:center;gap:2px;padding:0 8px;padding-bottom:env(safe-area-inset-bottom);height:calc(52px + env(safe-area-inset-bottom))}
-.mbb-filter{font-size:12px;font-weight:500;color:var(--text);background:var(--card);border:0.5px solid var(--border-strong);border-radius:20px;padding:5px 9px;cursor:pointer;white-space:nowrap;flex-shrink:0;display:flex;align-items:center;gap:3px;-webkit-tap-highlight-color:transparent}
-.mbb-arrow{font-size:9px;opacity:0.6}
-.mbb-sep{width:0.5px;height:22px;background:var(--border);flex-shrink:0;margin:0 3px}
-.mbb-section{flex:1;font-size:11px;font-weight:500;padding:7px 2px;border:none;background:transparent;color:var(--muted);cursor:pointer;text-align:center;border-radius:6px;-webkit-tap-highlight-color:transparent}
-.mbb-section.on{color:var(--green)}
-.mbb-gear{background:none;border:none;cursor:pointer;color:var(--muted);padding:7px 5px;border-radius:6px;line-height:0;-webkit-tap-highlight-color:transparent;flex-shrink:0}
+/* Pinned bottom navigation bar — two-row design */
+.mob-bottom-bar{position:fixed;bottom:0;left:0;right:0;z-index:200;display:flex;flex-direction:column}
+.mbb-filter-row{background:rgba(10,14,13,.97);border-top:.5px solid var(--border);display:flex;gap:7px;padding:8px 12px}
+.mbb-filter{flex:1;height:44px;border-radius:10px;border:.5px solid var(--border-strong);background:var(--card-2);font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px;min-width:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.mbb-period-lbl{font-size:14px;font-weight:600;color:var(--text);white-space:nowrap}
+.mbb-stores-lbl{font-size:14px;font-weight:500;color:var(--dim);white-space:nowrap}
+.mbb-arrow{font-size:9px;color:var(--muted)}
+.mbb-nav-row{background:rgba(10,14,13,.97);border-top:.5px solid var(--border);display:grid;grid-template-columns:repeat(4,1fr);padding:6px 8px 0;padding-bottom:calc(0px + env(safe-area-inset-bottom));height:calc(68px + env(safe-area-inset-bottom))}
+.mbb-nav-btn{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:5px;padding-top:6px;border:none;background:transparent;cursor:pointer;-webkit-tap-highlight-color:transparent;color:var(--muted)}
+.mbb-nav-btn.on{color:var(--green)}
+.mbb-nav-lbl{font-size:10px;font-weight:500}
+.mbb-nav-btn.on .mbb-nav-lbl{font-weight:600}
 /* Bottom-sheet trays */
 .mob-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:300;backdrop-filter:blur(2px)}
 .mob-overlay.open{display:block}
@@ -205,7 +209,9 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .top-name{font-size:12px;color:var(--text);flex:1;line-height:1.3}
 .top-rev{font-size:12px;font-weight:500;color:var(--text);text-align:right}
 .top-units{font-size:10px;color:var(--muted);text-align:right}
-.last-sync{font-size:10px;color:var(--muted);text-align:center;margin-top:4px;margin-bottom:16px}
+.last-sync{font-size:10px;color:var(--muted);text-align:center;margin-top:4px;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:10px}
+.bug-inline{background:none;border:none;cursor:pointer;font-size:10px;color:var(--muted);padding:0;font-family:inherit;-webkit-tap-highlight-color:transparent}
+.bug-inline:hover{color:var(--text)}
 .empty-state{font-size:12px;color:var(--muted);text-align:center;padding:20px 0}
 .spinner-inline{display:inline-block;width:12px;height:12px;border:2px solid var(--border-strong);border-top-color:var(--green);border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:4px}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -228,35 +234,139 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .inv-qty{font-size:12px;font-weight:500;color:var(--text)}
 .inv-vel{font-size:10px;color:var(--muted);margin-top:1px}
 
+/* ── Income 2.0 layout ─────────────────────────────────────────────────────── */
+/* Mobile (ic-mob): shown by default; Desktop (ic-dsk): hidden until @media     */
+.ic-mob{display:flex;flex-direction:column;gap:14px;margin-bottom:10px}
+.ic-dsk{display:none}
+/* Hero card */
+.ic-hero-card{background:var(--card);border-radius:12px;padding:16px}
+.ic-hero-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:2px;gap:8px}
+.ic-hero-lbl{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;line-height:1.4}
+.ic-hero-live{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:500;color:var(--green);flex-shrink:0}
+.ic-hero-live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s ease-in-out infinite;flex-shrink:0}
+.ic-hero-val{font-size:38px;font-weight:500;color:var(--text);line-height:1.05;letter-spacing:-.01em}
+.ic-hero-bar{position:relative;height:6px;margin:12px 0 8px}
+.ic-hero-foot{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.ic-hero-pace{font-size:14px;font-weight:600}
+.ic-hero-lbl2{font-size:12px;color:var(--dim)}
+/* Mobile breakdown card */
+.ic-mob-bd{background:var(--card);border-radius:10px;padding:6px 12px}
+.ic-bd-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:.5px solid var(--border)}
+.ic-bd-row:last-child{border-bottom:none}
+.ic-bd-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.ic-bd-name-col{flex:1;min-width:0}
+.ic-bd-name{font-size:13px;color:var(--text);line-height:1.1;margin-bottom:6px}
+.ic-bd-pbar{position:relative;height:5px}
+.ic-bd-net{font-size:14px;font-weight:500;color:var(--text);text-align:right;min-width:62px}
+.ic-bd-right{text-align:right;min-width:58px}
+.ic-bd-pct{font-size:11px;color:var(--muted)}
+.ic-bd-delta{font-size:12px;font-weight:600}
+/* Mobile KPI grid */
+.ic-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.ic-kpi{background:var(--card);border-radius:10px;padding:15px 16px}
+.ic-kpi-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.ic-kpi-val{font-size:25px;font-weight:500;color:var(--text);line-height:1.05}
+.ic-kpi-sub{font-size:12px;margin-top:4px}
+/* Desktop hero row */
+.ic-hero-row{display:grid;grid-template-columns:1fr 280px;gap:14px;align-items:start}
+/* Desktop hero card (larger) */
+.ic-dsk-hero .ic-hero-val{font-size:64px;letter-spacing:-.02em}
+.ic-dsk-hero .ic-hero-bar{height:8px;margin:16px 0 10px}
+.ic-dsk-hero .ic-hero-pace{font-size:13px}
+.ic-dsk-hero .ic-hero-lbl2{font-size:13px}
+/* Desktop projection card */
+.ic-proj-card{background:var(--card);border-radius:12px;padding:22px 24px}
+.ic-proj-lbl{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+.ic-proj-val{font-size:32px;font-weight:500;color:var(--text);line-height:1.05;margin-bottom:4px}
+.ic-proj-above{font-size:13px;font-weight:600}
+.ic-proj-div{height:.5px;background:var(--border);margin:14px 0}
+.ic-proj-row{display:flex;justify-content:space-between;align-items:baseline;padding:3px 0}
+.ic-proj-rlbl{font-size:12px;color:var(--dim)}
+.ic-proj-rval{font-size:12px;font-weight:600;color:var(--text)}
+/* Desktop KPI 6-col */
+.ic-dsk-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
+/* Desktop lower 2-col */
+.ic-lower{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+.ic-chart-col{display:flex;flex-direction:column;gap:14px}
+/* Desktop breakdown table (3-col: store | bar | net+delta) */
+.ic-dsk-bd-hdr{display:grid;grid-template-columns:130px 1fr 90px;padding:8px 14px;border-bottom:.5px solid var(--border);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
+.ic-dsk-bd-hdr span:last-child{text-align:right}
+.ic-dsk-bd-row{display:grid;grid-template-columns:130px 1fr 90px;align-items:center;padding:12px 14px;border-bottom:.5px solid var(--border)}
+.ic-dsk-bd-row:last-child{border-bottom:none}
+.ic-dsk-bd-store{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--text);font-weight:500}
+.ic-dsk-bd-bar-col{padding:0 14px}
+.ic-dsk-bd-nums{text-align:right}
+.ic-dsk-bd-nums .sval{font-size:15px;font-weight:500;color:var(--text);display:block}
+.ic-dsk-bd-nums .sdiff{font-size:11px;display:block}
+/* Desktop chart card */
+.ic-chart-card{background:var(--card);border-radius:10px;padding:14px 14px 10px}
+.ic-chart-top{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px}
+.ic-chart-top-lbl{font-size:11px;font-weight:500;color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
+/* ── Desktop sidebar ────────────────────────────────────────────────────────── */
+.dsk-logo-row{display:none;align-items:center;justify-content:space-between;margin-bottom:14px}
+.dsk-live{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:500;color:var(--green);white-space:nowrap;cursor:pointer}
+.dsk-live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s ease-in-out infinite;flex-shrink:0}
+.dsk-nav{display:none;flex-direction:column;gap:2px;margin-bottom:12px}
+.dsk-nav-btn{display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:8px;cursor:pointer;border:none;background:transparent;font-family:inherit;width:100%;text-align:left;-webkit-tap-highlight-color:transparent;transition:background .1s}
+.dsk-nav-btn.on{background:var(--green)}
+.dsk-nav-btn:not(.on):hover{background:var(--card-2)}
+.dsk-nav-icon{width:16px;height:16px;flex-shrink:0;opacity:.7}
+.dsk-nav-btn.on .dsk-nav-icon{opacity:1}
+.dsk-nav-lbl{font-size:13px;color:var(--dim);font-weight:500}
+.dsk-nav-btn.on .dsk-nav-lbl{color:var(--green-ink);font-weight:600}
+.dsk-period{display:none;flex-direction:column;gap:0;margin-bottom:12px;border-top:.5px solid var(--border);padding-top:12px}
+.dsk-period-lbl{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px}
+.dsk-pfield-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.dsk-pfield{min-height:44px;border-radius:8px;border:.5px solid var(--border);background:var(--bg);padding:7px 10px;display:flex;flex-direction:column;justify-content:center;cursor:pointer;font-family:inherit;text-align:left;transition:border-color .15s,background .15s;width:100%}
+.dsk-pfield:hover{border-color:var(--border-strong)}
+.dsk-pfield.open{border-color:var(--green);background:rgba(74,222,128,.04)}
+.dsk-pfield-lbl{font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px}
+.dsk-pfield-val{font-size:13px;color:var(--dim)}
+.dsk-pfield.open .dsk-pfield-val{color:var(--text)}
+.dsk-period-panel{background:#0f1413;border:.5px solid var(--border-strong);border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:6px;margin-top:5px}
+.dsk-panel-hdr{display:flex;align-items:center;justify-content:space-between}
+.dsk-panel-lbl{font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
+.dsk-panel-close{background:none;border:none;cursor:pointer;color:var(--muted);padding:0;font-family:inherit;font-size:11px;line-height:1}
+.dsk-panel-chips{display:flex;gap:5px;flex-wrap:wrap}
+.dsk-chip{font-size:11px;padding:5px 9px;border-radius:6px;border:.5px solid var(--border);background:transparent;color:var(--dim);cursor:pointer;font-family:inherit;-webkit-tap-highlight-color:transparent;transition:background .1s}
+.dsk-chip.on{background:var(--green);color:var(--green-ink);border-color:var(--green);font-weight:600}
+.dsk-chip.future{color:#2e3733;border-color:#1c2320;pointer-events:none;cursor:default}
+.dsk-stores{display:none;flex-direction:column;gap:0;border-top:.5px solid var(--border);padding-top:12px}
+.dsk-stores-hdr{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:7px}
+.dsk-stores-lbl{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
+.dsk-stores-count{font-size:11px;color:var(--green);cursor:pointer}
+.dsk-store-rows{display:flex;flex-direction:column;gap:2px}
+.dsk-store-row{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px;background:var(--card);cursor:pointer;border:none;width:100%;font-family:inherit;-webkit-tap-highlight-color:transparent;transition:background .1s}
+.dsk-store-row:hover{background:var(--card-2)}
+.dsk-chk{width:16px;height:16px;border-radius:4px;border:1.5px solid var(--border-strong);flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:background .15s,border-color .15s}
+.dsk-chk.on{background:var(--green);border-color:var(--green)}
+.dsk-chk.on::after{content:'✓';font-size:10px;color:var(--green-ink);font-weight:700;line-height:1}
+.dsk-store-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.dsk-store-name{font-size:13px;color:var(--text);flex:1;text-align:left}
+.dsk-store-pct{font-size:12px}
+.dsk-gear{display:none;justify-content:flex-end;padding-top:10px;margin-top:auto;border-top:.5px solid var(--border)}
+
 /* Desktop layout — requires BOTH a wide viewport AND a hover-capable pointer (mouse).
    This means phones are excluded even when GAS serves inside a wide iframe. */
 @media(min-width:768px) and (hover:hover) and (pointer:fine){
-  .w{max-width:1400px;padding:24px;display:grid;grid-template-columns:360px 1fr;gap:0 32px;align-items:start}
-  .sidebar{display:block;position:sticky;top:24px;max-height:calc(100vh - 48px);overflow-y:auto;overflow-x:hidden;padding-right:4px;scrollbar-width:none}
+  .w{max-width:1400px;padding:24px;display:grid;grid-template-columns:264px 1fr;gap:0 28px;align-items:start}
+  .sidebar{display:flex!important;flex-direction:column;position:sticky;top:24px;max-height:calc(100vh - 48px);overflow-y:auto;overflow-x:hidden;padding-right:4px;scrollbar-width:none}
   .sidebar::-webkit-scrollbar{display:none}
   .main-col{min-width:0;padding-bottom:0}
   .mob-hero{display:none}
   .mob-bottom-bar{display:none}
   .mob-overlay{display:none!important}
   .mob-tray{display:none!important}
-  .kpi-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
-  .kpi.wide{grid-column:span 4}
-  .section-tabs{flex-direction:column;gap:3px;margin-bottom:10px;background:transparent;border:none;padding:0}
-  .stab{flex:unset;text-align:left;border-radius:8px;padding:8px 12px;font-size:13px;border:0.5px solid transparent;background:transparent;color:var(--muted)}
-  .stab.on{background:var(--green);border-color:var(--green);color:var(--green-ink)}
-  .stab:not(.on):hover{background:var(--card-2);color:var(--text)}
-  .time-nav{display:flex;flex-wrap:wrap;overflow-x:visible;padding-bottom:0;gap:4px;margin-bottom:12px;align-items:center}
-  .store-scroll{display:flex;flex-wrap:wrap;overflow-x:visible;padding-bottom:0;gap:4px;margin-bottom:14px}
-  .store-status-grid{display:grid;grid-template-columns:1fr;gap:6px;margin-bottom:8px}
-  .logo-row{margin-bottom:16px}
-  .ss-spark{display:flex}
-  .mob-sticky{position:static;margin:0;padding:0;background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none;border-bottom:none}
-  .mob-sticky .logo-row{padding-top:8px;margin-bottom:16px}
-  .store-chip-grid{display:none}
-  .period-bar{display:none}
-  .period-expanded{display:none}
-  .mob-gear{display:none}
-  .desk-gear{display:flex}
+  .bug-inline{display:none}
+  /* Show new desktop sidebar elements */
+  .dsk-logo-row{display:flex}
+  .dsk-nav{display:flex}
+  .dsk-period{display:flex}
+  .dsk-stores{display:flex}
+  .dsk-gear{display:flex}
+  /* Income 2.0: flip layouts */
+  .ic-mob{display:none}
+  .ic-dsk{display:flex;flex-direction:column;gap:14px}
 }
 .mtab.future{opacity:0.25;cursor:default;pointer-events:none}
 
@@ -318,6 +428,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .login-error.visible{display:block}
 /* ── Bug report FAB + modal ─────────────────────────── */
 .bug-fab{position:fixed;bottom:20px;right:20px;z-index:300;width:36px;height:36px;border-radius:50%;background:var(--card);border:0.5px solid var(--border);cursor:pointer;display:none;align-items:center;justify-content:center;font-size:16px;color:var(--muted);box-shadow:0 2px 8px rgba(0,0,0,0.25);transition:color 0.15s,border-color 0.15s}
+@media not all and (min-width:768px){.bug-fab.visible{display:none!important}}
 .bug-fab:hover{color:var(--text);border-color:var(--border-strong)}
 .bug-fab.visible{display:flex}
 .bug-modal-wrap{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:400;backdrop-filter:blur(2px);align-items:center;justify-content:center}
@@ -340,43 +451,42 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 <body>
 <div class="w">
 
-  <!-- ── Sidebar ── -->
+  <!-- ── Sidebar (desktop only; sidebar{display:none} on mobile via base CSS) ── -->
   <div class="sidebar">
 
-    <!-- Mobile: sticky header (logo + live badge + gear) + period bar -->
-    <div class="mob-sticky">
-      <div class="logo-row">
-        <img src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png"" style="width:min(40vw,140px);height:auto;display:block">
-        <div class="pill pill-gray" id="status-pill" onclick="refreshLiveData()" title="Tap to refresh" style="cursor:pointer">
-          <div class="dot dot-gray" id="status-dot"></div>
-          <span id="status-txt">Loading…</span>
-        </div>
-        <button class="gear-btn mob-gear" onclick="openSettings()" title="Settings">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        </button>
+    <!-- Logo + live status pill -->
+    <div class="dsk-logo-row">
+      <img src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" style="width:140px;height:auto;display:block">
+      <div class="dsk-live" id="dsk-live-pill" onclick="refreshLiveData()" title="Click to refresh">
+        <div class="dsk-live-dot" id="dsk-live-dot"></div>
+        <span id="dsk-live-txt">Loading…</span>
       </div>
-      <!-- Period bar: Year / Month / Week / Day (mobile only) -->
-      <div class="period-bar" id="period-bar"></div>
-      <div class="period-expanded" id="period-expanded"></div>
-    </div><!-- /mob-sticky -->
-
-    <!-- Mobile: merged store status + filter chips -->
-    <div class="store-chip-grid" id="store-chip-grid"></div>
-
-    <!-- Section nav — segmented control on mobile, vertical list on desktop -->
-    <div class="section-tabs">
-      <button class="stab on" onclick="setSection('income')">Income</button>
-      <button class="stab" onclick="setSection('expenses')">Expenses</button>
-      <button class="stab" onclick="setSection('inventory')">Inventory</button>
     </div>
 
-    <!-- Desktop only: store status grid, time nav, store scroll -->
-    <div class="store-status-grid" id="store-status-grid"></div>
-    <div class="time-nav" id="time-nav"></div>
-    <div class="store-scroll" id="store-tabs"></div>
+    <!-- Section nav -->
+    <div class="dsk-nav" id="dsk-nav">
+      <button class="dsk-nav-btn on" data-s="income" onclick="setSection('income')">
+        <svg class="dsk-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        <span class="dsk-nav-lbl">Income</span>
+      </button>
+      <button class="dsk-nav-btn" data-s="expenses" onclick="setSection('expenses')">
+        <svg class="dsk-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+        <span class="dsk-nav-lbl">Expenses</span>
+      </button>
+      <button class="dsk-nav-btn" data-s="inventory" onclick="setSection('inventory')">
+        <svg class="dsk-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        <span class="dsk-nav-lbl">Inventory</span>
+      </button>
+    </div>
 
-    <!-- Desktop gear at bottom of sidebar -->
-    <div class="desk-gear" style="margin-top:14px;padding-top:10px;border-top:0.5px solid var(--border);justify-content:flex-end">
+    <!-- Period fields (built by buildDskPeriod) -->
+    <div class="dsk-period" id="dsk-period"></div>
+
+    <!-- Store list (built by buildDskStores) -->
+    <div class="dsk-stores" id="dsk-stores"></div>
+
+    <!-- Gear button at bottom -->
+    <div class="dsk-gear">
       <button class="gear-btn" onclick="openSettings()" title="Settings">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
@@ -386,15 +496,6 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 
   <!-- ── Main content ── -->
   <div class="main-col">
-    <!-- 1c: hero net-sales number (mobile only) -->
-    <div class="mob-hero" id="mob-hero">
-      <div class="mh-label">
-        <div class="mh-dot loading" id="mh-dot"></div>
-        <span id="mh-label-text">Net sales</span>
-      </div>
-      <div class="mh-num" id="mh-num"><span class="spinner-inline"></span></div>
-      <div class="mh-sub" id="mh-sub"></div>
-    </div>
     <div id="main-content">
       <div class="empty-state"><span class="spinner-inline"></span>Connecting…</div>
     </div>
@@ -402,22 +503,40 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 
 </div>
 
-<!-- 1c: pinned mobile bottom bar -->
+<!-- 1c: pinned mobile bottom bar — two-row design -->
 <div class="mob-bottom-bar" id="mob-bottom-bar">
-  <button class="mbb-filter" id="mbb-period" onclick="openPeriodTray()">
-    <span id="mbb-period-lbl">Period</span><span class="mbb-arrow">▴</span>
-  </button>
-  <button class="mbb-filter" id="mbb-stores" onclick="openStoreTray()">
-    <span id="mbb-stores-lbl">All stores</span><span class="mbb-arrow">▴</span>
-  </button>
-  <div class="mbb-sep"></div>
-  <button class="mbb-section on" data-s="income" onclick="mobSetSection('income')">Income</button>
-  <button class="mbb-section" data-s="expenses" onclick="mobSetSection('expenses')">Expenses</button>
-  <button class="mbb-section" data-s="inventory" onclick="mobSetSection('inventory')">Inventory</button>
-  <div class="mbb-sep"></div>
-  <button class="mbb-gear" onclick="openSettings()" title="Settings">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-  </button>
+  <!-- Row 1: filter buttons -->
+  <div class="mbb-filter-row">
+    <button class="mbb-filter" id="mbb-period" onclick="openPeriodTray()">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color:var(--muted);flex-shrink:0"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+      <span class="mbb-period-lbl" id="mbb-period-lbl">Period</span>
+      <span class="mbb-arrow">▴</span>
+    </button>
+    <button class="mbb-filter" id="mbb-stores" onclick="openStoreTray()">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color:var(--muted);flex-shrink:0"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      <span class="mbb-stores-lbl" id="mbb-stores-lbl">All stores</span>
+      <span class="mbb-arrow">▴</span>
+    </button>
+  </div>
+  <!-- Row 2: section nav (4-col with icons) -->
+  <div class="mbb-nav-row">
+    <button class="mbb-nav-btn on" data-s="income" onclick="mobSetSection('income')">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7-7"/><path d="M14 8h6v6"/></svg>
+      <span class="mbb-nav-lbl">Income</span>
+    </button>
+    <button class="mbb-nav-btn" data-s="expenses" onclick="mobSetSection('expenses')">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/></svg>
+      <span class="mbb-nav-lbl">Expenses</span>
+    </button>
+    <button class="mbb-nav-btn" data-s="inventory" onclick="mobSetSection('inventory')">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4"/><path d="M12 11v10"/></svg>
+      <span class="mbb-nav-lbl">Inventory</span>
+    </button>
+    <button class="mbb-nav-btn" data-s="settings" onclick="openSettings()">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <span class="mbb-nav-lbl">Settings</span>
+    </button>
+  </div>
 </div>
 
 <!-- 1c: overlay + bottom-sheet trays -->
@@ -600,7 +719,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = '1.53';
+const APP_VERSION = '2.0';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -804,6 +923,8 @@ let activeMonth = new Date().getMonth() + 1;
 let activeWeek  = null;
 let activeDay   = null;
 let activeStore = 'All';
+let activeStoreSet = null; // Set of store names for desktop multi-select; null = all
+let openPeriodField = null; // 'year'|'month'|'week'|'day'|null — open desktop period panel
 let isInitialLoad   = true;
 let expandedGroup   = null; // 'year' | 'month' | 'week' | 'day' | null
 let liveData = {};
@@ -962,11 +1083,15 @@ function monthRange(m, year) {
 }
 
 function pill(color, text) {
-  const p = document.getElementById('status-pill');
-  const d = document.getElementById('status-dot');
-  p.className = `pill pill-${color}`;
-  d.className = `dot dot-${color}${color==='green'?' pulse':''}`;
-  document.getElementById('status-txt').textContent = text;
+  // Update desktop live pill
+  const dskDot = document.getElementById('dsk-live-dot');
+  const dskTxt = document.getElementById('dsk-live-txt');
+  if (dskDot) {
+    const dskPill = document.getElementById('dsk-live-pill');
+    if (dskPill) dskPill.style.color = color === 'green' ? '' : color === 'amber' ? 'var(--amber)' : color === 'red' ? 'var(--red)' : 'var(--muted)';
+    dskDot.style.background = color === 'green' ? '' : color === 'amber' ? 'var(--amber)' : color === 'red' ? 'var(--red)' : 'var(--muted)';
+  }
+  if (dskTxt) dskTxt.textContent = text;
 }
 
 function openSettings() {
@@ -984,7 +1109,9 @@ function closeSettings() {
 
 function buildStatusGrid(state) {
   _storeStateMap = state;
-  document.getElementById('store-status-grid').innerHTML = STORES.map(s => {
+  const _ssg = document.getElementById('store-status-grid');
+  if (!_ssg) { buildDskStores(); return; }
+  _ssg.innerHTML = STORES.map(s => {
     const st  = state[s.name] || 'idle';
     const cls = st === 'ok' ? 'ok' : st === 'loading' ? 'loading' : st === 'err' ? 'err' : '';
     const val = liveData[s.name]
@@ -1480,6 +1607,7 @@ function setSection(s) {
   section       = s;
   expandedGroup = null;
   document.querySelectorAll('.stab').forEach(t => t.classList.toggle('on', t.textContent.toLowerCase() === s));
+  document.querySelectorAll('.dsk-nav-btn').forEach(t => t.classList.toggle('on', t.dataset.s === s));
   buildTimeNav();
   render();
 }
@@ -1562,6 +1690,9 @@ function setYear(yr) {
 }
 
 function buildTimeNav() {
+  buildDskPeriod(); // keep desktop period panel in sync
+  const _tnav = document.getElementById('time-nav');
+  if (!_tnav) { buildPeriodBar(); updateMobBottomBar(); return; }
   const curYear = new Date().getFullYear();
   const curMo   = new Date().getMonth() + 1;
   const curWeek = getUserWeek(new Date());
@@ -1587,7 +1718,7 @@ function buildTimeNav() {
   }
 
   if (section === 'inventory') {
-    document.getElementById('time-nav').innerHTML = parts.join('');
+    _tnav.innerHTML = parts.join('');
     buildPeriodBar();
     return;
   }
@@ -1608,7 +1739,7 @@ function buildTimeNav() {
   }
 
   if (activeMonth === MONTH_YTD) {
-    document.getElementById('time-nav').innerHTML = parts.join('');
+    _tnav.innerHTML = parts.join('');
     buildPeriodBar();
     return;
   }
@@ -1628,7 +1759,7 @@ function buildTimeNav() {
   }
 
   if (!activeWeek) {
-    document.getElementById('time-nav').innerHTML = parts.join('');
+    _tnav.innerHTML = parts.join('');
     buildPeriodBar();
     return;
   }
@@ -1652,13 +1783,15 @@ function buildTimeNav() {
     parts.push(collapsedPill('day', dayLbl, !!activeDay));
   }
 
-  document.getElementById('time-nav').innerHTML = parts.join('');
+  _tnav.innerHTML = parts.join('');
   buildPeriodBar();
   updateMobBottomBar();
 }
 
 function buildStoreTabs() {
-  document.getElementById('store-tabs').innerHTML = ['All',...STORES.map(s=>s.name)].map(name => {
+  const _st = document.getElementById('store-tabs');
+  if (!_st) { buildDskStores(); return; }
+  _st.innerHTML = ['All',...STORES.map(s=>s.name)].map(name => {
     const s   = STORE_MAP.get(name);
     const col = s ? s.color : 'var(--green)';
     const on  = name === activeStore;
@@ -1668,6 +1801,128 @@ function buildStoreTabs() {
       onclick="setStore('${name}')">${lbl}</button>`;
   }).join('');
   buildStoreChipGrid();
+}
+
+// ── Desktop sidebar builders ──────────────────────────────────────────────────
+
+function buildDskPeriod() {
+  const el = document.getElementById('dsk-period');
+  if (!el) return;
+  const curYear = new Date().getFullYear();
+  const curMo   = new Date().getMonth() + 1;
+  const curWeek = getUserWeek(new Date());
+  const isPast  = activeYear < curYear;
+  const _years  = [curYear - 2, curYear - 1, curYear];
+  const monthLbl = activeMonth === 0 ? (isPast ? 'Full Yr' : 'YTD') : MONTHS[activeMonth-1];
+  const weekLbl  = activeWeek ? 'WK' + activeWeek : '—';
+  const dayObj   = activeDay ? new Date(activeDay + 'T12:00:00') : null;
+  const dayLbl   = dayObj ? DAY_LETTERS[dayObj.getDay()] + ' ' + String(dayObj.getDate()).padStart(2,'0') : '—';
+
+  const makeField = (key, label, value) => {
+    const isOpen = openPeriodField === key;
+    return `<button class="dsk-pfield${isOpen?' open':''}" onclick="dskOpenField('${key}')">
+      <span class="dsk-pfield-lbl">${label}</span>
+      <span class="dsk-pfield-val">${value}</span>
+    </button>`;
+  };
+
+  let panelHtml = '';
+  if (openPeriodField === 'year') {
+    const chips = _years.map(yr =>
+      `<button class="dsk-chip${yr===activeYear?' on':''}" onclick="dskSetYear(${yr})">${yr}</button>`
+    ).join('');
+    panelHtml = `<div class="dsk-period-panel"><div class="dsk-panel-hdr"><span class="dsk-panel-lbl">Year</span><button class="dsk-panel-close" onclick="dskOpenField(null)">✕</button></div><div class="dsk-panel-chips">${chips}</div></div>`;
+  } else if (openPeriodField === 'month') {
+    const allLbl = isPast ? 'Full Yr' : 'YTD';
+    const chips = `<button class="dsk-chip${activeMonth===0?' on':''}" onclick="dskSetMonth(0)">${allLbl}</button>` +
+      MONTHS.map((m,i) => {
+        const mo = i+1, future = !isPast && mo > curMo;
+        return `<button class="dsk-chip${mo===activeMonth?' on':''}${future?' future':''}" onclick="dskSetMonth(${mo})">${m}</button>`;
+      }).join('');
+    panelHtml = `<div class="dsk-period-panel"><div class="dsk-panel-hdr"><span class="dsk-panel-lbl">Month</span><button class="dsk-panel-close" onclick="dskOpenField(null)">✕</button></div><div class="dsk-panel-chips">${chips}</div></div>`;
+  } else if (openPeriodField === 'week' && activeMonth > 0) {
+    const weeks = getWeeksInMonth(activeYear, activeMonth);
+    const chips = `<button class="dsk-chip${!activeWeek?' on':''}" onclick="dskSetWeek(null)">All</button>` +
+      weeks.map(w => {
+        const future = activeYear===curYear && (activeMonth>curMo || (activeMonth===curMo && w>curWeek));
+        return `<button class="dsk-chip${w===activeWeek?' on':''}${future?' future':''}" onclick="dskSetWeek(${w})">WK${w}</button>`;
+      }).join('');
+    panelHtml = `<div class="dsk-period-panel"><div class="dsk-panel-hdr"><span class="dsk-panel-lbl">Week</span><button class="dsk-panel-close" onclick="dskOpenField(null)">✕</button></div><div class="dsk-panel-chips">${chips}</div></div>`;
+  } else if (openPeriodField === 'day' && activeWeek) {
+    const today = new Date(); today.setHours(0,0,0,0);
+    const chips = getDaysOfISOWeek(activeYear, activeWeek).map(d => {
+      const ds = d.toISOString().slice(0,10);
+      const lbl = DAY_LETTERS[d.getDay()] + ' ' + d.getDate();
+      const future = d > today;
+      const inMonth = d.getMonth()+1 === activeMonth;
+      return `<button class="dsk-chip${activeDay===ds?' on':''}${future?' future':''}" style="${!inMonth&&!future?'opacity:.35':''}" onclick="dskSetDay('${ds}')">${lbl}</button>`;
+    }).join('');
+    panelHtml = `<div class="dsk-period-panel"><div class="dsk-panel-hdr"><span class="dsk-panel-lbl">Day</span><button class="dsk-panel-close" onclick="dskOpenField(null)">✕</button></div><div class="dsk-panel-chips">${chips}</div></div>`;
+  }
+
+  el.innerHTML = `<div class="dsk-period-lbl">Period</div>
+    <div class="dsk-pfield-grid">
+      ${makeField('year',  'Year',  String(activeYear))}
+      ${makeField('month', 'Month', monthLbl)}
+      ${makeField('week',  'Week',  activeMonth===0 ? '—' : weekLbl)}
+      ${makeField('day',   'Day',   !activeWeek ? '—' : dayLbl)}
+    </div>
+    ${panelHtml}`;
+}
+
+function dskOpenField(field) {
+  openPeriodField = (openPeriodField === field) ? null : field;
+  buildDskPeriod();
+}
+function dskSetYear(yr)  { setYear(yr);      openPeriodField = null; buildDskPeriod(); }
+function dskSetMonth(m)  { setMonth(m);      openPeriodField = null; buildDskPeriod(); }
+function dskSetWeek(w)   { if (w===null) setWeekAll(); else setWeek(w); openPeriodField = null; buildDskPeriod(); }
+function dskSetDay(ds)   { setDay(ds);       openPeriodField = null; buildDskPeriod(); }
+
+function buildDskStores() {
+  const el = document.getElementById('dsk-stores');
+  if (!el) return;
+  const allSelected = activeStoreSet === null;
+  const count = allSelected ? STORES.length : activeStoreSet.size;
+  const allLbl = allSelected ? `All ${STORES.length}` : `${count} of ${STORES.length}`;
+  const rows = STORES.map(s => {
+    const isOn   = allSelected || activeStoreSet.has(s.name);
+    const snet   = getStorePeriodNet ? getStorePeriodNet(s.name) : 0;
+    const sGoal  = getMonthlyGoal ? getMonthlyGoal(s.name, activeMonth, activeYear) : 0;
+    const pctVal = (sGoal > 0 && snet > 0) ? Math.round(snet / sGoal * 100) : null;
+    const pctCls = pctVal === null ? 'muted' : pctVal >= PACE_GREEN ? 'good' : pctVal >= PACE_AMBER ? '' : 'bad';
+    return `<button class="dsk-store-row" onclick="dskToggleStore('${s.name}')">
+      <div class="dsk-chk${isOn?' on':''}"></div>
+      <div class="dsk-store-dot" style="background:${s.color}"></div>
+      <span class="dsk-store-name">${s.display||s.name}</span>
+      ${pctVal !== null ? `<span class="dsk-store-pct ${pctCls}">${pctVal}%</span>` : ''}
+    </button>`;
+  }).join('');
+  el.innerHTML = `<div class="dsk-stores-hdr">
+    <span class="dsk-stores-lbl">Stores</span>
+    <span class="dsk-stores-count" onclick="dskSelectAllStores()">${allLbl}</span>
+  </div>
+  <div class="dsk-store-rows">${rows}</div>`;
+}
+
+function dskToggleStore(name) {
+  if (activeStoreSet === null) {
+    activeStoreSet = new Set(STORES.map(s => s.name).filter(n => n !== name));
+  } else if (activeStoreSet.has(name)) {
+    activeStoreSet.delete(name);
+    if (activeStoreSet.size === 0) activeStoreSet = null;
+  } else {
+    activeStoreSet.add(name);
+    if (activeStoreSet.size === STORES.length) activeStoreSet = null;
+  }
+  buildDskStores();
+  render();
+}
+
+function dskSelectAllStores() {
+  activeStoreSet = null;
+  buildDskStores();
+  render();
 }
 
 // ── Mobile helpers ────────────────────────────────────────────────────────────
@@ -1794,12 +2049,23 @@ function updateMobHero() {
   dot.className = 'mh-dot ' + (Object.keys(liveData).length > 0 ? 'ok' : 'loading');
 }
 
+function getMobPeriodLabel() {
+  const FULL_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  if (activeDay) {
+    const d = new Date(activeDay + 'T12:00:00');
+    return d.toLocaleDateString([], { weekday:'short', month:'short', day:'numeric' });
+  }
+  if (activeWeek) return 'Week ' + activeWeek + ' · ' + activeYear;
+  if (activeMonth === MONTH_YTD) return activeYear < new Date().getFullYear() ? String(activeYear) : 'Year to Date';
+  return FULL_MONTHS[activeMonth - 1] + ' ' + activeYear;
+}
+
 function updateMobBottomBar() {
   const periodLbl = document.getElementById('mbb-period-lbl');
   const storesLbl = document.getElementById('mbb-stores-lbl');
-  if (periodLbl) periodLbl.textContent = getPeriodLabel();
+  if (periodLbl) periodLbl.textContent = getMobPeriodLabel();
   if (storesLbl) storesLbl.textContent = activeStore === 'All' ? 'All stores' : activeStore;
-  document.querySelectorAll('.mbb-section').forEach(t =>
+  document.querySelectorAll('.mbb-nav-btn').forEach(t =>
     t.classList.toggle('on', t.dataset.s === section)
   );
 }
@@ -1944,6 +2210,9 @@ function getPacingPct() {
 }
 
 function getActiveStores() {
+  if (activeStoreSet !== null) {
+    return STORES.map(s => s.name).filter(n => activeStoreSet.has(n));
+  }
   return activeStore === 'All' ? STORES.map(s => s.name) : [activeStore];
 }
 
@@ -2032,52 +2301,124 @@ function getStorePeriodNet(s) {
 }
 
 // ─── Income sub-builders ──────────────────────────────────────────────────────
-// Each returns an HTML string. Keeping them separate lets renderIncome do targeted
-// DOM patches on store-filter / live-data updates instead of rebuilding everything.
 
-function _incomeKpiHtml(net, gross, orders, disc, cost, aov,
-                        periodGoal, goalLabel, goalPct, pacingPct, isClosed, under) {
-  const paceLinePos  = pacingPct * THRESHOLDS.GOAL_BAR_FILL_RATIO;
-  const kpiPaceRatio = pacingPct > 0 ? goalPct / pacingPct * 100 : (goalPct > 0 ? 100 : 0);
-  const barW         = Math.min(goalPct * THRESHOLDS.GOAL_BAR_FILL_RATIO, 100);
-  const kpiOnPace    = kpiPaceRatio >= PACE_GREEN;
-  const kpiMarkIn    = kpiOnPace && barW > 0 ? (paceLinePos / barW * 100).toFixed(1) : 100;
-  const kpiBarCls    = kpiPaceRatio >= PACE_GREEN ? 'green over' : kpiPaceRatio >= PACE_AMBER ? 'amber' : 'red';
-  const kpiBarStyle  = kpiOnPace ? `--mark-in-fill:${kpiMarkIn}%` : '';
-  const vsGoal       = periodGoal - net;
-  return `<div class="kpi wide" id="kpi-net">
-      <div class="klabel">Net sales — ${getPeriodLabel()}</div>
-      <div class="kval">${fmtK(net)}</div>
-      <div class="sbar-wrap" style="margin:7px 0 5px">
-        <div class="sbar-track"></div>
-        <div class="sbar-fill ${kpiBarCls}" data-final="${barW}%" style="${kpiBarStyle}"></div>
-        <div class="sbar-mark" style="left:${paceLinePos}%"></div>
+function _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under) {
+  const today       = new Date();
+  const daysInMo    = activeMonth > 0 ? new Date(activeYear, activeMonth, 0).getDate() : 365;
+  const dayOfMonth  = today.getDate();
+  const periodDay   = !activeDay && !activeWeek && activeMonth > 0 && !isClosed &&
+                      activeYear === today.getFullYear() && activeMonth === today.getMonth() + 1
+                      ? `day ${dayOfMonth} of ${daysInMo}` : '';
+  const syncTime    = today.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  const paceRatio   = pacingPct > 0 ? goalPct / pacingPct * 100 : (goalPct > 0 ? 100 : 0);
+  const barW        = Math.min(goalPct * THRESHOLDS.GOAL_BAR_FILL_RATIO, 100);
+  const onPace      = paceRatio >= PACE_GREEN;
+  const pacePos     = pacingPct * THRESHOLDS.GOAL_BAR_FILL_RATIO;
+  const markIn      = onPace && barW > 0 ? (pacePos / barW * 100).toFixed(1) : 100;
+  const barCls      = paceRatio >= PACE_GREEN ? 'green over' : paceRatio >= PACE_AMBER ? 'amber' : 'red';
+  const barStyle    = onPace ? `--mark-in-fill:${markIn}%` : '';
+  const paceLabel   = under > 0 ? `−${fmtK(under)} behind pace` : `+${fmtK(-under)} over pace`;
+  const paceCls     = under > 0 ? 'bad' : 'good';
+  const goalPctLbl  = periodGoal > 0 ? `${goalPct}% of ${fmtK(periodGoal)} goal` : '';
+  return `
+    <div class="ic-hero-top">
+      <span class="ic-hero-lbl">Net sales · ${getPeriodLabel()}</span>
+      <div class="ic-hero-live">
+        <div class="ic-hero-live-dot"></div>
+        <span>${syncTime}${periodDay ? ' · ' + periodDay : ''}</span>
       </div>
-      <div class="ksub">
-        ${goalLabel} ${fmtK(periodGoal)} &nbsp;·&nbsp; ${goalPct}%
-        ${periodGoal>0 && !isClosed ? `&nbsp;·&nbsp; <span class="${under>0?'bad':'good'}">${under>0?fmtK(under)+' under':fmtK(-under)+' over'} pace</span>` : ''}
-        ${periodGoal>0 ? (() => { const v=periodGoal-net; return `&nbsp;·&nbsp; <span class="${v>0?'bad':'good'}">${v>0?fmtK(v)+' under':fmtK(-v)+' over'} goal</span>`; })() : ''}
-      </div>
     </div>
-    <div class="kpi" id="kpi-gp">
-      <div class="klabel">Gross profit</div>
-      <div class="kval">${cost > 0 ? fmtK(net - cost) : '—'}</div>
-      <div class="ksub muted">${cost > 0 ? `margin ${net>0?Math.round((net-cost)/net*100):0}% · COGS ${fmtK(cost)}` : costData ? `no EOD report · ${Object.keys(costData.daily).length}d loaded` : costLoadError ? 'fetch error: '+escHtml(costLoadError.slice(0,40)) : 'costs not loaded'}</div>
+    <div class="ic-hero-val">${fmtK(net)}</div>
+    ${periodGoal > 0 ? `
+    <div class="ic-hero-bar">
+      <div class="sbar-track"></div>
+      <div class="sbar-fill ${barCls}" data-final="${barW}%" style="${barStyle}"></div>
+      <div class="sbar-mark" style="left:${pacePos}%"></div>
     </div>
-    <div class="kpi" id="kpi-txns">
-      <div class="klabel">Transactions</div>
-      <div class="kval">${orders.toLocaleString()}</div>
-      <div class="ksub muted">AOV ${fmtD(aov)}</div>
+    <div class="ic-hero-foot">
+      <span class="ic-hero-pace ${paceCls}">${paceLabel}</span>
+      <span class="ic-hero-lbl2">${goalPctLbl}</span>
+    </div>` : ''}`;
+}
+
+function _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo) {
+  if (activeDay || !periodGoal) return `<div class="ic-proj-lbl">Projection</div><div class="ic-proj-val">—</div>`;
+  const today   = new Date();
+  const dayNum  = !isClosed && activeMonth === today.getMonth() + 1 && activeYear === today.getFullYear()
+                  ? today.getDate() : daysInMo;
+  const runRate = dayNum > 0 ? net / dayNum : 0;
+  const projected  = Math.round(runRate * daysInMo);
+  const aboveGoal  = projected - periodGoal;
+  const dailyRate  = Math.round(runRate);
+  const remaining  = Math.max(0, daysInMo - dayNum);
+  const needed     = !isClosed && remaining > 0 ? Math.max(0, Math.round((periodGoal - net) / remaining)) : 0;
+  return `
+    <div class="ic-proj-lbl">Projected month</div>
+    <div class="ic-proj-val">${fmtK(projected)}</div>
+    <div class="ic-proj-above ${aboveGoal >= 0 ? 'good' : 'bad'}">${aboveGoal >= 0 ? '+' : ''}${fmtK(aboveGoal)} ${aboveGoal >= 0 ? 'above' : 'below'} goal</div>
+    <div class="ic-proj-div"></div>
+    <div class="ic-proj-row"><span class="ic-proj-rlbl">Daily run rate</span><span class="ic-proj-rval">${fmtD(dailyRate)}</span></div>
+    ${!isClosed && remaining > 0 ? `<div class="ic-proj-row"><span class="ic-proj-rlbl">Needed to goal</span><span class="ic-proj-rval ${needed > dailyRate ? 'bad' : 'good'}">${fmtD(needed)}/day</span></div>` : ''}`;
+}
+
+function _incomeKpiMobHtml(net, gross, orders, disc, cost, aov) {
+  const gp     = cost > 0 ? net - cost : null;
+  const margin = gp !== null && net > 0 ? Math.round(gp / net * 100) : null;
+  return `
+    <div class="ic-kpi" id="ic-mob-kpi-gp">
+      <div class="ic-kpi-lbl">Gross profit</div>
+      <div class="ic-kpi-val">${gp !== null ? fmtK(gp) : '—'}</div>
+      <div class="ic-kpi-sub muted">${margin !== null ? margin + '% margin' : (costLoadError ? 'fetch error' : 'costs pending')}</div>
     </div>
-    <div class="kpi" id="kpi-disc">
-      <div class="klabel">Discounts</div>
-      <div class="kval">${fmtK(disc)}</div>
-      <div class="ksub ${net>0&&disc/net>THRESHOLDS.DISCOUNT_FLAG_PCT?'bad':'good'}">${pct(disc,net)} of sales</div>
+    <div class="ic-kpi" id="ic-mob-kpi-txns">
+      <div class="ic-kpi-lbl">Transactions</div>
+      <div class="ic-kpi-val">${orders.toLocaleString()}</div>
+      <div class="ic-kpi-sub muted">AOV ${fmtD(aov)}</div>
     </div>
-    <div class="kpi" id="kpi-gross">
-      <div class="klabel">Gross sales</div>
-      <div class="kval">${fmtK(gross)}</div>
-      <div class="ksub muted">before discounts</div>
+    <div class="ic-kpi" id="ic-mob-kpi-disc">
+      <div class="ic-kpi-lbl">Discounts</div>
+      <div class="ic-kpi-val">${fmtK(disc)}</div>
+      <div class="ic-kpi-sub ${net>0&&disc/net>THRESHOLDS.DISCOUNT_FLAG_PCT?'bad':'good'}">${pct(disc,net)} of sales</div>
+    </div>
+    <div class="ic-kpi" id="ic-mob-kpi-gross">
+      <div class="ic-kpi-lbl">Gross sales</div>
+      <div class="ic-kpi-val">${fmtK(gross)}</div>
+      <div class="ic-kpi-sub muted">before discounts</div>
+    </div>`;
+}
+
+function _incomeKpiDskHtml(net, gross, orders, disc, cost, aov) {
+  const gp     = cost > 0 ? net - cost : null;
+  const margin = gp !== null && net > 0 ? Math.round(gp / net * 100) : null;
+  return `
+    <div class="ic-kpi" id="ic-dsk-kpi-gp">
+      <div class="ic-kpi-lbl">Gross profit</div>
+      <div class="ic-kpi-val">${gp !== null ? fmtK(gp) : '—'}</div>
+      <div class="ic-kpi-sub muted">${gp !== null ? 'COGS ' + fmtK(cost) : (costLoadError ? 'fetch error' : 'costs pending')}</div>
+    </div>
+    <div class="ic-kpi" id="ic-dsk-kpi-margin">
+      <div class="ic-kpi-lbl">Margin</div>
+      <div class="ic-kpi-val">${margin !== null ? margin + '%' : '—'}</div>
+      ${margin !== null ? `<div class="ic-kpi-sub ${margin>=35?'good':margin>=25?'muted':'bad'}">of net sales</div>` : ''}
+    </div>
+    <div class="ic-kpi" id="ic-dsk-kpi-txns">
+      <div class="ic-kpi-lbl">Transactions</div>
+      <div class="ic-kpi-val">${orders.toLocaleString()}</div>
+    </div>
+    <div class="ic-kpi" id="ic-dsk-kpi-aov">
+      <div class="ic-kpi-lbl">AOV</div>
+      <div class="ic-kpi-val">${fmtD(aov)}</div>
+      <div class="ic-kpi-sub muted">avg order value</div>
+    </div>
+    <div class="ic-kpi" id="ic-dsk-kpi-disc">
+      <div class="ic-kpi-lbl">Discounts</div>
+      <div class="ic-kpi-val">${fmtK(disc)}</div>
+      <div class="ic-kpi-sub ${net>0&&disc/net>THRESHOLDS.DISCOUNT_FLAG_PCT?'bad':'good'}">${pct(disc,net)} of sales</div>
+    </div>
+    <div class="ic-kpi" id="ic-dsk-kpi-gross">
+      <div class="ic-kpi-lbl">Gross sales</div>
+      <div class="ic-kpi-val">${fmtK(gross)}</div>
+      <div class="ic-kpi-sub muted">before discounts</div>
     </div>`;
 }
 
@@ -2130,47 +2471,76 @@ function storeSparklineHtml(storeName) {
   return `<span class="sparkline-cell"><svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline pathLength="1" fill="none" stroke="${stroke}" stroke-width="1.5" points="${pts}"/></svg>${label ? `<span class="spark-delta ${cls}">${label}</span>` : ''}</span>`;
 }
 
-function _incomeStoreBreakdownHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo) {
-  return `<div class="sec-lbl">Store breakdown</div>
-    <div class="card">
-      ${stores.map(s => {
-        if (!liveData[s]) return '';
-        const st          = STORE_MAP.get(s);
-        const col         = st?.color || '#888';
-        const snet        = storeNets[s];
-        const sMonthGoal  = getMonthlyGoal(s, activeMonth, yr);
-        const sPeriodGoal = activeDay
-          ? getDailyGoal(s, new Date(activeDay + 'T12:00:00').getDay(), activeMonth, yr, daysInMo)
-          : activeWeek ? getWeeklyGoal(s, activeMonth, yr, daysInMo)
-          : sMonthGoal;
-        const sCompareGoal = isClosed ? sPeriodGoal : Math.round(sPeriodGoal * pacingPct / 100);
-        const diff         = snet - sCompareGoal;
-        const sGoalPct     = sPeriodGoal > 0 ? Math.round(snet / sPeriodGoal * 100) : 0;
-        const sPaceRatio   = pacingPct > 0 ? sGoalPct / pacingPct * 100 : (sGoalPct > 0 ? 100 : 0);
-        const sOnPace      = sPaceRatio >= PACE_GREEN;
-        const sBarW        = Math.min(sGoalPct * THRESHOLDS.GOAL_BAR_FILL_RATIO, 100);
-        const sPacePos     = pacingPct * THRESHOLDS.GOAL_BAR_FILL_RATIO;
-        const markInFill   = sOnPace && sBarW > 0 ? (sPacePos / sBarW * 100).toFixed(1) : 100;
-        const sFillCls     = sPaceRatio >= PACE_GREEN ? 'green over' : sPaceRatio >= PACE_AMBER ? 'amber' : 'red';
-        const sFillStyle   = sOnPace ? `--mark-in-fill:${markInFill}%` : '';
-        return `<div class="srow">
-          <div class="swatch" style="background:${col}"></div>
-          <div class="sname" style="flex:1">
-            ${st?.display||s}
-            ${sPeriodGoal>0 ? `<div class="sbar-wrap">
-              <div class="sbar-track"></div>
-              <div class="sbar-fill ${sFillCls}" data-final="${sBarW}%" style="${sFillStyle}"></div>
-              <div class="sbar-mark" style="left:${sPacePos}%"></div>
-            </div>` : ''}
-          </div>
-          <div class="sval">${fmtK(snet)}</div>
-          ${sPeriodGoal>0 ? `<div style="text-align:right;min-width:44px">
-            <div style="font-size:10px;color:var(--muted)">${sGoalPct}%</div>
-            <div class="sdiff ${diff>=0?'good':'bad'}">${diff>=0?'+':''}${fmtK(diff)}</div>
+function _storeBreakdownRows(stores, storeNets, isClosed, pacingPct, yr, daysInMo) {
+  return stores.filter(s => liveData[s]).map(s => {
+    const st          = STORE_MAP.get(s);
+    const col         = st?.color || '#888';
+    const snet        = storeNets[s];
+    const sMonthGoal  = getMonthlyGoal(s, activeMonth, yr);
+    const sPeriodGoal = activeDay
+      ? getDailyGoal(s, new Date(activeDay + 'T12:00:00').getDay(), activeMonth, yr, daysInMo)
+      : activeWeek ? getWeeklyGoal(s, activeMonth, yr, daysInMo)
+      : sMonthGoal;
+    const sCompareGoal = isClosed ? sPeriodGoal : Math.round(sPeriodGoal * pacingPct / 100);
+    const diff         = snet - sCompareGoal;
+    const sGoalPct     = sPeriodGoal > 0 ? Math.round(snet / sPeriodGoal * 100) : 0;
+    const sPaceRatio   = pacingPct > 0 ? sGoalPct / pacingPct * 100 : (sGoalPct > 0 ? 100 : 0);
+    const sOnPace      = sPaceRatio >= PACE_GREEN;
+    const sBarW        = Math.min(sGoalPct * THRESHOLDS.GOAL_BAR_FILL_RATIO, 100);
+    const sPacePos     = pacingPct * THRESHOLDS.GOAL_BAR_FILL_RATIO;
+    const markInFill   = sOnPace && sBarW > 0 ? (sPacePos / sBarW * 100).toFixed(1) : 100;
+    const sFillCls     = sPaceRatio >= PACE_GREEN ? 'green over' : sPaceRatio >= PACE_AMBER ? 'amber' : 'red';
+    const sFillStyle   = sOnPace ? `--mark-in-fill:${markInFill}%` : '';
+    return { s, st, col, snet, sPeriodGoal, sGoalPct, sFillCls, sFillStyle, sBarW, sPacePos, diff };
+  }).sort((a, b) => b.snet - a.snet);
+}
+
+function _incomeBreakdownMobHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo) {
+  const rows = _storeBreakdownRows(stores, storeNets, isClosed, pacingPct, yr, daysInMo);
+  return rows.map(({s, st, col, snet, sPeriodGoal, sGoalPct, sFillCls, sFillStyle, sBarW, sPacePos, diff}) =>
+    `<div class="ic-bd-row">
+      <div class="swatch" style="background:${col}"></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:500;color:var(--text)">${st?.display||s}</div>
+        ${sPeriodGoal > 0 ? `<div class="sbar-wrap" style="margin-top:5px">
+          <div class="sbar-track"></div>
+          <div class="sbar-fill ${sFillCls}" data-final="${sBarW}%" style="${sFillStyle}"></div>
+          <div class="sbar-mark" style="left:${sPacePos}%"></div>
+        </div>` : ''}
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div class="sval">${fmtK(snet)}</div>
+        ${sPeriodGoal > 0 ? `<div class="sdiff ${diff>=0?'good':'bad'}" style="font-size:10px">${diff>=0?'+':''}${fmtK(diff)}</div>` : ''}
+      </div>
+    </div>`
+  ).join('');
+}
+
+function _incomeBreakdownDskHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo) {
+  const rows = _storeBreakdownRows(stores, storeNets, isClosed, pacingPct, yr, daysInMo);
+  return `<div class="ic-dsk-bd-hdr">
+      <span>Store</span><span>Sales</span><span>${isClosed?'Goal':'vs Pace'}</span>
+    </div>
+    ${rows.map(({s, st, col, snet, sPeriodGoal, sGoalPct, sFillCls, sFillStyle, sBarW, sPacePos, diff}) =>
+      `<div class="ic-dsk-bd-row">
+        <div class="ic-dsk-bd-store">
+          <div class="swatch" style="background:${col};flex-shrink:0"></div>
+          <span>${st?.display||s}</span>
+        </div>
+        <div class="ic-dsk-bd-bar-col">
+          ${sPeriodGoal > 0 ? `<div class="sbar-wrap">
+            <div class="sbar-track"></div>
+            <div class="sbar-fill ${sFillCls}" data-final="${sBarW}%" style="${sFillStyle}"></div>
+            <div class="sbar-mark" style="left:${sPacePos}%"></div>
           </div>` : ''}
-        </div>`;
-      }).join('')}
-    </div>`;
+        </div>
+        <div class="ic-dsk-bd-nums">
+          <span class="sval">${fmtK(snet)}</span>
+          ${sPeriodGoal > 0 ? `<span class="sdiff ${diff>=0?'good':'bad'}">${diff>=0?'+':''}${fmtK(diff)}</span>` : ''}
+        </div>
+      </div>`
+    ).join('')}`
+  ;
 }
 
 function _incomeOtherRevHtml() {
@@ -2226,49 +2596,39 @@ function _incomeTopProductsHtml(topProds) {
 
 // ─── Income mount state ───────────────────────────────────────────────────────
 let _incomeViewType = null; // 'day' | 'week' | 'month' of the last mounted skeleton
-let _incomeMounted  = false; // true when income skeleton nodes are in the DOM
+let _incomeMounted  = false;
 
 function renderIncome() {
   const stores = getActiveStores();
   const { net: dutchieNet, gross, orders, disc } = getPeriodTotals(stores);
   const otherRevTotal = computeOtherRev('atm') + computeOtherRev('sublet');
   const net = dutchieNet + otherRevTotal;
-  const aov = orders > 0 ? dutchieNet/orders : 0;
+  const aov = orders > 0 ? dutchieNet / orders : 0;
 
-  const today = new Date();
-  const yr = activeYear;
-  const monthGoal = stores.reduce((a,s) => a + getMonthlyGoal(s, activeMonth, yr), 0);
+  const today    = new Date();
+  const yr       = activeYear;
   const daysInMo = activeMonth > 0 ? new Date(activeYear, activeMonth, 0).getDate() : 365;
+  const cost     = computeCost(stores);
 
-  // COGS from Dutchie EOD sheet — per day, per store, aggregated to selected period
-  const cost = computeCost(stores);
-
-  // Scale goal to the selected period (day / week / month / YTD)
-  // For the current month: uses leaderboard's rolling/YoY computed goals.
-  // For historical months: falls back to DOW-weighted budget spreadsheet values.
   let periodGoal, goalLabel;
   if (activeDay) {
-    const dow = new Date(activeDay + 'T12:00:00').getDay();
+    const dow  = new Date(activeDay + 'T12:00:00').getDay();
     periodGoal = Math.round(stores.reduce((a,s) => a + getDailyGoal(s, dow, activeMonth, yr, daysInMo), 0));
-    goalLabel = 'Daily target';
+    goalLabel  = 'Daily target';
   } else if (activeWeek) {
-    // Weekly = sum of all 7 DOW goals (leaderboard) or flat budget/7×days formula
-    periodGoal = Math.round(stores.reduce((a, s) => a + getWeeklyGoal(s, activeMonth, yr, daysInMo), 0));
-    goalLabel = 'Week target';
+    periodGoal = Math.round(stores.reduce((a,s) => a + getWeeklyGoal(s, activeMonth, yr, daysInMo), 0));
+    goalLabel  = 'Week target';
   } else {
-    periodGoal = monthGoal;
-    goalLabel = activeMonth === MONTH_YTD ? 'YTD goal' : 'Monthly goal';
+    periodGoal = stores.reduce((a,s) => a + getMonthlyGoal(s, activeMonth, yr), 0);
+    goalLabel  = activeMonth === MONTH_YTD ? 'YTD goal' : 'Monthly goal';
   }
 
-  const goalPct = periodGoal > 0 ? Math.round(net / periodGoal * 100) : 0;
-
+  const goalPct   = periodGoal > 0 ? Math.round(net / periodGoal * 100) : 0;
   const pacingPct = getPacingPct();
+  const isClosed  = pacingPct >= 100;
 
-  const isClosed = pacingPct >= 100;
   let pacedGoal;
   if (!activeDay && !activeWeek && !isClosed && activeMonth > 0 && activeMonth === today.getMonth() + 1) {
-    // DOW-weighted pacing: sum daily targets for each elapsed day this month.
-    // Uses leaderboard per-DOW goals for current month; falls back to budget DOW weights.
     let dowPaced = 0;
     for (let d = 1; d <= today.getDate(); d++) {
       const dow = new Date(yr, activeMonth - 1, d).getDay();
@@ -2280,62 +2640,102 @@ function renderIncome() {
   }
   const under = pacedGoal - net;
 
-  const storeNets  = Object.fromEntries(stores.map(s => [s, getStorePeriodNet(s)]));
-  const weekly     = activeDay ? buildDayOfWeekChart(stores) : activeWeek ? buildWeeklyDays(stores) : buildMonthDailyChart(stores);
-  const topProds   = activeDay ? [] : buildTopProducts(stores);
-  const viewType   = activeDay ? 'day' : activeWeek ? 'week' : 'month';
-
-  // Build sub-section HTML strings
-  const kpiHtml    = _incomeKpiHtml(net, gross, orders, disc, cost, aov,
-                                    periodGoal, goalLabel, goalPct, pacingPct, isClosed, under);
-  const storeHtml  = _incomeStoreBreakdownHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo);
-  const otherHtml  = _incomeOtherRevHtml();
-  const chartLabel = _incomeChartLabel();
-  const topHtml    = _incomeTopProductsHtml(topProds);
+  const storeNets = Object.fromEntries(stores.map(s => [s, getStorePeriodNet(s)]));
+  const weekly    = activeDay ? buildDayOfWeekChart(stores) : activeWeek ? buildWeeklyDays(stores) : buildMonthDailyChart(stores);
+  const topProds  = activeDay ? [] : buildTopProducts(stores);
+  const viewType  = activeDay ? 'day' : activeWeek ? 'week' : 'month';
+  const otherHtml = _incomeOtherRevHtml();
+  const chartLbl  = _incomeChartLabel();
+  const topHtml   = _incomeTopProductsHtml(topProds);
+  const syncTime  = `Updated ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
 
   const needsFullMount = !_incomeMounted || viewType !== _incomeViewType;
 
   if (needsFullMount) {
-    // ── Full mount: replace everything, initialise chart fresh ──────────────
     _incomeViewType = viewType;
     _incomeMounted  = true;
+
     document.getElementById('main-content').innerHTML = `
-      <div class="kpi-grid">${kpiHtml}</div>
-      <div id="income-store-breakdown">${storeHtml}</div>
-      <div id="income-other-rev">${otherHtml}</div>
-      <div id="income-chart-section">
-        <div class="sec-lbl" id="income-chart-label">${chartLabel}</div>
-        <div class="card">
-          <div style="position:relative;width:100%;height:160px">
-            <canvas id="weekChart" role="img" aria-label="Sales trend">Sales data</canvas>
+      <!-- Mobile layout -->
+      <div class="ic-mob">
+        <div class="ic-hero-card" id="ic-mob-hero">
+          ${_incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under)}
+        </div>
+        <div class="ic-mob-bd" id="ic-mob-bd">
+          ${_incomeBreakdownMobHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo)}
+        </div>
+        <div class="ic-kpis" id="ic-mob-kpis">
+          ${_incomeKpiMobHtml(net, gross, orders, disc, cost, aov)}
+        </div>
+        <div id="income-other-rev">${otherHtml}</div>
+        <div id="income-chart-section">
+          <div class="sec-lbl" id="income-chart-label">${chartLbl}</div>
+          <div class="card">
+            <div style="position:relative;width:100%;height:160px">
+              <canvas id="weekChart" role="img" aria-label="Sales trend">Sales data</canvas>
+            </div>
           </div>
         </div>
+        <div id="income-top-products">${topHtml}</div>
       </div>
-      <div id="income-top-products">${topHtml}</div>
-      <div class="last-sync" id="income-last-sync">Updated ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</div>`;
+      <!-- Desktop layout -->
+      <div class="ic-dsk">
+        <div class="ic-hero-row">
+          <div class="ic-hero-card ic-dsk-hero" id="ic-dsk-hero">
+            ${_incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under)}
+          </div>
+          <div class="ic-proj-card" id="ic-dsk-proj">
+            ${_incomeProjCardHtml(net, periodGoal, isClosed, daysInMo)}
+          </div>
+        </div>
+        <div class="ic-dsk-kpis" id="ic-dsk-kpis">
+          ${_incomeKpiDskHtml(net, gross, orders, disc, cost, aov)}
+        </div>
+        <div class="ic-lower">
+          <div class="ic-dsk-bd-wrap card" id="ic-dsk-bd">
+            <div class="sec-lbl" style="margin-bottom:8px">Store breakdown</div>
+            ${_incomeBreakdownDskHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo)}
+          </div>
+          <div class="ic-chart-col">
+            <div class="ic-chart-card card" id="ic-dsk-chart-wrap">
+              <div class="sec-lbl" id="income-chart-label-dsk">${chartLbl}</div>
+              <div style="position:relative;width:100%;height:200px">
+                <canvas id="dskWeekChart" role="img" aria-label="Sales trend">Sales data</canvas>
+              </div>
+            </div>
+            <div id="ic-dsk-top-prods">${topHtml}</div>
+          </div>
+        </div>
+        <div id="income-other-rev-dsk">${otherHtml}</div>
+      </div>
+      <div class="last-sync" id="income-last-sync"><span id="income-last-sync-txt">${syncTime}</span><button class="bug-inline" onclick="openBugModal()" title="Report a bug">🐞 Report a bug</button></div>`;
+
     requestAnimationFrame(() => { drawWeekChart(weekly); animateStorePacingBars(true); });
+
   } else {
-    // ── Patch: update only changed nodes, preserve the chart canvas ─────────
-    // Parse new KPI HTML into a fragment and swap each card's innerHTML individually.
-    const kpiFrag = document.createElement('div');
-    kpiFrag.innerHTML = `<div class="kpi-grid">${kpiHtml}</div>`;
-    ['kpi-net','kpi-gp','kpi-txns','kpi-disc','kpi-gross'].forEach(id => {
-      const fresh = kpiFrag.querySelector('#' + id);
-      const live  = document.getElementById(id);
-      if (fresh && live) live.innerHTML = fresh.innerHTML;
-    });
-    document.getElementById('income-store-breakdown').innerHTML = storeHtml;
+    // ── Patch: update only changed nodes, preserve both chart canvases ───────
+    const patchEl = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+    const patchTxt = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
+
+    patchEl('ic-mob-hero',   _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under));
+    patchEl('ic-dsk-hero',   _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under));
+    patchEl('ic-dsk-proj',   _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo));
+    patchEl('ic-mob-kpis',   _incomeKpiMobHtml(net, gross, orders, disc, cost, aov));
+    patchEl('ic-dsk-kpis',   _incomeKpiDskHtml(net, gross, orders, disc, cost, aov));
+    patchEl('ic-mob-bd',     _incomeBreakdownMobHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo));
+    patchEl('ic-dsk-bd',     `<div class="sec-lbl" style="margin-bottom:8px">Store breakdown</div>${_incomeBreakdownDskHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo)}`);
+    patchEl('income-other-rev', otherHtml);
+    patchEl('income-other-rev-dsk', otherHtml);
+    patchEl('income-top-products', topHtml);
+    patchEl('ic-dsk-top-prods', topHtml);
+    patchTxt('income-chart-label',     chartLbl);
+    patchTxt('income-chart-label-dsk', chartLbl);
+    patchTxt('income-last-sync-txt', syncTime);
+
     animateStorePacingBars(false);
-    document.getElementById('income-other-rev').innerHTML       = otherHtml;
-    document.getElementById('income-chart-label').textContent   = chartLabel;
-    document.getElementById('income-top-products').innerHTML    = topHtml;
-    const syncEl = document.getElementById('income-last-sync');
-    if (syncEl) syncEl.textContent = `Updated ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
-    // Update chart data in-place — canvas is untouched, no destroy+recreate.
-    if (charts.week) {
-      charts.week.data = weekly;
-      charts.week.update('none');
-    }
+
+    if (charts.week) { charts.week.data = weekly; charts.week.update('none'); }
+    if (charts.dskWeek) { charts.dskWeek.data = weekly; charts.dskWeek.update('none'); }
   }
 }
 
@@ -2516,11 +2916,8 @@ function buildTopProducts(stores) {
     .map(([name,d]) => ({ name, ...d }));
 }
 
-function drawWeekChart(weekly) {
-  const el = document.getElementById('weekChart');
-  if (!el) return;
-  if (charts.week) { charts.week.destroy(); charts.week = null; }
-  charts.week = new Chart(el, {
+function _makeChartInstance(el, weekly) {
+  const chartOptions = {
     type: 'bar',
     data: weekly,
     options: {
@@ -2553,32 +2950,48 @@ function drawWeekChart(weekly) {
         y: { ticks:{color:'#555',font:{size:10},callback:v=>fmtK(v)}, grid:{color:'rgba(255,255,255,0.05)'}, border:{display:false}, stacked:true }
       }
     }
-  });
+  };
+  return new Chart(el, chartOptions);
+}
 
-  // Touch toggle: capture-phase touchstart notes whether the tapped bar was already active,
-  // then touchend dismisses it if so (runs after Chart.js has shown the tooltip).
-  let wasActiveBeforeTouch = false;
-  el.addEventListener('touchstart', e => {
-    const chart = charts.week;
-    if (!chart) return;
-    const touch = e.touches[0];
-    const rect  = el.getBoundingClientRect();
-    const x     = touch.clientX - rect.left;
-    const idx   = Math.round(chart.scales.x.getValueForPixel(x));
-    const inBounds = idx >= 0 && idx < chart.data.labels.length;
-    const active   = chart.tooltip.getActiveElements();
-    wasActiveBeforeTouch = inBounds && active.length > 0 && active[0].index === idx;
-  }, { capture: true, passive: true });
+function drawWeekChart(weekly) {
+  const mobEl = document.getElementById('weekChart');
+  const dskEl = document.getElementById('dskWeekChart');
 
-  el.addEventListener('touchend', e => {
-    if (!wasActiveBeforeTouch) return;
-    wasActiveBeforeTouch = false;
-    e.preventDefault(); // block synthetic mouse events that would re-show the tooltip
-    const chart = charts.week;
-    if (!chart) return;
-    chart.tooltip.setActiveElements([], { x: 0, y: 0 });
-    chart.update('none');
-  }, { passive: false });
+  if (charts.week)    { charts.week.destroy();    charts.week = null; }
+  if (charts.dskWeek) { charts.dskWeek.destroy(); charts.dskWeek = null; }
+
+  if (mobEl) {
+    charts.week = _makeChartInstance(mobEl, weekly);
+
+    // Touch toggle for mobile chart
+    let wasActiveBeforeTouch = false;
+    mobEl.addEventListener('touchstart', e => {
+      const chart = charts.week;
+      if (!chart) return;
+      const touch = e.touches[0];
+      const rect  = mobEl.getBoundingClientRect();
+      const x     = touch.clientX - rect.left;
+      const idx   = Math.round(chart.scales.x.getValueForPixel(x));
+      const inBounds = idx >= 0 && idx < chart.data.labels.length;
+      const active   = chart.tooltip.getActiveElements();
+      wasActiveBeforeTouch = inBounds && active.length > 0 && active[0].index === idx;
+    }, { capture: true, passive: true });
+
+    mobEl.addEventListener('touchend', e => {
+      if (!wasActiveBeforeTouch) return;
+      wasActiveBeforeTouch = false;
+      e.preventDefault();
+      const chart = charts.week;
+      if (!chart) return;
+      chart.tooltip.setActiveElements([], { x: 0, y: 0 });
+      chart.update('none');
+    }, { passive: false });
+  }
+
+  if (dskEl) {
+    charts.dskWeek = _makeChartInstance(dskEl, weekly);
+  }
 }
 
 async function loadExpenses() {
