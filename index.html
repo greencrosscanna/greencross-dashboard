@@ -3366,6 +3366,22 @@ function renderInventory() {
       .replace(/\s+/g, ' ').trim().toLowerCase();
   };
 
+  // Cross-store unit cost backfill: if Dutchie returned qty>0 but no unitCost for a product
+  // at one store, fill it from another store's known cost (matches Inventory app logic).
+  const _allProds = loadedStores.flatMap(s => inventoryData[s]?.products || []);
+  const _costBySku = {}, _costByName = {};
+  for (const p of _allProds) {
+    if (!(p.qty > 0) || !(p.value > 0)) continue;
+    const uc = p.value / p.qty;
+    if (p.sku) _costBySku[p.sku] = uc;
+    _costByName[normName(p.name)] = uc;
+  }
+  for (const p of _allProds) {
+    if (!(p.qty > 0) || p.value > 0) continue;
+    const fb = (p.sku && _costBySku[p.sku]) || _costByName[normName(p.name)] || 0;
+    if (fb > 0) p.value = Math.round(p.qty * fb * 100) / 100;
+  }
+
   for (const storeName of loadedStores) {
     const storeProds      = inventoryData[storeName]?.products || [];
     const velKey          = STORE_TO_VEL[storeName] || storeName;
