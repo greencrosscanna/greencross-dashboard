@@ -2150,7 +2150,7 @@ function buildStoreTray() {
   const body = document.getElementById('mob-store-tray-body');
   if (!body) return;
   const rows = [{ name: 'All', label: 'All stores', net: null }]
-    .concat(STORES.map(s => ({ name: s.name, label: s.name, net: getStorePeriodNet(s.name) })));
+    .concat(STORES.map(s => ({ name: s.name, label: s.display || s.name, net: getStorePeriodNet(s.name) })));
   body.innerHTML = rows.map(r => {
     const isOn  = activeStore === r.name;
     const meta  = r.net !== null ? fmtK(r.net) : '';
