@@ -171,6 +171,8 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .klabel{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:3px}
 .kval{font-size:21px;font-weight:500;color:var(--text);line-height:1.1}
 .ksub{font-size:11px;margin-top:3px}
+.val-skel{display:inline-block;width:72px;height:20px;border-radius:5px;vertical-align:middle;background:linear-gradient(90deg,var(--border) 25%,rgba(150,150,150,.28) 50%,var(--border) 75%);background-size:200% 100%;animation:valShimmer 1.25s ease-in-out infinite}
+@keyframes valShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
 .good{color:var(--green)}.bad{color:var(--red)}.muted{color:var(--muted)}
 
 /* Content cards */
@@ -3450,27 +3452,27 @@ function renderInventory() {
     <div class="kpi-grid">
       <div class="kpi">
         <div class="klabel">Total SKUs</div>
-        <div class="kval">${isLoaded ? totalSKUs.toLocaleString() : '—'}</div>
+        <div class="kval">${isLoaded ? totalSKUs.toLocaleString() : isLoading ? '<span class="val-skel"></span>' : '—'}</div>
         <div class="ksub muted">${isLoaded ? loadedStores.length + '/' + storeNames.length + ' stores' : isLoading ? 'loading…' : 'not loaded'}</div>
       </div>
       <div class="kpi">
         <div class="klabel">Inventory Value</div>
-        <div class="kval">${isLoaded && totalValue > 0 ? fmtK(totalValue) : '—'}</div>
+        <div class="kval">${isLoaded && totalValue > 0 ? fmtK(totalValue) : isLoading ? '<span class="val-skel"></span>' : '—'}</div>
         <div class="ksub muted">at cost</div>
       </div>
       <div class="kpi wide">
         <div class="klabel">Gross Margin — 28 days</div>
-        <div class="kval ${margin !== null ? (margin >= 50 ? 'good' : margin >= 40 ? '' : 'bad') : ''}">${margin !== null ? margin.toFixed(1) + '%' : '—'}</div>
+        <div class="kval ${margin !== null ? (margin >= 50 ? 'good' : margin >= 40 ? '' : 'bad') : ''}">${margin !== null ? margin.toFixed(1) + '%' : isLoading ? '<span class="val-skel"></span>' : '—'}</div>
         <div class="ksub muted">${gmSub}</div>
       </div>
       <div class="kpi">
         <div class="klabel">Out of Stock</div>
-        <div class="kval" style="color:${isLoaded && velReady && oosCount > 0 ? '#F09595' : isLoaded && velReady ? '#5DCAA5' : ''}">${isLoaded && velReady ? oosCount : '—'}</div>
+        <div class="kval" style="color:${isLoaded && velReady && oosCount > 0 ? '#F09595' : isLoaded && velReady ? '#5DCAA5' : ''}">${isLoaded && velReady ? oosCount : isLoading || (isLoaded && !velReady) ? '<span class="val-skel"></span>' : '—'}</div>
         <div class="ksub muted">${velReady ? 'selling last 30d · not in stock' : 'loading velocity…'}</div>
       </div>
       <div class="kpi">
         <div class="klabel">Critical</div>
-        <div class="kval" style="color:${isLoaded && velReady && criticalCount > 0 ? '#EF9F27' : isLoaded && velReady ? '#5DCAA5' : ''}">${isLoaded && velReady ? criticalCount : '—'}</div>
+        <div class="kval" style="color:${isLoaded && velReady && criticalCount > 0 ? '#EF9F27' : isLoaded && velReady ? '#5DCAA5' : ''}">${isLoaded && velReady ? criticalCount : isLoading || (isLoaded && !velReady) ? '<span class="val-skel"></span>' : '—'}</div>
         <div class="ksub muted">${velReady ? '< 3 days on hand' : 'loading velocity…'}</div>
       </div>
     </div>
