@@ -3388,31 +3388,18 @@ function renderInventory() {
     const storeProds      = inventoryData[storeName]?.products || [];
     const velKey          = STORE_TO_VEL[storeName] || storeName;
     const storeVel        = velocityData?.stores?.[velKey] || null;
-    const inInventory     = new Set(storeProds.map(p => p.name));
-    const inInventoryNorm = new Set(storeProds.map(p => normName(p.name)));
-    const inInventorySkus = new Set(storeProds.filter(p => p.sku).map(p => p.sku));
-
     for (const p of storeProds) {
       productNames.add(p.name);
       totalValue += p.value;
-      if (p.qty > 0 && storeVel) {
-        const vel = storeVel[p.name] || storeVel[normName(p.name)];
+      // OOS: qty=0 (matches Inventory app definition)
+      if (p.qty === 0) { oosCount++; continue; }
+      // Critical: DOH < 3 days — exact name or SKU match only (no normName fallback to avoid false positives)
+      if (storeVel) {
+        const vel = storeVel[p.name] || (p.sku && Object.values(storeVel).find(v => v.sku === p.sku));
         if (vel) {
           const pVel = vel.vel14 > 0 ? vel.vel14 : vel.vel30 > 0 ? vel.vel30 : vel.vel7;
           if (pVel > 0 && p.qty / pVel < 3) criticalCount++;
         }
-      }
-    }
-
-    // OOS injection: vel30>0 but absent from current Dutchie inventory
-    // Uses same fuzzy matching as inventory tracker (exact → SKU → normalized name)
-    if (storeVel) {
-      for (const [name, vel] of Object.entries(storeVel)) {
-        if ((vel.vel30 || 0) === 0) continue;
-        if (inInventory.has(name)) continue;                          // exact match
-        if (vel.sku && inInventorySkus.has(vel.sku)) continue;        // SKU match
-        if (inInventoryNorm.has(normName(name))) continue;            // normalized match
-        oosCount++;
       }
     }
   }
@@ -3467,8 +3454,8 @@ function renderInventory() {
       </div>
       <div class="kpi">
         <div class="klabel">Out of Stock</div>
-        <div class="kval" style="color:${isLoaded && velReady && oosCount > 0 ? '#F09595' : isLoaded && velReady ? '#5DCAA5' : ''}">${isLoaded && velReady ? oosCount : isLoading || (isLoaded && !velReady) ? '<span class="val-skel"></span>' : '—'}</div>
-        <div class="ksub muted">${velReady ? 'selling last 30d · not in stock' : 'loading velocity…'}</div>
+        <div class="kval" style="color:${isLoaded && oosCount > 0 ? '#F09595' : isLoaded ? '#5DCAA5' : ''}">${isLoaded ? oosCount : isLoading ? '<span class="val-skel"></span>' : '—'}</div>
+        <div class="ksub muted">qty = 0 across loaded stores</div>
       </div>
       <div class="kpi">
         <div class="klabel">Critical</div>
