@@ -3420,9 +3420,9 @@ function renderInventory() {
   const isLoading  = loadingStores.length > 0;
   const velReady   = velocityData !== null;
 
-  // Gross margin — rolling 30-day window, independent of any drill-down state
+  // Gross margin — rolling 28-day window, independent of any drill-down state
   const gmStores  = getActiveStores();
-  const cutoff30  = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const cutoff30  = new Date(Date.now() - 28 * 86400000).toISOString().slice(0, 10);
 
   // Net sales: sum from allDailyData (accumulated across all fetched months)
   let netSales = 0;
@@ -3432,7 +3432,7 @@ function renderInventory() {
     }
   }
 
-  // COGS: sum daily entries from last 30 days
+  // COGS: sum daily entries from last 28 days
   let cogs = 0;
   if (costData?.daily) {
     for (const [ds, d] of Object.entries(costData.daily)) {
@@ -3459,7 +3459,7 @@ function renderInventory() {
         <div class="ksub muted">at cost</div>
       </div>
       <div class="kpi wide">
-        <div class="klabel">Gross Margin — 30 days</div>
+        <div class="klabel">Gross Margin — 28 days</div>
         <div class="kval ${margin !== null ? (margin >= 50 ? 'good' : margin >= 40 ? '' : 'bad') : ''}">${margin !== null ? margin.toFixed(1) + '%' : '—'}</div>
         <div class="ksub muted">${gmSub}</div>
       </div>
