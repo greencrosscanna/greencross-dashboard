@@ -191,6 +191,7 @@ function doGet(e) {
   if (params.action === 'eodtest')     return getEodTest(params);
   if (params.action === 'sheetpreview')  return getSheetPreview(params);
   if (params.action === 'costs')         return getCosts(params);
+  if (params.action === 'cogs_dutchie')  return jsonOut_(getCogsDutchie(params));
   if (params.action === 'expbudgets')    return getExpenseBudgets();
   if (params.action === 'otherrev')      return getOtherRevenue();
   if (params.action === 'inventory')     return getInventory(params);
@@ -911,6 +912,29 @@ function getSheetPreview(params) {
     output.setContent(JSON.stringify({ error: e.message }));
   }
   return output;
+}
+
+// Returns daily COGS from GXCore (Dutchie-sourced, settled days only).
+// Response: { data: [{ date, store, cogs }] }
+function getCogsDutchie(params) {
+  const STORE_NAMES = ['Bend', 'Center', 'Commercial', 'Hillsboro', 'Portland Rd', 'River'];
+  const todayPT  = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM-dd');
+  const from     = (params.from || '').slice(0, 10);
+  const rawTo    = (params.to   || '').slice(0, 10);
+  const to       = (!rawTo || rawTo >= todayPT) ? dayBefore_(todayPT) : rawTo;
+  const results  = [];
+  for (const store of STORE_NAMES) {
+    try {
+      const rows = GXCore.getSalesDaily(store, from, to) || [];
+      for (const r of rows) {
+        if (!r.date) continue;
+        results.push({ date: String(r.date).slice(0, 10), store: store, cogs: Number(r.cogs || 0) });
+      }
+    } catch(e) {
+      Logger.log('getCogsDutchie: getSalesDaily failed for ' + store + ': ' + e.message);
+    }
+  }
+  return { data: results };
 }
 
 // Returns daily inventory cost data from the EOD sheet

@@ -3079,13 +3079,17 @@ async function loadInvGmData() {
   const from = new Date(Date.now() - 28 * 86400000).toISOString().slice(0, 10);
   const cached = readCache(`inv_gm_${from}`);
   if (cached) { invGmData = cached; return; }
+  const proxyUrl = getProxyUrl();
+  if (!proxyUrl) return;
   try {
-    const cogsRes = await fetch(`${VEL_PROXY_URL}?action=cogs&from=${from}&to=${to}`).then(r => r.json());
+    const res = await fetch(`${proxyUrl}?action=cogs_dutchie&from=${from}&to=${to}&token=${encodeURIComponent(getToken())}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
     const cogs = {};
-    for (const row of cogsRes.data || []) cogs[row.store] = (cogs[row.store] || 0) + row.cogs;
+    for (const row of data.data || []) cogs[row.store] = (cogs[row.store] || 0) + row.cogs;
     invGmData = { cogs };
     writeCache(`inv_gm_${from}`, invGmData);
-    console.log('InvGM loaded from API');
+    console.log('InvGM (Dutchie COGS) loaded');
   } catch(e) {
     console.warn('InvGM fetch failed:', e.message);
     invGmData = null;
@@ -3448,10 +3452,7 @@ function renderInventory() {
 
   let gmCogs = 0;
   if (invGmData) {
-    for (const s of gmStores) {
-      const velKey = STORE_TO_VEL[s] || s;
-      gmCogs += invGmData.cogs[velKey] || 0;
-    }
+    for (const s of gmStores) gmCogs += invGmData.cogs[s] || 0;
   }
 
   const margin = gmNetSales > 0 && gmCogs > 0 ? Math.round((gmNetSales - gmCogs) / gmNetSales * 1000) / 10 : null;
