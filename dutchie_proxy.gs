@@ -225,7 +225,7 @@ function getStoreSales_(store, from, to) {
     if (fromDate <= settledTo) {
       // Version prefix (v3): bumped 2026-08-15 to bust stale entries after GXCore backfill (8/13–8/14 rows
       // were missing; proxy had cached the incomplete result for up to 1h). CacheService has no clear-all.
-      const gasCacheKey = 'sdaily_v3_' + store + '_' + fromDate + '_' + settledTo;
+      const gasCacheKey = 'sdaily_v4_' + store + '_' + fromDate + '_' + settledTo;
       const hit = cacheGet_(gasCacheKey);
       if (hit) {
         cacheRows = JSON.parse(hit);
@@ -299,7 +299,7 @@ function getStoreSales_(store, from, to) {
       topProducts: liveResult ? (liveResult.topProducts || []) : [],
       daily: Object.entries(dailyMap)
         .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([date, d]) => ({ date, netSales: d.netSales, grossSales: d.grossSales, orders: d.orders, discounts: d.discounts })),
+        .map(([date, d]) => ({ date, netSales: d.netSales, grossSales: d.grossSales, orders: d.orders, discounts: d.discounts, cogs: d.cogs || 0 })),
       cacheRows:  cacheRows.length,
       liveOrders: liveResult ? liveResult.orders : 0,
     });
