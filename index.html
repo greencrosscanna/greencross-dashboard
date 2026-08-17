@@ -766,7 +766,8 @@ let lbGoals = null; // { month, year, stores: { locationName: { monthly, dow:[7]
 let goals = {};       // loaded from budget spreadsheet via proxy (historical months)
 let expenseData = null; // loaded from QuickBooks via proxy
 let expensesLoading = false;
-let invGmData = null;   // {cogs:{storeName:total}} — 28d from cogs_dutchie
+let invGmData = null;   // {cogs:{storeName:total}, byDay, byMonth} — 28d from cogs_dutchie
+let _invGmLoading = false;
 let expBudgets = null;  // loaded from Annual Budget sheet via proxy
 let otherRevData = null; // { atm: { Jan: 9493, ... }, sublet: { Jan: 0, ... } }
 let hiddenExpCats = new Set(JSON.parse(localStorage.getItem('hiddenExpCats') || '[]'));
@@ -1250,7 +1251,7 @@ function clearAllCache() {
   allDailyData  = {};
   liveData      = {};   // was missing — without it the on-screen figure survived a "clear" (the July 736k trap)
   lbGoals       = null;
-  invGmData     = null;
+  invGmData     = null; _invGmLoading = false;
   _invalidateDerivedCaches();
   console.log('Cache cleared');
 }
@@ -3054,12 +3055,14 @@ async function loadOtherRevenue() {
 }
 
 async function loadInvGmData() {
+  if (_invGmLoading) return;
   const to   = new Date().toISOString().slice(0, 10);
   const from = new Date(Date.now() - 28 * 86400000).toISOString().slice(0, 10);
   const cached = readCache(`inv_gm2_${from}`);
   if (cached?.byDay) { invGmData = cached; return; }
   const proxyUrl = getProxyUrl();
   if (!proxyUrl) return;
+  _invGmLoading = true;
   try {
     const res = await fetch(`${proxyUrl}?action=cogs_dutchie&from=${from}&to=${to}&token=${encodeURIComponent(getToken())}`);
     const data = await res.json();
@@ -3079,7 +3082,9 @@ async function loadInvGmData() {
     console.log('InvGM (Dutchie COGS) loaded');
   } catch(e) {
     console.warn('InvGM fetch failed:', e.message);
-    invGmData = null;
+    invGmData = { cogs: {}, byDay: {}, byMonth: {} }; // stop shimmering, show —
+  } finally {
+    _invGmLoading = false;
   }
 }
 
@@ -3516,7 +3521,7 @@ function hardReset() {
   clearAllCache();
   hiddenExpCats.clear(); localStorage.removeItem('hiddenExpCats');
   hiddenOtherRevs.clear(); localStorage.removeItem('hiddenOtherRevs');
-  expenseData = null; expBudgets = null; otherRevData = null; invGmData = null;
+  expenseData = null; expBudgets = null; otherRevData = null; invGmData = null; _invGmLoading = false;
   liveData = {};
   updateCacheStatus();
   updateSettingsBadges();
