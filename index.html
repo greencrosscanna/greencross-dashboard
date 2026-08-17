@@ -1561,6 +1561,7 @@ async function loadAllStores() {
   scheduleAutoRefresh();          // restart 60s timer for current month
   backfillDailyHistory(proxyUrl);
   loadVelocity(); // inventory loads last — lowest priority
+  loadInvGmData().then(() => { if (section === 'income') renderIncome(); });
   // Auto-select today on initial page load only
   if (isInitialLoad) {
     isInitialLoad = false;
@@ -2616,9 +2617,6 @@ function renderIncome() {
   const today    = new Date();
   const yr       = activeYear;
   const daysInMo = activeMonth > 0 ? new Date(activeYear, activeMonth, 0).getDate() : 365;
-  if (!invGmData) {
-    loadInvGmData().then(() => { if (section === 'income') renderIncome(); });
-  }
   const cost = computeInvCost(stores);
 
   let periodGoal, goalLabel;
@@ -3064,7 +3062,10 @@ async function loadInvGmData() {
   if (!proxyUrl) return;
   _invGmLoading = true;
   try {
-    const res = await fetch(`${proxyUrl}?action=cogs_dutchie&from=${from}&to=${to}&token=${encodeURIComponent(getToken())}`);
+    const ac  = new AbortController();
+    const tid = setTimeout(() => ac.abort(), 25000);
+    const res = await fetch(`${proxyUrl}?action=cogs_dutchie&from=${from}&to=${to}&token=${encodeURIComponent(getToken())}`, { signal: ac.signal });
+    clearTimeout(tid);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     const cogs = {}, byDay = {}, byMonth = {};
