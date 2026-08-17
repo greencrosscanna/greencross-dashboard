@@ -3093,7 +3093,13 @@ function computeInvCost(stores) {
   if (!invGmData?.byDay) return 0;
   if (activeDay) {
     const d = invGmData.byDay[activeDay] || {};
-    return stores.reduce((s, st) => s + (d[st] || 0), 0);
+    const settled = stores.reduce((s, st) => s + (d[st] || 0), 0);
+    if (settled > 0) return settled;
+    // Today has no settled COGS yet — estimate from trailing average scaled by pacing
+    const days = Object.keys(invGmData.byDay).length;
+    if (!days) return 0;
+    const avgDaily = stores.reduce((s, st) => s + (invGmData.cogs[st] || 0) / days, 0);
+    return avgDaily * getPacingPct() / 100;
   }
   if (activeWeek) {
     let total = 0;

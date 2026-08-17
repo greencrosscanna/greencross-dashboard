@@ -916,21 +916,29 @@ function getSheetPreview(params) {
 // Returns daily COGS from GXCore (Dutchie-sourced, settled days only).
 // Response: { data: [{ date, store, cogs }] }
 function getCogsDutchie(params) {
-  const STORE_NAMES = ['Bend', 'Center', 'Commercial', 'Hillsboro', 'Portland Rd', 'River'];
-  const todayPT  = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM-dd');
-  const from     = (params.from || '').slice(0, 10);
-  const rawTo    = (params.to   || '').slice(0, 10);
-  const to       = (!rawTo || rawTo >= todayPT) ? dayBefore_(todayPT) : rawTo;
-  const results  = [];
-  for (const store of STORE_NAMES) {
+  // dutchie_name → Sales internal store name (only River differs)
+  const STORES = [
+    { dutchie: 'Bend',        sales: 'Bend'        },
+    { dutchie: 'Center',      sales: 'Center'      },
+    { dutchie: 'Commercial',  sales: 'Commercial'  },
+    { dutchie: 'Hillsboro',   sales: 'Hillsboro'   },
+    { dutchie: 'Portland Rd', sales: 'Portland Rd' },
+    { dutchie: 'River Rd',    sales: 'River'       },
+  ];
+  const todayPT = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM-dd');
+  const from    = (params.from || '').slice(0, 10);
+  const rawTo   = (params.to   || '').slice(0, 10);
+  const to      = (!rawTo || rawTo >= todayPT) ? dayBefore_(todayPT) : rawTo;
+  const results = [];
+  for (const { dutchie, sales } of STORES) {
     try {
-      const rows = GXCore.getSalesDaily(store, from, to) || [];
+      const rows = GXCore.getSalesDaily(dutchie, from, to) || [];
       for (const r of rows) {
         if (!r.date) continue;
-        results.push({ date: String(r.date).slice(0, 10), store: store, cogs: Number(r.cogs || 0) });
+        results.push({ date: String(r.date).slice(0, 10), store: sales, cogs: Number(r.cogs || 0) });
       }
     } catch(e) {
-      Logger.log('getCogsDutchie: getSalesDaily failed for ' + store + ': ' + e.message);
+      Logger.log('getCogsDutchie: getSalesDaily failed for ' + dutchie + ': ' + e.message);
     }
   }
   return { data: results };
