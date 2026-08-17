@@ -847,8 +847,12 @@ function getWeeklyGoal(storeName, month, year, daysInMo) {
  * Daily goal for a store on a specific day-of-week (0=Sun) — leaderboard computed
  * value when viewing current month, DOW-weighted budget fallback otherwise.
  */
-function getDailyGoal(storeName, dow, month /* 1–12 */, year, daysInMo) {
-  if (month > 0 && lbGoals && year === lbGoals.year && MONTHS[month - 1] === lbGoals.month) {
+function getDailyGoal(storeName, dow, month /* 1–12 */, year, daysInMo, forDate) {
+  // lbGoals only holds the CURRENT pay period's targets. A past day may belong to a
+  // different period — using lbGoals for it would show the wrong goal after a period rolls.
+  const todayStr = new Date().toLocaleDateString('en-CA');
+  const isCurrentPeriod = !forDate || forDate === todayStr;
+  if (isCurrentPeriod && month > 0 && lbGoals && year === lbGoals.year && MONTHS[month - 1] === lbGoals.month) {
     const lb = lbGoals.stores[storeName];
     if (lb && lb.dow && lb.dow[dow] != null) return lb.dow[dow];
   }
@@ -2488,7 +2492,7 @@ function _storeBreakdownRows(stores, storeNets, isClosed, pacingPct, yr, daysInM
     const snet        = storeNets[s];
     const sMonthGoal  = getMonthlyGoal(s, activeMonth, yr);
     const sPeriodGoal = activeDay
-      ? getDailyGoal(s, new Date(activeDay + 'T12:00:00').getDay(), activeMonth, yr, daysInMo)
+      ? getDailyGoal(s, new Date(activeDay + 'T12:00:00').getDay(), activeMonth, yr, daysInMo, activeDay)
       : activeWeek ? getWeeklyGoal(s, activeMonth, yr, daysInMo)
       : sMonthGoal;
     const sCompareGoal = isClosed ? sPeriodGoal : Math.round(sPeriodGoal * pacingPct / 100);
@@ -2623,7 +2627,7 @@ function renderIncome() {
   let periodGoal, goalLabel;
   if (activeDay) {
     const dow  = new Date(activeDay + 'T12:00:00').getDay();
-    periodGoal = Math.round(stores.reduce((a,s) => a + getDailyGoal(s, dow, activeMonth, yr, daysInMo), 0));
+    periodGoal = Math.round(stores.reduce((a,s) => a + getDailyGoal(s, dow, activeMonth, yr, daysInMo, activeDay), 0));
     goalLabel  = 'Daily target';
   } else if (activeWeek) {
     periodGoal = Math.round(stores.reduce((a,s) => a + getWeeklyGoal(s, activeMonth, yr, daysInMo), 0));
