@@ -3080,14 +3080,10 @@ async function loadInvGmData() {
   const cached = readCache(`inv_gm_${from}`);
   if (cached) { invGmData = cached; return; }
   try {
-    const [cogsRes, salesRes] = await Promise.all([
-      fetch(`${VEL_PROXY_URL}?action=cogs&from=${from}&to=${to}`).then(r => r.json()),
-      fetch(`${VEL_PROXY_URL}?action=sales&from=${from}&to=${to}`).then(r => r.json()),
-    ]);
-    const cogs = {}, sales = {};
-    for (const row of cogsRes.data  || []) cogs[row.store]  = (cogs[row.store]  || 0) + row.cogs;
-    for (const row of salesRes.data || []) sales[row.store] = (sales[row.store] || 0) + row.sales;
-    invGmData = { cogs, sales };
+    const cogsRes = await fetch(`${VEL_PROXY_URL}?action=cogs&from=${from}&to=${to}`).then(r => r.json());
+    const cogs = {};
+    for (const row of cogsRes.data || []) cogs[row.store] = (cogs[row.store] || 0) + row.cogs;
+    invGmData = { cogs };
     writeCache(`inv_gm_${from}`, invGmData);
     console.log('InvGM loaded from API');
   } catch(e) {
@@ -3437,21 +3433,31 @@ function renderInventory() {
   const isLoading  = loadingStores.length > 0;
   const velReady   = velocityData !== null;
 
-  // Gross margin — rolling 28-day window from Inventory proxy (VEL_PROXY_URL)
+  // Gross margin — rolling 28-day window
+  // Net sales: from allDailyData (GXCore/Dutchie — already loaded)
+  // COGS: from Inventory proxy (VEL_PROXY_URL action=cogs) — decoupled from legacy sheet
   const gmStores  = getActiveStores();
-  let gmNetSales = 0, gmCogs = 0;
+  const cutoff28  = new Date(Date.now() - 28 * 86400000).toISOString().slice(0, 10);
+
+  let gmNetSales = 0;
+  for (const s of gmStores) {
+    for (const [ds, val] of Object.entries(allDailyData[s] || {})) {
+      if (ds >= cutoff28) gmNetSales += getDailyNet(val);
+    }
+  }
+
+  let gmCogs = 0;
   if (invGmData) {
     for (const s of gmStores) {
       const velKey = STORE_TO_VEL[s] || s;
-      gmNetSales += invGmData.sales[velKey] || 0;
-      gmCogs     += invGmData.cogs[velKey]  || 0;
+      gmCogs += invGmData.cogs[velKey] || 0;
     }
   }
 
   const margin = gmNetSales > 0 && gmCogs > 0 ? Math.round((gmNetSales - gmCogs) / gmNetSales * 1000) / 10 : null;
   const gmSub  = margin !== null
     ? `${fmtK(gmNetSales - gmCogs)} profit · ${fmtK(gmCogs)} COGS`
-    : invGmData ? 'no data in range' : 'loading…';
+    : gmNetSales > 0 ? (invGmData ? 'no COGS data' : 'loading…') : 'load income data first';
 
   document.getElementById('main-content').innerHTML = `
     <div class="kpi-grid">
