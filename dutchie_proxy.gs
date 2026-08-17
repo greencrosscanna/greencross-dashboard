@@ -275,7 +275,7 @@ function getStoreSales_(store, from, to) {
       disc += liveResult.discounts; cogs += liveResult.cost;
       tx   += liveResult.tax;       ord  += liveResult.orders;
       for (const d of (liveResult.daily || [])) {
-        dailyMap[d.date] = { netSales: d.netSales, grossSales: d.grossSales, orders: d.orders, discounts: d.discounts };
+        dailyMap[d.date] = { netSales: d.netSales, grossSales: d.grossSales, orders: d.orders, discounts: d.discounts, cogs: d.cogs || 0 };
         const wk = getISOWeek(new Date(d.date + 'T12:00:00')) - 1;
         weeklyMap['WK' + wk] = (weeklyMap['WK' + wk] || 0) + d.netSales;
       }
