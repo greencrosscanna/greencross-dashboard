@@ -2320,7 +2320,32 @@ function _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, und
 }
 
 function _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo) {
-  if (activeDay || !periodGoal) return `<div class="ic-proj-lbl">Projection</div><div class="ic-proj-val">—</div>`;
+  if (activeDay) {
+    if (!periodGoal) return `<div class="ic-proj-lbl">Projection</div><div class="ic-proj-val">—</div>`;
+    const isToday = activeDay === toDateStr(new Date());
+    if (isToday && !isClosed) {
+      const p = getPacingPct();
+      const estEOD = p > 5 ? Math.round(net / (p / 100)) : net;
+      const delta = estEOD - periodGoal;
+      return `
+        <div class="ic-proj-lbl">Est. end of day</div>
+        <div class="ic-proj-val">${fmtK(estEOD)}</div>
+        <div class="ic-proj-above ${delta >= 0 ? 'good' : 'bad'}">${delta >= 0 ? '+' : ''}${fmtK(delta)} ${delta >= 0 ? 'above' : 'below'} target</div>
+        <div class="ic-proj-div"></div>
+        <div class="ic-proj-row"><span class="ic-proj-rlbl">Daily target</span><span class="ic-proj-rval">${fmtD(periodGoal)}</span></div>`;
+    } else {
+      const delta = net - periodGoal;
+      const pct = Math.round(net / periodGoal * 100);
+      return `
+        <div class="ic-proj-lbl">vs Daily target</div>
+        <div class="ic-proj-val">${fmtK(net)}</div>
+        <div class="ic-proj-above ${delta >= 0 ? 'good' : 'bad'}">${delta >= 0 ? '+' : ''}${fmtK(delta)} ${delta >= 0 ? 'above' : 'below'} target</div>
+        <div class="ic-proj-div"></div>
+        <div class="ic-proj-row"><span class="ic-proj-rlbl">Daily target</span><span class="ic-proj-rval">${fmtD(periodGoal)}</span></div>
+        <div class="ic-proj-row"><span class="ic-proj-rlbl">Achievement</span><span class="ic-proj-rval ${pct >= 100 ? 'good' : 'bad'}">${pct}%</span></div>`;
+    }
+  }
+  if (!periodGoal) return `<div class="ic-proj-lbl">Projection</div><div class="ic-proj-val">—</div>`;
   const today   = new Date();
   const dayNum  = !isClosed && activeMonth === today.getMonth() + 1 && activeYear === today.getFullYear()
                   ? today.getDate() : daysInMo;
@@ -2586,7 +2611,10 @@ function renderIncome() {
   const today    = new Date();
   const yr       = activeYear;
   const daysInMo = activeMonth > 0 ? new Date(activeYear, activeMonth, 0).getDate() : 365;
-  const cost     = 0;
+  if (!invGmData) {
+    loadInvGmData().then(() => { if (section === 'income') renderIncome(); });
+  }
+  const cost = computeInvCost(stores);
 
   let periodGoal, goalLabel;
   if (activeDay) {
@@ -3024,23 +3052,59 @@ async function loadOtherRevenue() {
 async function loadInvGmData() {
   const to   = new Date().toISOString().slice(0, 10);
   const from = new Date(Date.now() - 28 * 86400000).toISOString().slice(0, 10);
-  const cached = readCache(`inv_gm_${from}`);
-  if (cached) { invGmData = cached; return; }
+  const cached = readCache(`inv_gm2_${from}`);
+  if (cached?.byDay) { invGmData = cached; return; }
   const proxyUrl = getProxyUrl();
   if (!proxyUrl) return;
   try {
     const res = await fetch(`${proxyUrl}?action=cogs_dutchie&from=${from}&to=${to}&token=${encodeURIComponent(getToken())}`);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
-    const cogs = {};
-    for (const row of data.data || []) cogs[row.store] = (cogs[row.store] || 0) + row.cogs;
-    invGmData = { cogs };
-    writeCache(`inv_gm_${from}`, invGmData);
+    const cogs = {}, byDay = {}, byMonth = {};
+    for (const row of data.data || []) {
+      const { date, store, cogs: c } = row;
+      cogs[store] = (cogs[store] || 0) + c;
+      if (!byDay[date]) byDay[date] = {};
+      byDay[date][store] = (byDay[date][store] || 0) + c;
+      const mo = date.slice(0, 7);
+      if (!byMonth[mo]) byMonth[mo] = {};
+      byMonth[mo][store] = (byMonth[mo][store] || 0) + c;
+    }
+    invGmData = { cogs, byDay, byMonth };
+    writeCache(`inv_gm2_${from}`, invGmData);
     console.log('InvGM (Dutchie COGS) loaded');
   } catch(e) {
     console.warn('InvGM fetch failed:', e.message);
     invGmData = null;
   }
+}
+
+function computeInvCost(stores) {
+  if (!invGmData?.byDay) return 0;
+  if (activeDay) {
+    const d = invGmData.byDay[activeDay] || {};
+    return stores.reduce((s, st) => s + (d[st] || 0), 0);
+  }
+  if (activeWeek) {
+    let total = 0;
+    for (const day of getDaysOfISOWeek(activeYear, activeWeek)) {
+      const d = invGmData.byDay[toDateStr(day)] || {};
+      total += stores.reduce((s, st) => s + (d[st] || 0), 0);
+    }
+    return total;
+  }
+  if (activeMonth > 0) {
+    const mo = activeYear + '-' + String(activeMonth).padStart(2, '0');
+    const d = (invGmData.byMonth || {})[mo] || {};
+    return stores.reduce((s, st) => s + (d[st] || 0), 0);
+  }
+  const yearPrefix = String(activeYear) + '-';
+  let total = 0;
+  for (const [m, d] of Object.entries(invGmData.byMonth || {})) {
+    if (!m.startsWith(yearPrefix)) continue;
+    total += stores.reduce((s, st) => s + (d[st] || 0), 0);
+  }
+  return total;
 }
 
 // Returns ATM or Sublet monthly revenue for the current period (month/YTD only; 0 for day/week)
