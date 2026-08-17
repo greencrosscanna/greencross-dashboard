@@ -263,6 +263,7 @@ function getStoreSales_(store, from, to) {
           grossSales: Math.round(rGros * 100) / 100,
           orders:     rOrd,
           discounts:  Math.round(rDisc * 100) / 100,
+          cogs:       Math.round(rCogs * 100) / 100,
         };
         const wk = getISOWeek(new Date(r.date + 'T12:00:00')) - 1;
         weeklyMap['WK' + wk] = (weeklyMap['WK' + wk] || 0) + rNet;
@@ -367,11 +368,20 @@ function dutchieTodayFetch_(store, todayPT, toISO) {
 
     const dateStr = (tx.transactionDateLocalTime || tx.transactionDate || '').slice(0, 10);
     if (dateStr) {
-      if (!dailyMap[dateStr]) dailyMap[dateStr] = { netSales: 0, grossSales: 0, orders: 0, discounts: 0 };
+      if (!dailyMap[dateStr]) dailyMap[dateStr] = { netSales: 0, grossSales: 0, orders: 0, discounts: 0, cogs: 0 };
       dailyMap[dateStr].netSales   += net;
       dailyMap[dateStr].grossSales += net + disc;
       dailyMap[dateStr].orders     += 1;
       dailyMap[dateStr].discounts  += disc;
+      // accumulate per-tx cost into the date bucket
+      const txItems = tx.items || tx.lineItems || tx.orderItems || [];
+      for (const item of txItems) {
+        if (item && !item.isReturned) {
+          const qty = Number(item.quantity != null ? item.quantity : (item.qty != null ? item.qty : 1)) || 1;
+          const itemCost = Number(item.costOfGoods != null ? item.costOfGoods : (item.cost != null ? item.cost : item.unitCost)) || 0;
+          dailyMap[dateStr].cogs += itemCost * qty;
+        }
+      }
     }
   }
 
@@ -396,6 +406,7 @@ function dutchieTodayFetch_(store, todayPT, toISO) {
         grossSales: Math.round(d.grossSales * 100) / 100,
         orders:     d.orders,
         discounts:  Math.round(d.discounts  * 100) / 100,
+        cogs:       Math.round((d.cogs || 0) * 100) / 100,
       })),
   };
 }

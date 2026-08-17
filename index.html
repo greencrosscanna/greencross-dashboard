@@ -3092,14 +3092,12 @@ async function loadInvGmData() {
 function computeInvCost(stores) {
   if (!invGmData?.byDay) return 0;
   if (activeDay) {
+    // allDailyData carries live COGS from the per-store fetch (today included)
+    const fromDaily = stores.reduce((s, st) => s + (allDailyData[st]?.[activeDay]?.cogs || 0), 0);
+    if (fromDaily > 0) return fromDaily;
+    // Fall back to invGmData for days not yet in allDailyData
     const d = invGmData.byDay[activeDay] || {};
-    const settled = stores.reduce((s, st) => s + (d[st] || 0), 0);
-    if (settled > 0) return settled;
-    // Today has no settled COGS yet — estimate from trailing average scaled by pacing
-    const days = Object.keys(invGmData.byDay).length;
-    if (!days) return 0;
-    const avgDaily = stores.reduce((s, st) => s + (invGmData.cogs[st] || 0) / days, 0);
-    return avgDaily * getPacingPct() / 100;
+    return stores.reduce((s, st) => s + (d[st] || 0), 0);
   }
   if (activeWeek) {
     let total = 0;
