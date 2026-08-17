@@ -1039,7 +1039,7 @@ function getDaysOfISOWeek(yr, userWk) {
 function fmtK(n) {
   return '$' + Math.round(n).toLocaleString();
 }
-function fmtD(n)   { return '$' + parseFloat(n).toFixed(2); }
+function fmtD(n)   { return '$' + Math.round(n).toLocaleString(); }
 function pct(a,b)  { return b===0 ? '—' : Math.round(a/b*100) + '%'; }
 
 function monthRange(m, year) {
@@ -2368,9 +2368,9 @@ function _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo) {
 
 function _incomeKpiMobHtml(net, gross, orders, disc, cost, aov) {
   const gp     = cost > 0 ? net - cost : null;
-  const margin = gp !== null && net > 0 ? Math.round(gp / net * 100) : null;
+  const margin = gp !== null && net > 0 ? Math.round(gp / net * 1000) / 10 : null;
   const gpVal  = gp !== null ? fmtK(gp) : !invGmData ? '<span class="val-skel"></span>' : '—';
-  const mgSub  = margin !== null ? margin + '% margin' : !invGmData ? '<span class="val-skel" style="width:58px;height:11px"></span>' : '';
+  const mgSub  = margin !== null ? margin.toFixed(1) + '% margin' : !invGmData ? '<span class="val-skel" style="width:58px;height:11px"></span>' : '';
   return `
     <div class="ic-kpi" id="ic-mob-kpi-gp">
       <div class="ic-kpi-lbl">Gross profit</div>
@@ -2396,9 +2396,9 @@ function _incomeKpiMobHtml(net, gross, orders, disc, cost, aov) {
 
 function _incomeKpiDskHtml(net, gross, orders, disc, cost, aov) {
   const gp     = cost > 0 ? net - cost : null;
-  const margin = gp !== null && net > 0 ? Math.round(gp / net * 100) : null;
+  const margin = gp !== null && net > 0 ? Math.round(gp / net * 1000) / 10 : null;
   const gpVal  = gp !== null ? fmtK(gp) : !invGmData ? '<span class="val-skel"></span>' : '—';
-  const mgVal  = margin !== null ? margin + '%' : !invGmData ? '<span class="val-skel" style="width:52px"></span>' : '—';
+  const mgVal  = margin !== null ? margin.toFixed(1) + '%' : !invGmData ? '<span class="val-skel" style="width:52px"></span>' : '—';
   return `
     <div class="ic-kpi" id="ic-dsk-kpi-gp">
       <div class="ic-kpi-lbl">Gross profit</div>
