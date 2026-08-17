@@ -769,6 +769,7 @@ let expensesLoading = false;
 let costData = null;    // loaded from Income Data Dump sheet via proxy
 let costLoadError = null; // set on fetch failure, cleared on success
 let costIndex = null;  // pre-aggregated index built by buildCostIndex()
+let invGmData = null;   // {cogs:{storeName:total}, sales:{storeName:total}} — 28d from VEL_PROXY_URL
 
 /**
  * Pre-aggregate costData.daily into fast lookup structures.
@@ -1275,6 +1276,7 @@ function clearAllCache() {
   lbGoals       = null;
   costData      = null;
   costLoadError = null;
+  invGmData     = null;
   _invalidateDerivedCaches();
   console.log('Cache cleared');
 }
@@ -3072,6 +3074,28 @@ async function loadCosts() {
   }
 }
 
+async function loadInvGmData() {
+  const to   = new Date().toISOString().slice(0, 10);
+  const from = new Date(Date.now() - 28 * 86400000).toISOString().slice(0, 10);
+  const cached = readCache(`inv_gm_${from}`);
+  if (cached) { invGmData = cached; return; }
+  try {
+    const [cogsRes, salesRes] = await Promise.all([
+      fetch(`${VEL_PROXY_URL}?action=cogs&from=${from}&to=${to}`).then(r => r.json()),
+      fetch(`${VEL_PROXY_URL}?action=sales&from=${from}&to=${to}`).then(r => r.json()),
+    ]);
+    const cogs = {}, sales = {};
+    for (const row of cogsRes.data  || []) cogs[row.store]  = (cogs[row.store]  || 0) + row.cogs;
+    for (const row of salesRes.data || []) sales[row.store] = (sales[row.store] || 0) + row.sales;
+    invGmData = { cogs, sales };
+    writeCache(`inv_gm_${from}`, invGmData);
+    console.log('InvGM loaded from API');
+  } catch(e) {
+    console.warn('InvGM fetch failed:', e.message);
+    invGmData = null;
+  }
+}
+
 function computeCost(stores) {
   if (!costIndex) return 0;
   let total = 0;
@@ -3350,6 +3374,10 @@ function renderInventory() {
   if (!velocityData) {
     loadVelocity().then(() => { if (section === 'inventory') renderInventory(); });
   }
+  // Trigger GM data load from Inventory proxy; re-render when it arrives
+  if (!invGmData) {
+    loadInvGmData().then(() => { if (section === 'inventory') renderInventory(); });
+  }
 
   // Total SKUs = unique product names network-wide
   // Inventory Value = summed across all store entries
@@ -3409,31 +3437,21 @@ function renderInventory() {
   const isLoading  = loadingStores.length > 0;
   const velReady   = velocityData !== null;
 
-  // Gross margin — rolling 28-day window, independent of any drill-down state
+  // Gross margin — rolling 28-day window from Inventory proxy (VEL_PROXY_URL)
   const gmStores  = getActiveStores();
-  const cutoff30  = new Date(Date.now() - 28 * 86400000).toISOString().slice(0, 10);
-
-  // Net sales: sum from allDailyData (accumulated across all fetched months)
-  let netSales = 0;
-  for (const s of gmStores) {
-    for (const [ds, val] of Object.entries(allDailyData[s] || {})) {
-      if (ds >= cutoff30) netSales += getDailyNet(val);
+  let gmNetSales = 0, gmCogs = 0;
+  if (invGmData) {
+    for (const s of gmStores) {
+      const velKey = STORE_TO_VEL[s] || s;
+      gmNetSales += invGmData.sales[velKey] || 0;
+      gmCogs     += invGmData.cogs[velKey]  || 0;
     }
   }
 
-  // COGS: sum daily entries from last 28 days
-  let cogs = 0;
-  if (costData?.daily) {
-    for (const [ds, d] of Object.entries(costData.daily)) {
-      if (ds < cutoff30) continue;
-      cogs += gmStores.reduce((s, st) => s + (d[st] || 0), 0);
-    }
-  }
-
-  const margin = netSales > 0 && cogs > 0 ? Math.round((netSales - cogs) / netSales * 1000) / 10 : null;
+  const margin = gmNetSales > 0 && gmCogs > 0 ? Math.round((gmNetSales - gmCogs) / gmNetSales * 1000) / 10 : null;
   const gmSub  = margin !== null
-    ? `${fmtK(netSales - cogs)} profit · ${fmtK(cogs)} COGS`
-    : netSales > 0 ? 'COGS not loaded — visit Income tab first' : 'load income data first';
+    ? `${fmtK(gmNetSales - gmCogs)} profit · ${fmtK(gmCogs)} COGS`
+    : invGmData ? 'no data in range' : 'loading…';
 
   document.getElementById('main-content').innerHTML = `
     <div class="kpi-grid">
@@ -3449,7 +3467,7 @@ function renderInventory() {
       </div>
       <div class="kpi wide">
         <div class="klabel">Gross Margin — 28 days</div>
-        <div class="kval ${margin !== null ? (margin >= 50 ? 'good' : margin >= 40 ? '' : 'bad') : ''}">${margin !== null ? margin.toFixed(1) + '%' : isLoading ? '<span class="val-skel"></span>' : '—'}</div>
+        <div class="kval ${margin !== null ? (margin >= 50 ? 'good' : margin >= 40 ? '' : 'bad') : ''}">${margin !== null ? margin.toFixed(1) + '%' : !invGmData ? '<span class="val-skel"></span>' : '—'}</div>
         <div class="ksub muted">${gmSub}</div>
       </div>
       <div class="kpi">
@@ -3506,7 +3524,7 @@ function hardReset() {
   clearAllCache();
   hiddenExpCats.clear(); localStorage.removeItem('hiddenExpCats');
   hiddenOtherRevs.clear(); localStorage.removeItem('hiddenOtherRevs');
-  expenseData = null; costData = null; expBudgets = null; otherRevData = null;
+  expenseData = null; costData = null; expBudgets = null; otherRevData = null; invGmData = null;
   liveData = {};
   updateCacheStatus();
   updateSettingsBadges();
