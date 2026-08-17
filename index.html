@@ -766,30 +766,7 @@ let lbGoals = null; // { month, year, stores: { locationName: { monthly, dow:[7]
 let goals = {};       // loaded from budget spreadsheet via proxy (historical months)
 let expenseData = null; // loaded from QuickBooks via proxy
 let expensesLoading = false;
-let costData = null;    // loaded from Income Data Dump sheet via proxy
-let costLoadError = null; // set on fetch failure, cleared on success
-let costIndex = null;  // pre-aggregated index built by buildCostIndex()
-let invGmData = null;   // {cogs:{storeName:total}, sales:{storeName:total}} — 28d from VEL_PROXY_URL
-
-/**
- * Pre-aggregate costData.daily into fast lookup structures.
- * Called once after costs load — eliminates O(365) scan on every render.
- *   byMonth['2026-05'][storeName] = total cost for that month
- *   byDay['2026-05-08'][storeName] = cost for that day
- */
-function buildCostIndex(daily) {
-  const byMonth = {};
-  const byDay   = {};
-  for (const [ds, storeVals] of Object.entries(daily)) {
-    byDay[ds] = storeVals;
-    const mo = ds.slice(0, 7); // 'YYYY-MM'
-    if (!byMonth[mo]) byMonth[mo] = {};
-    for (const [store, val] of Object.entries(storeVals)) {
-      byMonth[mo][store] = (byMonth[mo][store] || 0) + val;
-    }
-  }
-  return { byMonth, byDay };
-}
+let invGmData = null;   // {cogs:{storeName:total}} — 28d from cogs_dutchie
 let expBudgets = null;  // loaded from Annual Budget sheet via proxy
 let otherRevData = null; // { atm: { Jan: 9493, ... }, sublet: { Jan: 0, ... } }
 let hiddenExpCats = new Set(JSON.parse(localStorage.getItem('hiddenExpCats') || '[]'));
@@ -1244,10 +1221,9 @@ function writeSalesCache(store, year, month, data) {
   }
 }
 
-/** Reset all derived in-memory caches that are built from liveData / costData / allDailyData. */
+/** Reset all derived in-memory caches that are built from liveData / allDailyData. */
 function _invalidateDerivedCaches() {
   Object.keys(liveDateMaps).forEach(k => delete liveDateMaps[k]);
-  costIndex           = null;
   _dowWeightsCache    = null;
   _dowWeightsCacheKey = '';
   _incomeMounted      = false; // force full skeleton rebuild on next render
@@ -1274,8 +1250,6 @@ function clearAllCache() {
   allDailyData  = {};
   liveData      = {};   // was missing — without it the on-screen figure survived a "clear" (the July 736k trap)
   lbGoals       = null;
-  costData      = null;
-  costLoadError = null;
   invGmData     = null;
   _invalidateDerivedCaches();
   console.log('Cache cleared');
@@ -1474,7 +1448,7 @@ async function loadAllStores() {
   // expBudgets / otherRevenue / expenses are Expenses-tab only; fired fire-and-forget below.
   const auxDataPromise = Promise.all([
     fetchStoresMeta(),
-    loadGoals(), loadLeaderboardGoals(), loadCosts(),
+    loadGoals(), loadLeaderboardGoals(),
   ]);
   loadExpBudgets(); loadOtherRevenue(); loadExpenses(); // fire-and-forget (expenses tab only)
 
@@ -2372,7 +2346,7 @@ function _incomeKpiMobHtml(net, gross, orders, disc, cost, aov) {
     <div class="ic-kpi" id="ic-mob-kpi-gp">
       <div class="ic-kpi-lbl">Gross profit</div>
       <div class="ic-kpi-val">${gp !== null ? fmtK(gp) : '—'}</div>
-      <div class="ic-kpi-sub muted">${margin !== null ? margin + '% margin' : (costLoadError ? 'fetch error' : 'costs pending')}</div>
+      <div class="ic-kpi-sub muted">${margin !== null ? margin + '% margin' : ''}</div>
     </div>
     <div class="ic-kpi" id="ic-mob-kpi-txns">
       <div class="ic-kpi-lbl">Transactions</div>
@@ -2398,7 +2372,7 @@ function _incomeKpiDskHtml(net, gross, orders, disc, cost, aov) {
     <div class="ic-kpi" id="ic-dsk-kpi-gp">
       <div class="ic-kpi-lbl">Gross profit</div>
       <div class="ic-kpi-val">${gp !== null ? fmtK(gp) : '—'}</div>
-      <div class="ic-kpi-sub muted">${gp !== null ? 'COGS ' + fmtK(cost) : (costLoadError ? 'fetch error' : 'costs pending')}</div>
+      <div class="ic-kpi-sub muted">${gp !== null ? 'COGS ' + fmtK(cost) : ''}</div>
     </div>
     <div class="ic-kpi" id="ic-dsk-kpi-margin">
       <div class="ic-kpi-lbl">Margin</div>
@@ -2612,7 +2586,7 @@ function renderIncome() {
   const today    = new Date();
   const yr       = activeYear;
   const daysInMo = activeMonth > 0 ? new Date(activeYear, activeMonth, 0).getDate() : 365;
-  const cost     = computeCost(stores);
+  const cost     = 0;
 
   let periodGoal, goalLabel;
   if (activeDay) {
@@ -3047,33 +3021,6 @@ async function loadOtherRevenue() {
   }
 }
 
-async function loadCosts() {
-  const cached = readCache('costs');
-  if (cached) {
-    costData = cached;
-    costIndex = buildCostIndex(cached.daily || {});
-    costLoadError = null;
-    console.log('Costs loaded from cache:', Object.keys(cached.daily||{}).length, 'days');
-    return;
-  }
-  const proxyUrl = getProxyUrl();
-  if (!proxyUrl) return;
-  try {
-    const res  = await fetch(`${proxyUrl}?action=costs&token=${encodeURIComponent(getToken())}`);
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-    costData = data;
-    costIndex = buildCostIndex(data.daily || {});
-    costLoadError = null;
-    writeCache('costs', data);
-    console.log('Costs loaded from API:', Object.keys(data.daily||{}).length, 'days');
-  } catch(e) {
-    console.warn('Costs fetch failed:', e.message);
-    costData = null;
-    costLoadError = e.message;
-  }
-}
-
 async function loadInvGmData() {
   const to   = new Date().toISOString().slice(0, 10);
   const from = new Date(Date.now() - 28 * 86400000).toISOString().slice(0, 10);
@@ -3094,36 +3041,6 @@ async function loadInvGmData() {
     console.warn('InvGM fetch failed:', e.message);
     invGmData = null;
   }
-}
-
-function computeCost(stores) {
-  if (!costIndex) return 0;
-  let total = 0;
-  if (activeDay) {
-    // O(1): single day lookup
-    const d = costIndex.byDay[activeDay] || {};
-    total = stores.reduce((s, st) => s + (d[st] || 0), 0);
-  } else if (activeWeek) {
-    // O(7): one lookup per day in the week — include all 7 days even if they
-    // span a month boundary (cost data is keyed by date, not by active month)
-    for (const day of getDaysOfISOWeek(activeYear, activeWeek)) {
-      const d = costIndex.byDay[toDateStr(day)] || {};
-      total += stores.reduce((s, st) => s + (d[st] || 0), 0);
-    }
-  } else if (activeMonth === MONTH_YTD) {
-    // O(months): sum pre-aggregated monthly buckets for this year
-    const yearPrefix = String(activeYear) + '-';
-    for (const [mo, d] of Object.entries(costIndex.byMonth)) {
-      if (!mo.startsWith(yearPrefix)) continue;
-      total += stores.reduce((s, st) => s + (d[st] || 0), 0);
-    }
-  } else {
-    // O(1): single month lookup
-    const mo = activeYear + '-' + String(activeMonth).padStart(2, '0');
-    const d  = costIndex.byMonth[mo] || {};
-    total = stores.reduce((s, st) => s + (d[st] || 0), 0);
-  }
-  return total;
 }
 
 // Returns ATM or Sublet monthly revenue for the current period (month/YTD only; 0 for day/week)
@@ -3531,7 +3448,7 @@ function hardReset() {
   clearAllCache();
   hiddenExpCats.clear(); localStorage.removeItem('hiddenExpCats');
   hiddenOtherRevs.clear(); localStorage.removeItem('hiddenOtherRevs');
-  expenseData = null; costData = null; expBudgets = null; otherRevData = null; invGmData = null;
+  expenseData = null; expBudgets = null; otherRevData = null; invGmData = null;
   liveData = {};
   updateCacheStatus();
   updateSettingsBadges();

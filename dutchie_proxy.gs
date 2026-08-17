@@ -190,7 +190,6 @@ function doGet(e) {
   if (params.action === 'txfields')    return getTxFields(params);
   if (params.action === 'eodtest')     return getEodTest(params);
   if (params.action === 'sheetpreview')  return getSheetPreview(params);
-  if (params.action === 'costs')         return getCosts(params);
   if (params.action === 'cogs_dutchie')  return jsonOut_(getCogsDutchie(params));
   if (params.action === 'expbudgets')    return getExpenseBudgets();
   if (params.action === 'otherrev')      return getOtherRevenue();
@@ -897,7 +896,7 @@ function getSheetPreview(params) {
   const output = ContentService.createTextOutput();
   output.setMimeType(ContentService.MimeType.JSON);
   try {
-    const gid = params.gid || '1548231883';
+    const gid = params.gid;
     const ss = SpreadsheetApp.openById(BUDGET_SHEET_ID);
     const sheets = ss.getSheets();
     const sheet = sheets.find(s => String(s.getSheetId()) === String(gid));
@@ -935,82 +934,6 @@ function getCogsDutchie(params) {
     }
   }
   return { data: results };
-}
-
-// Returns daily inventory cost data from the EOD sheet
-// Columns expected: Date, Month, Store, [Revenue], [Cost], ...
-// Returns daily inventory cost by date and store from the Income Data Dump sheet.
-// Response: { daily: { "2026-01-01": { "Bend": 2100.50, "Center": 742.57, ... }, ... } }
-function getCosts(params) {
-  const output = ContentService.createTextOutput();
-  output.setMimeType(ContentService.MimeType.JSON);
-  const cached = cacheGet_('costs');
-  if (cached) { output.setContent(cached); return output; }
-  try {
-    const COST_SHEET_GID = 1548231883;
-    const ss = SpreadsheetApp.openById(BUDGET_SHEET_ID);
-    const sheet = ss.getSheets().find(s => s.getSheetId() === COST_SHEET_GID);
-    if (!sheet) {
-      output.setContent(JSON.stringify({ error: 'Income Data Dump sheet not found' }));
-      return output;
-    }
-
-    // Location name → dashboard store key
-    const LOC_MAP = {
-      'bend':         'Bend',
-      'center':       'Center',
-      'commercial':   'Commercial',
-      'hillsboro':    'Hillsboro',
-      'portland road':'Portland Rd',
-      'portland rd':  'Portland Rd',
-      'river':        'River',
-    };
-
-    function locToStore(loc) {
-      const lower = (loc || '').toLowerCase();
-      for (const [key, store] of Object.entries(LOC_MAP)) {
-        if (lower.includes(key)) return store;
-      }
-      return null;
-    }
-
-    const data = sheet.getDataRange().getValues();
-    const headers = data[0].map(h => String(h).trim());
-    const dateCol = headers.indexOf('Order Date');
-    const locCol  = headers.indexOf('Location Name');
-    const costCol = headers.indexOf('Inventory Cost');
-
-    if (dateCol < 0 || locCol < 0 || costCol < 0) {
-      output.setContent(JSON.stringify({ error: 'Expected columns not found', headers }));
-      return output;
-    }
-
-    const daily = {};
-    for (let i = 1; i < data.length; i++) {
-      const row  = data[i];
-      const raw  = row[dateCol];
-      if (!raw) continue;
-      // Dates stored as midnight Pacific (7 or 8 AM UTC depending on DST).
-      // UTC date portion always equals the local Pacific date since Pacific is UTC-7/-8.
-      const d = raw instanceof Date ? raw : new Date(raw);
-      if (isNaN(d)) continue;
-      const dateStr = d.toISOString().slice(0, 10);
-
-      const store = locToStore(String(row[locCol]));
-      if (!store) continue;
-      const cost = Number(row[costCol]) || 0;
-
-      if (!daily[dateStr]) daily[dateStr] = {};
-      daily[dateStr][store] = (daily[dateStr][store] || 0) + cost;
-    }
-
-    const content = JSON.stringify({ daily });
-    cacheSet_('costs', content, 1800); // 30 min
-    output.setContent(content);
-  } catch(e) {
-    output.setContent(JSON.stringify({ error: e.message }));
-  }
-  return output;
 }
 
 // Returns monthly expense budgets from the Annual Budget sheet
