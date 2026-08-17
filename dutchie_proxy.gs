@@ -57,6 +57,20 @@ function cacheSet_(key, value, ttl) {
   } catch(e) { /* cache write failure is non-fatal */ }
 }
 
+function cacheDelete_(key) {
+  try {
+    const meta = CACHE.get(key + '__meta');
+    if (meta) {
+      const { chunks } = JSON.parse(meta);
+      const keys = [key + '__meta'];
+      for (let i = 0; i < chunks; i++) keys.push(key + '__' + i);
+      CACHE.removeAll(keys);
+    } else {
+      CACHE.remove(key);
+    }
+  } catch(e) { /* non-fatal */ }
+}
+
 // ── JSON response helper ──────────────────────────────────────────────────────
 function jsonOut_(data) {
   return ContentService.createTextOutput(JSON.stringify(data))
@@ -193,6 +207,7 @@ function doGet(e) {
   if (params.action === 'cogs_dutchie')  return jsonOut_(getCogsDutchie(params));
   if (params.action === 'expbudgets')    return getExpenseBudgets();
   if (params.action === 'otherrev')      return getOtherRevenue();
+  if (params.action === 'set_otherrev')  return setOtherRevenue(params);
   if (params.action === 'inventory')     return getInventory(params);
   if (params.action === 'invprobe')      return probeInventoryEndpoints(params);
   if (params.action === 'invfields')     return getInvFields(params);
@@ -1211,6 +1226,48 @@ function getInventory(params) {
 
 const ATM_SHEET_GID    = 1349619595;
 const SUBLET_SHEET_GID = 1274502465;
+const OTHERREV_PROP    = 'otherrev_data';
+const MONTHS_12_       = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function getOtherRevData_() {
+  const props = PropertiesService.getScriptProperties();
+  const raw   = props.getProperty(OTHERREV_PROP);
+  if (raw) return JSON.parse(raw);
+
+  // One-time bootstrap from GX2 sheet
+  const blank = () => Object.fromEntries(MONTHS_12_.map(m => [m, 0]));
+  let atm = blank(), sublet = blank();
+  try {
+    const ss = SpreadsheetApp.openById(BUDGET_SHEET_ID);
+
+    const atmSheet = ss.getSheets().find(s => s.getSheetId() === ATM_SHEET_GID);
+    if (atmSheet) {
+      const atmData = atmSheet.getDataRange().getValues();
+      let atmRevRow = null;
+      for (let i = 0; i < atmData.length; i++) {
+        const v = atmData[i][0];
+        if (typeof v === 'number' && v > 1 && v < 3) { atmRevRow = atmData[i]; break; }
+      }
+      if (atmRevRow) MONTHS_12_.forEach((m, j) => { atm[m] = Number(atmRevRow[j + 1]) || 0; });
+    }
+
+    const subSheet = ss.getSheets().find(s => s.getSheetId() === SUBLET_SHEET_GID);
+    if (subSheet) {
+      const subData = subSheet.getDataRange().getValues();
+      let subTotalRow = null;
+      for (let i = 0; i < subData.length; i++) {
+        if (String(subData[i][0]).trim().toUpperCase() === 'TOTAL') { subTotalRow = subData[i]; break; }
+      }
+      if (subTotalRow) MONTHS_12_.forEach((m, j) => { sublet[m] = Number(subTotalRow[j + 1]) || 0; });
+    }
+  } catch(e) {
+    Logger.log('OtherRev GX2 bootstrap failed: ' + e.message);
+  }
+
+  const data = { atm, sublet };
+  props.setProperty(OTHERREV_PROP, JSON.stringify(data));
+  return data;
+}
 
 function getOtherRevenue() {
   const output = ContentService.createTextOutput();
@@ -1218,46 +1275,32 @@ function getOtherRevenue() {
   const cached = cacheGet_('otherrev');
   if (cached) { output.setContent(cached); return output; }
   try {
-    const ss = SpreadsheetApp.openById(BUDGET_SHEET_ID);
-    const MONTHS_12 = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-    // ── ATM ──────────────────────────────────────────────────────────────────
-    const atmSheet = ss.getSheets().find(s => s.getSheetId() === ATM_SHEET_GID);
-    if (!atmSheet) throw new Error('ATM sheet not found');
-    const atmData = atmSheet.getDataRange().getValues();
-
-    // The multiplier row has a decimal (1.75) in col A; its cols B-M are the revenue
-    let atmRevRow = null;
-    for (let i = 0; i < atmData.length; i++) {
-      const v = atmData[i][0];
-      if (typeof v === 'number' && v > 1 && v < 3) { atmRevRow = atmData[i]; break; }
-    }
-    const atm = {};
-    MONTHS_12.forEach((m, j) => {
-      atm[m] = atmRevRow ? (Number(atmRevRow[j + 1]) || 0) : 0;
-    });
-
-    // ── Sublet ────────────────────────────────────────────────────────────────
-    const subSheet = ss.getSheets().find(s => s.getSheetId() === SUBLET_SHEET_GID);
-    if (!subSheet) throw new Error('Sublet sheet not found');
-    const subData = subSheet.getDataRange().getValues();
-
-    let subTotalRow = null;
-    for (let i = 0; i < subData.length; i++) {
-      if (String(subData[i][0]).trim().toUpperCase() === 'TOTAL') { subTotalRow = subData[i]; break; }
-    }
-    const sublet = {};
-    MONTHS_12.forEach((m, j) => {
-      sublet[m] = subTotalRow ? (Number(subTotalRow[j + 1]) || 0) : 0;
-    });
-
-    const content = JSON.stringify({ atm, sublet });
-    cacheSet_('otherrev', content, 3600); // 1 hour
+    const data    = getOtherRevData_();
+    const content = JSON.stringify(data);
+    cacheSet_('otherrev', content, 3600);
     output.setContent(content);
   } catch(e) {
     output.setContent(JSON.stringify({ error: e.message }));
   }
   return output;
+}
+
+function setOtherRevenue(params) {
+  const type  = params.type;
+  const month = params.month;
+  const value = Number(params.value);
+  if (!['atm','sublet'].includes(type))       return jsonOut_({ ok: false, error: 'invalid type' });
+  if (!MONTHS_12_.includes(month))            return jsonOut_({ ok: false, error: 'invalid month' });
+  if (isNaN(value) || value < 0)             return jsonOut_({ ok: false, error: 'invalid value' });
+  try {
+    const data     = getOtherRevData_();
+    data[type][month] = Math.round(value * 100) / 100;
+    PropertiesService.getScriptProperties().setProperty(OTHERREV_PROP, JSON.stringify(data));
+    cacheDelete_('otherrev');
+    return jsonOut_({ ok: true, data });
+  } catch(e) {
+    return jsonOut_({ ok: false, error: e.message });
+  }
 }
 
 function reportBug_(params, reporter) {

@@ -587,6 +587,22 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   </div>
 </div>
 
+<!-- ── Other Revenue edit modal ── -->
+<div class="bug-modal-wrap" id="otherrev-modal-wrap" onclick="if(event.target===this)closeOtherRevModal()">
+  <div class="bug-modal" style="width:280px">
+    <div class="bug-modal-head">
+      <span class="bug-modal-title" id="otherrev-modal-title">Edit ATM Revenue</span>
+      <button class="bug-modal-close" onclick="closeOtherRevModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="bug-field-label" id="otherrev-modal-label">January total</div>
+    <input class="bug-input" id="otherrev-modal-input" type="number" min="0" step="1" placeholder="0">
+    <button class="bug-submit" id="otherrev-modal-save" onclick="saveOtherRevModal()" style="margin-top:14px">Save</button>
+    <div class="bug-status" id="otherrev-modal-status"></div>
+  </div>
+</div>
+
 <!-- ── Settings overlay + drawer ── -->
 <div class="s-overlay" id="s-overlay" onclick="closeSettings()"></div>
 <div class="s-drawer" id="s-drawer">
@@ -2559,29 +2575,39 @@ function _incomeBreakdownDskHtml(stores, storeNets, isClosed, pacingPct, yr, day
 
 function _incomeOtherRevHtml() {
   if (activeDay || activeWeek || !otherRevData) return '';
-  const atmRaw    = (() => { const d = otherRevData.atm;    return activeMonth === MONTH_YTD ? MONTHS.slice(0, new Date().getMonth()+1).reduce((s,m)=>s+(d[m]||0),0) : d[MONTHS[activeMonth-1]]||0; })();
-  const subletRaw = (() => { const d = otherRevData.sublet; return activeMonth === MONTH_YTD ? MONTHS.slice(0, new Date().getMonth()+1).reduce((s,m)=>s+(d[m]||0),0) : d[MONTHS[activeMonth-1]]||0; })();
-  if (atmRaw === 0 && subletRaw === 0) return '';
+  const isYTD = activeMonth === MONTH_YTD;
+  const _raw = type => {
+    const d = otherRevData[type];
+    return isYTD ? MONTHS.slice(0, new Date().getMonth()+1).reduce((s,m)=>s+(d[m]||0),0) : d[MONTHS[activeMonth-1]]||0;
+  };
+  const atmRaw    = _raw('atm');
+  const subletRaw = _raw('sublet');
   const atmHidden    = hiddenOtherRevs.has('atm');
   const subletHidden = hiddenOtherRevs.has('sublet');
   const atmVal    = computeOtherRev('atm');
   const subletVal = computeOtherRev('sublet');
+  const editBtn = (type) => isYTD ? '' :
+    `<button onclick="openOtherRevModal('${type}',event)" style="background:none;border:none;cursor:pointer;padding:2px 4px;color:var(--muted);line-height:0;border-radius:4px" title="Edit">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+    </button>`;
   return `<div class="sec-lbl">Other revenue <span style="font-size:10px;color:#666;font-weight:400">(click to toggle)</span></div>
     <div class="card">
-      ${atmRaw > 0 ? `<div class="srow" style="cursor:pointer;opacity:${atmHidden?'0.3':'1'}" onclick="toggleOtherRev('atm')">
+      <div class="srow" style="cursor:pointer;opacity:${atmHidden?'0.3':'1'}" onclick="toggleOtherRev('atm')">
         <div class="swatch" style="background:#7C5CBF"></div>
         <div class="sname" style="flex:1">ATM</div>
-        <div class="sval">${fmtK(atmRaw)}</div>
-      </div>` : ''}
-      ${subletRaw > 0 ? `<div class="srow" style="cursor:pointer;opacity:${subletHidden?'0.3':'1'}" onclick="toggleOtherRev('sublet')">
+        <div class="sval">${atmRaw > 0 ? fmtK(atmRaw) : '<span style="color:var(--muted)">—</span>'}</div>
+        ${editBtn('atm')}
+      </div>
+      <div class="srow" style="cursor:pointer;opacity:${subletHidden?'0.3':'1'}" onclick="toggleOtherRev('sublet')">
         <div class="swatch" style="background:#3A86FF"></div>
         <div class="sname" style="flex:1">Sublet</div>
-        <div class="sval">${fmtK(subletRaw)}</div>
-      </div>` : ''}
-      <div class="srow" style="border-top:1px solid var(--border-strong);margin-top:6px;padding-top:6px">
+        <div class="sval">${subletRaw > 0 ? fmtK(subletRaw) : '<span style="color:var(--muted)">—</span>'}</div>
+        ${editBtn('sublet')}
+      </div>
+      ${(atmVal + subletVal) > 0 ? `<div class="srow" style="border-top:1px solid var(--border-strong);margin-top:6px;padding-top:6px">
         <div class="sname" style="flex:1;color:#aaa;font-size:11px">Included in net sales</div>
         <div class="sval">${fmtK(atmVal + subletVal)}</div>
-      </div>
+      </div>` : ''}
     </div>`;
 }
 
@@ -3725,6 +3751,51 @@ updateMobBottomBar();
 document.getElementById('proxy-url').value = DEFAULT_PROXY;
 updateCacheStatus();
 // ── Bug report ────────────────────────────────────────────────────────────────
+let _otherRevEdit = { type: null, month: null };
+function openOtherRevModal(type, event) {
+  if (event) { event.stopPropagation(); }
+  const month = MONTHS[activeMonth - 1];
+  _otherRevEdit = { type, month };
+  const label = type === 'atm' ? 'ATM Revenue' : 'Sublet Revenue';
+  document.getElementById('otherrev-modal-title').textContent = `Edit ${label}`;
+  document.getElementById('otherrev-modal-label').textContent = `${month} total ($)`;
+  const cur = (otherRevData?.[type]?.[month]) || 0;
+  const inp = document.getElementById('otherrev-modal-input');
+  inp.value = cur > 0 ? cur : '';
+  document.getElementById('otherrev-modal-status').textContent = '';
+  document.getElementById('otherrev-modal-save').disabled = false;
+  document.getElementById('otherrev-modal-wrap').classList.add('open');
+  setTimeout(() => inp.focus(), 50);
+}
+function closeOtherRevModal() {
+  document.getElementById('otherrev-modal-wrap').classList.remove('open');
+}
+async function saveOtherRevModal() {
+  const { type, month } = _otherRevEdit;
+  const value = Number(document.getElementById('otherrev-modal-input').value);
+  if (isNaN(value) || value < 0) {
+    document.getElementById('otherrev-modal-status').textContent = 'Enter a valid amount.';
+    return;
+  }
+  const btn = document.getElementById('otherrev-modal-save');
+  const status = document.getElementById('otherrev-modal-status');
+  btn.disabled = true;
+  status.textContent = 'Saving…';
+  try {
+    const proxyUrl = getProxyUrl();
+    const res = await fetch(`${proxyUrl}?action=set_otherrev&token=${encodeURIComponent(getToken())}&type=${type}&month=${month}&value=${value}`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Save failed');
+    otherRevData = data.data;
+    writeCache('otherrev', data.data);
+    closeOtherRevModal();
+    renderIncome();
+  } catch(e) {
+    status.textContent = e.message;
+    btn.disabled = false;
+  }
+}
+
 function openBugModal() {
   document.getElementById('bug-modal-wrap').classList.add('open');
   document.getElementById('bug-title').value = '';
