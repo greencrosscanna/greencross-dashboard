@@ -1040,6 +1040,7 @@ function fmtK(n) {
   return '$' + Math.round(n).toLocaleString();
 }
 function fmtD(n)   { return '$' + Math.round(n).toLocaleString(); }
+function fmtAov(n) { return '$' + Number(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
 function pct(a,b)  { return b===0 ? '—' : Math.round(a/b*100) + '%'; }
 
 function monthRange(m, year) {
@@ -2380,7 +2381,7 @@ function _incomeKpiMobHtml(net, gross, orders, disc, cost, aov) {
     <div class="ic-kpi" id="ic-mob-kpi-txns">
       <div class="ic-kpi-lbl">Transactions</div>
       <div class="ic-kpi-val">${orders.toLocaleString()}</div>
-      <div class="ic-kpi-sub muted">AOV ${fmtD(aov)}</div>
+      <div class="ic-kpi-sub muted">AOV ${fmtAov(aov)}</div>
     </div>
     <div class="ic-kpi" id="ic-mob-kpi-disc">
       <div class="ic-kpi-lbl">Discounts</div>
@@ -2416,7 +2417,7 @@ function _incomeKpiDskHtml(net, gross, orders, disc, cost, aov) {
     </div>
     <div class="ic-kpi" id="ic-dsk-kpi-aov">
       <div class="ic-kpi-lbl">AOV</div>
-      <div class="ic-kpi-val">${fmtD(aov)}</div>
+      <div class="ic-kpi-val">${fmtAov(aov)}</div>
       <div class="ic-kpi-sub muted">avg order value</div>
     </div>
     <div class="ic-kpi" id="ic-dsk-kpi-disc">

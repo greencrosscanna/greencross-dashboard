@@ -936,17 +936,28 @@ function getCogsDutchie(params) {
     { dutchie: 'Portland Rd', sales: 'Portland Rd' },
     { dutchie: 'River Rd',    sales: 'River'       },
   ];
-  const todayPT = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM-dd');
-  const from    = (params.from || '').slice(0, 10);
-  const rawTo   = (params.to   || '').slice(0, 10);
-  const to      = (!rawTo || rawTo >= todayPT) ? dayBefore_(todayPT) : rawTo;
-  const results = [];
+  const todayPT      = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM-dd');
+  const from         = (params.from || '').slice(0, 10);
+  const rawTo        = (params.to   || '').slice(0, 10);
+  const includesToday = !rawTo || rawTo >= todayPT;
+  const settledTo    = includesToday ? dayBefore_(todayPT) : rawTo;
+  const results      = [];
   for (const { dutchie, sales } of STORES) {
     try {
-      const rows = GXCore.getSalesDaily(dutchie, from, to) || [];
+      // Settled days via sales_daily cache (sourced from Dutchie Closing Report, nightly)
+      const rows = GXCore.getSalesDaily(dutchie, from, settledTo) || [];
       for (const r of rows) {
         if (!r.date) continue;
         results.push({ date: String(r.date).slice(0, 10), store: sales, cogs: Number(r.cogs || 0) });
+      }
+      // Today: call Closing Report directly — returns live intra-day COGS (a valid partial, not an error)
+      if (includesToday) {
+        try {
+          const cr = GXCore.dutchieClosingReport(dutchie, todayPT);
+          results.push({ date: todayPT, store: sales, cogs: Math.round(Number(cr && cr.cost || 0) * 100) / 100 });
+        } catch(e) {
+          Logger.log('getCogsDutchie: today CR failed for ' + dutchie + ': ' + e.message);
+        }
       }
     } catch(e) {
       Logger.log('getCogsDutchie: getSalesDaily failed for ' + dutchie + ': ' + e.message);
