@@ -1333,10 +1333,13 @@ const ATM_MACHINE_MAP = {
   'hillsboro':             { store: 'Hillsboro',   machine: 'ATM 1' },
   'hillsboro 2':           { store: 'Hillsboro',   machine: 'ATM 2' },
   'baseline':              { store: 'Hillsboro',   machine: 'ATM 1' },
+  'commercial lg':         { store: 'Commercial',  machine: 'ATM 2' },
+  'hilsborro':             { store: 'Hillsboro',   machine: 'ATM 1' },
   'portland lg':           { store: 'Portland Rd', machine: 'ATM 1' },
   'portland':              { store: 'Portland Rd', machine: 'ATM 1' },
   'portland rd':           { store: 'Portland Rd', machine: 'ATM 1' },
   'river lg':              { store: 'River',       machine: 'ATM 1' },
+  'river sm':              { store: 'River',       machine: 'ATM 2' },
   'river rd sm':           { store: 'River',       machine: 'ATM 2' },
   'river':                 { store: 'River',       machine: 'ATM 1' },
 };
@@ -1366,8 +1369,8 @@ function getRevYearData_(type, year) {
 
 // One-time bootstrap: reads per-machine rows from the ATM sheet and stores txn counts.
 // Revenue = txns × rate is computed at display time (rate lives in rev_config.atm_rate).
-// Sum-row detection is VALUE-based: within each store group, if one row's monthly values
-// equal the sum of all other rows in that group, it's a subtotal row and gets skipped.
+// Sum-row detection uses INDENTATION: sheet machine rows have leading whitespace;
+// store total rows (uppercase, no indent) are skipped when a store has any indented siblings.
 function bootstrapAtmFromSheet_(year) {
   try {
     const ss    = SpreadsheetApp.openById(BUDGET_SHEET_ID);
@@ -1375,7 +1378,7 @@ function bootstrapAtmFromSheet_(year) {
     if (!sheet) return;
     const rows  = sheet.getDataRange().getValues();
 
-    // Collect all matched rows; also capture rate row if present
+    // Collect all matched rows; track indentation and capture rate row if present
     let sheetRate = 0;
     const allMatched = [];
     for (const row of rows) {
@@ -1384,12 +1387,14 @@ function bootstrapAtmFromSheet_(year) {
         sheetRate = colA;
       } else if (typeof colA === 'string' && colA.trim() !== '') {
         const key = colA.trim().toLowerCase();
-        if (ATM_MACHINE_MAP[key]) allMatched.push({ map: ATM_MACHINE_MAP[key], row });
+        if (ATM_MACHINE_MAP[key]) {
+          allMatched.push({ map: ATM_MACHINE_MAP[key], row, indented: /^\s/.test(colA) });
+        }
       }
     }
     if (!allMatched.length) return;
 
-    // Group by store, then remove any row whose monthly values equal the sum of all others
+    // Group by store; if any row is indented (machine row), keep only indented (skip sum rows)
     const storeGroups = {};
     for (const r of allMatched) {
       const s = r.map.store;
@@ -1399,20 +1404,8 @@ function bootstrapAtmFromSheet_(year) {
 
     const rowsToUse = [];
     for (const group of Object.values(storeGroups)) {
-      if (group.length <= 1) { rowsToUse.push(...group); continue; }
-      const sumIdx = group.findIndex((cand, ci) => {
-        const others = group.filter((_, j) => j !== ci);
-        let checks = 0, matches = 0;
-        for (let mi = 0; mi < 12; mi++) {
-          const cv = Number(cand.row[mi + 1]) || 0;
-          const ov = others.reduce((acc, g) => acc + (Number(g.row[mi + 1]) || 0), 0);
-          if (cv === 0 && ov === 0) continue;
-          checks++;
-          if (Math.abs(cv - ov) < 0.5) matches++;
-        }
-        return checks > 0 && matches === checks;
-      });
-      rowsToUse.push(...group.filter((_, i) => i !== sumIdx));
+      const indented = group.filter(r => r.indented);
+      rowsToUse.push(...(indented.length > 0 ? indented : group));
     }
 
     // Store transaction counts (not revenue — rate applied at render time)
@@ -1467,7 +1460,7 @@ function getRevenueDetail(params) {
   }
 }
 
-// Sky-only: delete stored ATM bootstrap so next revenue_detail re-reads from sheet
+// Sky-only: delete stored ATM bootstrap so next revenue_detail re-reads from sheet.
 function clearAtmCache_(params, user) {
   const u = (user || '').toLowerCase();
   const isSky = u === 'sky@greencrosscanna.com' || u === 'sky' || u.startsWith('sky@');
