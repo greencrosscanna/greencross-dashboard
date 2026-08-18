@@ -206,8 +206,10 @@ function doGet(e) {
   if (params.action === 'sheetpreview')  return getSheetPreview(params);
   if (params.action === 'cogs_dutchie')  return jsonOut_(getCogsDutchie(params));
   if (params.action === 'expbudgets')    return getExpenseBudgets();
-  if (params.action === 'otherrev')      return getOtherRevenue();
-  if (params.action === 'set_otherrev')  return setOtherRevenue(params);
+  if (params.action === 'otherrev')       return getOtherRevenue();
+  if (params.action === 'set_otherrev')   return setOtherRevenue(params);
+  if (params.action === 'revenue_detail') return getRevenueDetail(params);
+  if (params.action === 'set_revenue')    return setRevenueLine(params);
   if (params.action === 'inventory')     return getInventory(params);
   if (params.action === 'invprobe')      return probeInventoryEndpoints(params);
   if (params.action === 'invfields')     return getInvFields(params);
@@ -1298,6 +1300,63 @@ function setOtherRevenue(params) {
     PropertiesService.getScriptProperties().setProperty(OTHERREV_PROP, JSON.stringify(data));
     cacheDelete_('otherrev');
     return jsonOut_({ ok: true, data });
+  } catch(e) {
+    return jsonOut_({ ok: false, error: e.message });
+  }
+}
+
+// ── Revenue detail: ATM + Sublet per machine/category, per store ──────────────
+
+const DEFAULT_ATM_MACHINES = {
+  'Bend':       ['ATM 1', 'ATM 2'],
+  'Center':     ['ATM 1'],
+  'Commercial': ['ATM 1', 'ATM 2'],
+  'Hillsboro':  ['ATM 1', 'ATM 2'],
+  'Portland':   ['ATM 1'],
+  'River':      ['ATM 1', 'ATM 2']
+};
+
+function getRevConfig_() {
+  const props = PropertiesService.getScriptProperties();
+  const raw   = props.getProperty('rev_config');
+  if (raw) return JSON.parse(raw);
+  const cfg = { machines: DEFAULT_ATM_MACHINES, sublet_cats: {} };
+  props.setProperty('rev_config', JSON.stringify(cfg));
+  return cfg;
+}
+
+function getRevYearData_(type, year) {
+  const raw = PropertiesService.getScriptProperties().getProperty('rev_' + type + '_' + year);
+  return raw ? JSON.parse(raw) : {};
+}
+
+function getRevenueDetail(params) {
+  const year = params.year || String(new Date().getFullYear());
+  try {
+    const cfg = getRevConfig_();
+    const atm = getRevYearData_('atm', year);
+    const sub = getRevYearData_('sub', year);
+    return jsonOut_({ ok: true, year, cfg, atm, sub });
+  } catch(e) {
+    return jsonOut_({ ok: false, error: e.message });
+  }
+}
+
+function setRevenueLine(params) {
+  const { year, month, type, store, item } = params;
+  const value = Math.round(Number(params.value) * 100) / 100;
+  if (!['atm','sub'].includes(type)) return jsonOut_({ ok: false, error: 'invalid type' });
+  if (!MONTHS_12_.includes(month))   return jsonOut_({ ok: false, error: 'invalid month' });
+  if (isNaN(value) || value < 0)    return jsonOut_({ ok: false, error: 'invalid value' });
+  if (!year || !store || !item)      return jsonOut_({ ok: false, error: 'missing params' });
+  try {
+    const data = getRevYearData_(type, year);
+    if (!data[month])        data[month]       = {};
+    if (!data[month][store]) data[month][store] = {};
+    data[month][store][item] = value;
+    PropertiesService.getScriptProperties().setProperty('rev_' + type + '_' + year, JSON.stringify(data));
+    cacheDelete_('otherrev');
+    return jsonOut_({ ok: true });
   } catch(e) {
     return jsonOut_({ ok: false, error: e.message });
   }

@@ -428,6 +428,30 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .login-submit:disabled{opacity:0.5;cursor:not-allowed}
 .login-error{margin-top:12px;padding:10px 12px;background:var(--red-soft);border:1px solid rgba(239,68,68,.3);border-radius:6px;color:var(--red);font-size:12px;text-align:center;display:none}
 .login-error.visible{display:block}
+/* ── Additional Revenue section ────────────────────────────────────────────── */
+.rev-wrap{max-width:700px}
+.rev-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:20px}
+.rev-title{font-size:20px;font-weight:700;color:var(--text)}
+.rev-year{font-size:13px;color:var(--muted)}
+.rev-block{margin-bottom:32px}
+.rev-block-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+.rev-block-title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--dim)}
+.rev-block-total{font-size:16px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
+.rev-store{margin-bottom:16px}
+.rev-store-head{display:flex;align-items:baseline;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)}
+.rev-store-name{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.rev-store-sub{font-size:13px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+.rev-machine{display:flex;align-items:center;padding:8px 0 8px 12px;border-bottom:.5px solid var(--border)}
+.rev-machine:last-child{border-bottom:none}
+.rev-machine-name{font-size:13px;color:var(--dim);flex:1}
+.rev-machine-val{font-size:14px;font-weight:500;color:var(--text);font-variant-numeric:tabular-nums;min-width:72px;text-align:right}
+.rev-machine-edit{background:none;border:none;cursor:pointer;padding:2px 6px;color:var(--muted);line-height:0;border-radius:4px;margin-left:8px;opacity:.6}
+.rev-machine-edit:hover{opacity:1;color:var(--text)}
+.rev-sublet-empty{font-size:13px;color:var(--muted);padding:12px 0;font-style:italic}
+.rev-month-nav{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:24px}
+.rev-mo-btn{font-size:11px;padding:5px 10px;border-radius:20px;border:.5px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;white-space:nowrap}
+.rev-mo-btn.on{background:var(--green);color:var(--green-ink);border-color:var(--green);font-weight:600}
+
 /* ── Bug report FAB + modal ─────────────────────────── */
 .bug-fab{position:fixed;bottom:20px;right:20px;z-index:300;width:36px;height:36px;border-radius:50%;background:var(--card);border:0.5px solid var(--border);cursor:pointer;display:none;align-items:center;justify-content:center;font-size:16px;color:var(--muted);box-shadow:0 2px 8px rgba(0,0,0,0.25);transition:color 0.15s,border-color 0.15s}
 @media not all and (min-width:768px){.bug-fab.visible{display:none!important}}
@@ -478,6 +502,10 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
       <button class="dsk-nav-btn" data-s="inventory" onclick="setSection('inventory')">
         <svg class="dsk-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
         <span class="dsk-nav-lbl">Inventory</span>
+      </button>
+      <button class="dsk-nav-btn" data-s="revenue" onclick="setSection('revenue')">
+        <svg class="dsk-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-4 0v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
+        <span class="dsk-nav-lbl">Revenue</span>
       </button>
     </div>
 
@@ -785,7 +813,8 @@ let expensesLoading = false;
 let invGmData = null;   // {cogs:{storeName:total}, byDay, byMonth} — 28d from cogs_dutchie
 let _invGmLoading = false;
 let expBudgets = null;  // loaded from Annual Budget sheet via proxy
-let otherRevData = null; // { atm: { Jan: 9493, ... }, sublet: { Jan: 0, ... } }
+let otherRevData  = null; // { atm: { Jan: 9493, ... }, sublet: { Jan: 0, ... } }
+let revenueDetail = null; // { cfg, atm, sub, year } — full per-machine breakdown
 let hiddenExpCats = new Set(JSON.parse(localStorage.getItem('hiddenExpCats') || '[]'));
 let hiddenOtherRevs = new Set(JSON.parse(localStorage.getItem('hiddenOtherRevs') || '[]'));
 let inventoryData = {}; // { storeName: { products: [...] } | { error, products: [] } }
@@ -1137,8 +1166,9 @@ const CACHE_TTL = {
   goals:      24 * 60 * 60 * 1000,   // 24 hours — small, localStorage
   lb_goals:   30 * 60 * 1000,        // 30 min  — small, localStorage
   expbudgets: 24 * 60 * 60 * 1000,   //           small, localStorage
-  otherrev:   24 * 60 * 60 * 1000,   //           small, localStorage
-  inventory:  30 * 60 * 1000,        // 30 min  — per-store, localStorage
+  otherrev:    24 * 60 * 60 * 1000,   //           small, localStorage
+  rev_detail:  60 * 60 * 1000,       // 1 hour  — revenue detail per year, localStorage
+  inventory:   30 * 60 * 1000,       // 30 min  — per-store, localStorage
   velocity:    2 * 60 * 60 * 1000,   // 2 hours — large, stored in sessionMemCache only
 };
 
@@ -1610,6 +1640,7 @@ function setSection(s) {
   document.querySelectorAll('.stab').forEach(t => t.classList.toggle('on', t.textContent.toLowerCase() === s));
   document.querySelectorAll('.dsk-nav-btn').forEach(t => t.classList.toggle('on', t.dataset.s === s));
   buildTimeNav();
+  if (s === 'revenue' && !revenueDetail) loadRevenueDetail();
   render();
 }
 
@@ -2231,6 +2262,7 @@ function render() {
 
   if (section === 'expenses')  { renderExpenses();  updateMobHero(); return; }
   if (section === 'inventory') { renderInventory(); updateMobHero(); return; }
+  if (section === 'revenue')   { renderRevenue();   updateMobHero(); return; }
   if (Object.keys(liveData).length === 0) {
     _incomeMounted = false;
     document.getElementById('main-content').innerHTML =
@@ -3083,6 +3115,195 @@ async function loadOtherRevenue() {
   }
 }
 
+async function loadRevenueDetail() {
+  const year = activeYear || new Date().getFullYear();
+  const cacheKey = `rev_detail_${year}`;
+  const cached = readCache(cacheKey);
+  if (cached) { revenueDetail = cached; if (section === 'revenue') renderRevenue(); return; }
+  const proxyUrl = getProxyUrl();
+  if (!proxyUrl) return;
+  try {
+    const res  = await fetch(`${proxyUrl}?action=revenue_detail&year=${year}&token=${encodeURIComponent(getToken())}`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    revenueDetail = data;
+    writeCache(cacheKey, data);
+    if (section === 'revenue') renderRevenue();
+  } catch(e) {
+    console.warn('Revenue detail fetch failed:', e.message);
+  }
+}
+
+function renderRevenue() {
+  const mc = document.getElementById('main-content');
+  if (!revenueDetail) {
+    mc.innerHTML = `<div class="rev-wrap"><div class="empty-state"><span class="spinner-inline"></span>Loading revenue data…</div></div>`;
+    loadRevenueDetail();
+    return;
+  }
+
+  const { cfg, atm, sub, year } = revenueDetail;
+  const machines    = cfg?.machines    || {};
+  const subletCats  = cfg?.sublet_cats || {};
+
+  // Month pills — uses global activeMonth; default to current month if YTD/unset
+  const moNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const activeMo = (activeMonth > 0) ? activeMonth : new Date().getMonth() + 1;
+  const month    = moNames[activeMo - 1];
+  const moNav = moNames.map((m, i) => {
+    const mo = i + 1;
+    const on = mo === activeMo ? ' on' : '';
+    return `<button class="rev-mo-btn${on}" onclick="setRevMonth(${mo})">${m}</button>`;
+  }).join('');
+
+  // ── ATM block ────────────────────────────────────────────────
+  const storeOrder = ['Bend','Center','Commercial','Hillsboro','Portland','River'];
+  let atmGrandTotal = 0;
+  const atmStoreHtml = storeOrder.map(store => {
+    const machineList = machines[store] || [];
+    if (!machineList.length) return '';
+    const storeData = atm?.[month]?.[store] || {};
+    let storeSub = 0;
+    const machineRows = machineList.map(machine => {
+      const val = Number(storeData[machine] || 0);
+      storeSub += val;
+      const display = val > 0 ? `$${val.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}` : '<span style="color:var(--muted)">—</span>';
+      return `<div class="rev-machine">
+        <div class="rev-machine-name">${machine}</div>
+        <div class="rev-machine-val">${display}</div>
+        <button class="rev-machine-edit" onclick="openRevModal('atm','${store.replace(/'/g,"\\'")}','${machine.replace(/'/g,"\\'")}','${month}','${year}')" title="Edit">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+      </div>`;
+    }).join('');
+    atmGrandTotal += storeSub;
+    const subDisplay = storeSub > 0 ? `$${storeSub.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}` : '—';
+    return `<div class="rev-store">
+      <div class="rev-store-head">
+        <span class="rev-store-name">${store}</span>
+        <span class="rev-store-sub">${subDisplay}</span>
+      </div>
+      ${machineRows}
+    </div>`;
+  }).join('');
+  const atmTotalDisplay = atmGrandTotal > 0 ? `$${atmGrandTotal.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}` : '—';
+
+  // ── Sublet block ──────────────────────────────────────────────
+  let subGrandTotal = 0;
+  const subletEntries = Object.entries(subletCats);
+  let subletHtml;
+  if (!subletEntries.length) {
+    subletHtml = `<div class="rev-sublet-empty">No sublet categories configured yet.</div>`;
+  } else {
+    subletHtml = subletEntries.map(([store, cats]) => {
+      const storeData = sub?.[month]?.[store] || {};
+      let storeSub = 0;
+      const rows = cats.map(cat => {
+        const val = Number(storeData[cat] || 0);
+        storeSub += val;
+        const display = val > 0 ? `$${val.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}` : '<span style="color:var(--muted)">—</span>';
+        return `<div class="rev-machine">
+          <div class="rev-machine-name">${cat}</div>
+          <div class="rev-machine-val">${display}</div>
+          <button class="rev-machine-edit" onclick="openRevModal('sub','${store.replace(/'/g,"\\'")}','${cat.replace(/'/g,"\\'")}','${month}','${year}')" title="Edit">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
+        </div>`;
+      }).join('');
+      subGrandTotal += storeSub;
+      const subDisplay = storeSub > 0 ? `$${storeSub.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}` : '—';
+      return `<div class="rev-store">
+        <div class="rev-store-head">
+          <span class="rev-store-name">${store}</span>
+          <span class="rev-store-sub">${subDisplay}</span>
+        </div>${rows}
+      </div>`;
+    }).join('');
+  }
+  const subTotalDisplay = subGrandTotal > 0 ? `$${subGrandTotal.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}` : '—';
+
+  mc.innerHTML = `<div class="rev-wrap">
+    <div class="rev-head">
+      <span class="rev-title">Additional Revenue</span>
+      <span class="rev-year">${year}</span>
+    </div>
+    <div class="rev-month-nav">${moNav}</div>
+
+    <div class="rev-block">
+      <div class="rev-block-head">
+        <span class="rev-block-title">ATM Revenue</span>
+        <span class="rev-block-total">${atmTotalDisplay}</span>
+      </div>
+      ${atmStoreHtml}
+    </div>
+
+    <div class="rev-block">
+      <div class="rev-block-head">
+        <span class="rev-block-title">Sublet Revenue</span>
+        <span class="rev-block-total">${subTotalDisplay}</span>
+      </div>
+      ${subletHtml}
+    </div>
+  </div>`;
+}
+
+function setRevMonth(mo) {
+  activeMonth = mo;
+  activeWeek  = null;
+  activeDay   = null;
+  buildTimeNav();
+  renderRevenue();
+}
+
+let _revEdit = {};
+function openRevModal(type, store, item, month, year) {
+  _revEdit = { type, store, item, month, year };
+  const label = type === 'atm' ? 'ATM Revenue' : 'Sublet Revenue';
+  document.getElementById('otherrev-modal-title').textContent = `Edit ${label}`;
+  document.getElementById('otherrev-modal-label').textContent = `${store} · ${item} · ${month} ${year}`;
+  const cur = revenueDetail?.[type === 'atm' ? 'atm' : 'sub']?.[month]?.[store]?.[item] || 0;
+  const inp = document.getElementById('otherrev-modal-input');
+  inp.value = cur > 0 ? cur : '';
+  document.getElementById('otherrev-modal-status').textContent = '';
+  document.getElementById('otherrev-modal-save').disabled = false;
+  document.getElementById('otherrev-modal-save').onclick = saveRevModal;
+  document.getElementById('otherrev-modal-wrap').classList.add('open');
+  setTimeout(() => inp.focus(), 50);
+}
+function closeRevModal() { closeOtherRevModal(); }
+async function saveRevModal() {
+  const { type, store, item, month, year } = _revEdit;
+  const value = Number(document.getElementById('otherrev-modal-input').value);
+  if (isNaN(value) || value < 0) {
+    document.getElementById('otherrev-modal-status').textContent = 'Enter a valid amount.';
+    return;
+  }
+  const btn = document.getElementById('otherrev-modal-save');
+  const status = document.getElementById('otherrev-modal-status');
+  btn.disabled = true;
+  status.textContent = 'Saving…';
+  try {
+    const proxyUrl = getProxyUrl();
+    const url = `${proxyUrl}?action=set_revenue&token=${encodeURIComponent(getToken())}&year=${year}&month=${month}&type=${type}&store=${encodeURIComponent(store)}&item=${encodeURIComponent(item)}&value=${value}`;
+    const res  = await fetch(url);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Save failed');
+    // Update local revenueDetail
+    const block = type === 'atm' ? 'atm' : 'sub';
+    if (!revenueDetail[block][month])        revenueDetail[block][month]       = {};
+    if (!revenueDetail[block][month][store]) revenueDetail[block][month][store] = {};
+    revenueDetail[block][month][store][item] = value;
+    // Bust cache
+    const cacheKey = `rev_detail_${year}`;
+    writeCache(cacheKey, revenueDetail, 3600000);
+    closeOtherRevModal();
+    renderRevenue();
+  } catch(e) {
+    status.textContent = e.message;
+    btn.disabled = false;
+  }
+}
+
 async function loadInvGmData() {
   if (_invGmLoading) return;
   const to   = new Date().toISOString().slice(0, 10);
@@ -3557,7 +3778,7 @@ function hardReset() {
   clearAllCache();
   hiddenExpCats.clear(); localStorage.removeItem('hiddenExpCats');
   hiddenOtherRevs.clear(); localStorage.removeItem('hiddenOtherRevs');
-  expenseData = null; expBudgets = null; otherRevData = null; invGmData = null; _invGmLoading = false;
+  expenseData = null; expBudgets = null; otherRevData = null; invGmData = null; revenueDetail = null; _invGmLoading = false;
   liveData = {};
   updateCacheStatus();
   updateSettingsBadges();
