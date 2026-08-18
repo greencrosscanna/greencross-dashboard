@@ -734,11 +734,13 @@ function walkQBRows_(rows, cols, result, accounts, mapConfig) {
       const cat       = custom[raw] || QB_DETAIL_MAP_[raw];
       const isIgnored = ignored.has(raw);
       if (cat && !isIgnored) {
-        if (!result[cat]) result[cat] = {};
-        cols.forEach((col, i) => {
-          const v = parseFloat((row.ColData[i + 1]?.value || '').replace(/,/g, '')) || 0;
-          if (col) result[cat][col] = (result[cat][col] || 0) + v;
-        });
+        if (result) {
+          if (!result[cat]) result[cat] = {};
+          cols.forEach((col, i) => {
+            const v = parseFloat((row.ColData[i + 1]?.value || '').replace(/,/g, '')) || 0;
+            if (col) result[cat][col] = (result[cat][col] || 0) + v;
+          });
+        }
         if (accounts) accounts[raw] = { display: disp, mapped_to: cat, ignored: false, hardcoded: !!QB_DETAIL_MAP_[raw] && !custom[raw] };
       } else if (accounts) {
         const hasVal = cols.some((_, i) => Math.abs(parseFloat((row.ColData[i + 1]?.value || '').replace(/,/g, '')) || 0) > 0.01);
@@ -746,9 +748,10 @@ function walkQBRows_(rows, cols, result, accounts, mapConfig) {
       }
     }
 
-    // Recurse only if this section's summary wasn't matched (prevents double-counting)
-    if (!summaryMatched && row.Rows?.Row) {
-      walkQBRows_(row.Rows.Row, cols, result, accounts, mapConfig);
+    // Always recurse to collect sub-accounts for the mapping UI.
+    // When a summary matched, pass null for result to prevent double-counting aggregation.
+    if (row.Rows?.Row) {
+      walkQBRows_(row.Rows.Row, cols, summaryMatched ? null : result, accounts, mapConfig);
     }
   }
 }
