@@ -3704,15 +3704,14 @@ function renderExpenseMapping() {
         const curVal = isIgnored ? '__ignore__' : (a.mapped_to || '');
         return `<div class="exp-map-row">
           <div class="exp-map-qb ${cls}" title="${escHtml(a.qb_raw)}">${escHtml(a.display)}</div>
-          ${a.hardcoded ? `<span style="font-size:11px;color:var(--muted);white-space:nowrap">${escHtml(a.mapped_to)}</span>` : `
           <select class="exp-map-sel" data-qb="${escHtml(a.qb_raw)}">
             <option value="">— unmapped —</option>
             ${catOptions.replace(`value="${escHtml(curVal)}"`, `value="${escHtml(curVal)}" selected`)}
-          </select>`}
+          </select>
         </div>`;
       }).join('')}
     </div>
-    ${accounts.some(a => !a.hardcoded) ? `
+    ${accounts.length > 0 ? `
     <div style="display:flex;gap:8px;margin-top:14px">
       <button class="pill-btn on" style="flex:1" onclick="saveExpenseMappings()">Save Mappings</button>
       <button class="pill-btn" onclick="setExpSection('main')">Cancel</button>
