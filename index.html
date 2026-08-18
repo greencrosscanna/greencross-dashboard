@@ -3729,7 +3729,7 @@ async function saveExpenseMappings() {
   try {
     const res  = await fetch(`${getProxyUrl()}?action=save_expense_mapping&token=${encodeURIComponent(getToken())}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ mappings })
     });
     const data = await res.json();
