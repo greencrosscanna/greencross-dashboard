@@ -3703,7 +3703,7 @@ function renderExpenseMapping() {
         const cls = isIgnored ? 'ignored' : isMapped ? '' : 'unmapped';
         const curVal = isIgnored ? '__ignore__' : (a.mapped_to || '');
         return `<div class="exp-map-row">
-          <div class="exp-map-qb ${cls}" title="${escHtml(a.qb_raw)}">${escHtml(a.display)}</div>
+          <div class="exp-map-qb ${cls}" title="${escHtml(a.qb_raw)}" style="padding-left:${(a.depth||0)*16}px;font-size:${a.depth>0?'12px':'13px'}">${escHtml(a.display)}</div>
           <select class="exp-map-sel" data-qb="${escHtml(a.qb_raw)}">
             <option value="">— unmapped —</option>
             ${catOptions.replace(`value="${escHtml(curVal)}"`, `value="${escHtml(curVal)}" selected`)}

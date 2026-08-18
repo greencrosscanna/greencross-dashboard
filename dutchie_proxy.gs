@@ -704,16 +704,21 @@ function saveExpenseMapping_(params) {
   return jsonOut_({ ok: true });
 }
 
-function walkQBRows_(rows, cols, result, accounts, mapConfig) {
+// accounts is an ordered array; seenRaws is a Set for dedup across the tree.
+// depth drives indentation in the mapping UI and increments on each recursive level.
+// Pushing the parent entry BEFORE recursing ensures it appears above its children.
+function walkQBRows_(rows, cols, result, accounts, seenRaws, mapConfig, depth) {
+  depth = depth || 0;
   const custom  = mapConfig?.custom  || {};
   const ignored = mapConfig?.ignored || new Set();
   for (const row of (rows || [])) {
     let summaryMatched = false;
 
-    // Section summary row — strip "Total for " or "Total " prefix to get the section name
+    // Section row — push parent first, then recurse into children
     if (row.Summary) {
-      const raw  = (row.Summary.ColData?.[0]?.value || '').replace(/^Total\s+(for\s+)?/i, '').trim().toUpperCase();
-      const disp = (row.Summary.ColData?.[0]?.value || '').replace(/^Total\s+(for\s+)?/i, '').trim();
+      const summaryLabel = (row.Summary.ColData?.[0]?.value || '').replace(/^Total\s+(for\s+)?/i, '').trim();
+      const raw  = summaryLabel.toUpperCase();
+      const disp = (row.Header?.ColData?.[0]?.value || summaryLabel);
       const cat  = custom[raw] || QB_SUMMARY_MAP_[raw];
       if (cat) {
         summaryMatched = true;
@@ -724,11 +729,19 @@ function walkQBRows_(rows, cols, result, accounts, mapConfig) {
             if (col) result[cat][col] = (result[cat][col] || 0) + v;
           });
         }
-        if (accounts && raw) accounts[raw] = { display: disp, mapped_to: cat, ignored: false, hardcoded: !!QB_SUMMARY_MAP_[raw] && !custom[raw] };
+        if (accounts && raw && !seenRaws.has(raw)) {
+          seenRaws.add(raw);
+          accounts.push({ qb_raw: raw, display: disp, depth, mapped_to: cat, ignored: false, hardcoded: !!QB_SUMMARY_MAP_[raw] && !custom[raw] });
+        }
       }
     }
 
-    // Individual data row (leaf node — no Summary sibling)
+    // Recurse into children — depth+1, null result when parent summary already aggregated
+    if (row.Rows?.Row) {
+      walkQBRows_(row.Rows.Row, cols, summaryMatched ? null : result, accounts, seenRaws, mapConfig, depth + 1);
+    }
+
+    // Leaf data row (no Summary)
     if (row.ColData && !row.Summary) {
       const raw  = (row.ColData[0]?.value || '').trim().toUpperCase();
       const disp = (row.ColData[0]?.value || '').trim();
@@ -743,17 +756,17 @@ function walkQBRows_(rows, cols, result, accounts, mapConfig) {
             if (col) result[cat][col] = (result[cat][col] || 0) + v;
           });
         }
-        if (accounts) accounts[raw] = { display: disp, mapped_to: cat, ignored: false, hardcoded: !!QB_DETAIL_MAP_[raw] && !custom[raw] };
+        if (accounts && !seenRaws.has(raw)) {
+          seenRaws.add(raw);
+          accounts.push({ qb_raw: raw, display: disp, depth, mapped_to: cat, ignored: false, hardcoded: !!QB_DETAIL_MAP_[raw] && !custom[raw] });
+        }
       } else if (accounts) {
         const hasVal = cols.some((_, i) => Math.abs(parseFloat((row.ColData[i + 1]?.value || '').replace(/,/g, '')) || 0) > 0.01);
-        if (hasVal) accounts[raw] = { display: disp, mapped_to: null, ignored: isIgnored, hardcoded: false };
+        if (hasVal && !seenRaws.has(raw)) {
+          seenRaws.add(raw);
+          accounts.push({ qb_raw: raw, display: disp, depth, mapped_to: null, ignored: isIgnored, hardcoded: false });
+        }
       }
-    }
-
-    // Always recurse to collect sub-accounts for the mapping UI.
-    // When a summary matched, pass null for result to prevent double-counting aggregation.
-    if (row.Rows?.Row) {
-      walkQBRows_(row.Rows.Row, cols, summaryMatched ? null : result, accounts, mapConfig);
     }
   }
 }
@@ -831,10 +844,11 @@ function getExpenses(params) {
     // Column titles e.g. ["Jan 2026", "Feb 2026", ...]
     const cols = (report.Columns?.Column || []).map(c => c.ColTitle || '').filter(Boolean);
 
-    const mapConfig  = getExpenseMapConfig_();
-    const accounts   = {};
-    const expenses   = {};
-    walkQBRows_(report.Rows?.Row || [], cols, expenses, accounts, mapConfig);
+    const mapConfig   = getExpenseMapConfig_();
+    const allAccounts = []; // ordered, tree-structured
+    const seenRaws    = new Set();
+    const expenses    = {};
+    walkQBRows_(report.Rows?.Row || [], cols, expenses, allAccounts, seenRaws, mapConfig, 0);
 
     // debug=true returns raw report for mapping verification
     if (params && params.debug === 'true') {
@@ -842,12 +856,6 @@ function getExpenses(params) {
       return output;
     }
 
-    const allAccounts = Object.entries(accounts)
-      .map(([qb_raw, a]) => ({ qb_raw, ...a }))
-      .sort((a, b) => {
-        const score = x => x.mapped_to ? 2 : (x.ignored ? 1 : 0);
-        return score(a) !== score(b) ? score(a) - score(b) : a.display.localeCompare(b.display);
-      });
     const unmappedCount = allAccounts.filter(a => !a.mapped_to && !a.ignored).length;
 
     const content = JSON.stringify({ expenses, columns: cols, allAccounts, unmappedCount });
