@@ -1307,13 +1307,37 @@ function setOtherRevenue(params) {
 
 // ── Revenue detail: ATM + Sublet per machine/category, per store ──────────────
 
+// Canonical store names (must match STORE_KEYS and the frontend STORES array)
 const DEFAULT_ATM_MACHINES = {
-  'Bend':       ['ATM 1', 'ATM 2'],
-  'Center':     ['ATM 1'],
-  'Commercial': ['ATM 1', 'ATM 2'],
-  'Hillsboro':  ['ATM 1', 'ATM 2'],
-  'Portland':   ['ATM 1'],
-  'River':      ['ATM 1', 'ATM 2']
+  'Bend':        ['ATM 1', 'ATM 2'],
+  'Center':      ['ATM 1'],
+  'Commercial':  ['ATM 1', 'ATM 2'],
+  'Hillsboro':   ['ATM 1', 'ATM 2'],
+  'Portland Rd': ['ATM 1'],
+  'River':       ['ATM 1', 'ATM 2']
+};
+
+// Maps GX2 ATM sheet row labels → {store, machine} using canonical store names
+const ATM_MACHINE_MAP = {
+  'bend':                  { store: 'Bend',        machine: 'ATM 1' },
+  'bend 2':                { store: 'Bend',        machine: 'ATM 2' },
+  'bend atm':              { store: 'Bend',        machine: 'ATM 1' },
+  'bend atm 2':            { store: 'Bend',        machine: 'ATM 2' },
+  'center st':             { store: 'Center',      machine: 'ATM 1' },
+  'center':                { store: 'Center',      machine: 'ATM 1' },
+  'commercial':            { store: 'Commercial',  machine: 'ATM 1' },
+  'commercial large-2':    { store: 'Commercial',  machine: 'ATM 2' },
+  'commercial large 2':    { store: 'Commercial',  machine: 'ATM 2' },
+  'commercial 2':          { store: 'Commercial',  machine: 'ATM 2' },
+  'hillsboro':             { store: 'Hillsboro',   machine: 'ATM 1' },
+  'hillsboro 2':           { store: 'Hillsboro',   machine: 'ATM 2' },
+  'baseline':              { store: 'Hillsboro',   machine: 'ATM 1' },
+  'portland lg':           { store: 'Portland Rd', machine: 'ATM 1' },
+  'portland':              { store: 'Portland Rd', machine: 'ATM 1' },
+  'portland rd':           { store: 'Portland Rd', machine: 'ATM 1' },
+  'river lg':              { store: 'River',       machine: 'ATM 1' },
+  'river rd sm':           { store: 'River',       machine: 'ATM 2' },
+  'river':                 { store: 'River',       machine: 'ATM 1' },
 };
 
 function getRevConfig_() {
@@ -1330,12 +1354,66 @@ function getRevYearData_(type, year) {
   return raw ? JSON.parse(raw) : {};
 }
 
+// One-time bootstrap: reads every machine row from the ATM sheet, computes
+// revenue = txn_count × surcharge_rate, and populates rev_atm_YEAR.
+function bootstrapAtmFromSheet_(year) {
+  try {
+    const ss       = SpreadsheetApp.openById(BUDGET_SHEET_ID);
+    const sheet    = ss.getSheets().find(s => s.getSheetId() === ATM_SHEET_GID);
+    if (!sheet) return;
+    const rows     = sheet.getDataRange().getValues();
+
+    // Find the rate row (col A is a small decimal like 1.75 or 2.00)
+    let rate = 0;
+    const machineRows = [];
+    for (const row of rows) {
+      const colA = row[0];
+      if (typeof colA === 'number' && colA > 0.5 && colA < 5) {
+        rate = colA;
+      } else if (typeof colA === 'string' && colA.trim() !== '') {
+        const key = colA.trim().toLowerCase();
+        if (ATM_MACHINE_MAP[key]) machineRows.push({ map: ATM_MACHINE_MAP[key], row });
+      }
+    }
+
+    if (!rate || !machineRows.length) return;
+
+    const data = {};
+    MONTHS_12_.forEach((month, mi) => {
+      data[month] = {};
+    });
+    for (const { map, row } of machineRows) {
+      const { store, machine } = map;
+      MONTHS_12_.forEach((month, mi) => {
+        const txns = Number(row[mi + 1]) || 0;
+        const rev  = Math.round(txns * rate * 100) / 100;
+        if (!data[month][store]) data[month][store] = {};
+        data[month][store][machine] = (data[month][store][machine] || 0) + rev;
+      });
+    }
+
+    PropertiesService.getScriptProperties().setProperty('rev_atm_' + year, JSON.stringify(data));
+    cacheDelete_('otherrev');
+    Logger.log('ATM bootstrap complete for ' + year + ': ' + machineRows.length + ' machines @ $' + rate);
+  } catch(e) {
+    Logger.log('ATM bootstrap error: ' + e.message);
+  }
+}
+
 function getRevenueDetail(params) {
   const year = params.year || String(new Date().getFullYear());
   try {
-    const cfg = getRevConfig_();
-    const atm = getRevYearData_('atm', year);
-    const sub = getRevYearData_('sub', year);
+    const cfg    = getRevConfig_();
+    let   atm    = getRevYearData_('atm', year);
+    const sub    = getRevYearData_('sub', year);
+
+    // Bootstrap from GX2 sheet on first access (no data stored yet)
+    const hasAtm = Object.values(atm).some(mo => Object.keys(mo).length > 0);
+    if (!hasAtm) {
+      bootstrapAtmFromSheet_(year);
+      atm = getRevYearData_('atm', year);
+    }
+
     return jsonOut_({ ok: true, year, cfg, atm, sub });
   } catch(e) {
     return jsonOut_({ ok: false, error: e.message });

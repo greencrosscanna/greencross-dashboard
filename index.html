@@ -503,7 +503,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
         <svg class="dsk-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
         <span class="dsk-nav-lbl">Inventory</span>
       </button>
-      <button class="dsk-nav-btn" data-s="revenue" onclick="setSection('revenue')">
+      <button class="dsk-nav-btn" id="revenue-nav-btn" data-s="revenue" onclick="setSection('revenue')" style="display:none">
         <svg class="dsk-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-4 0v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
         <span class="dsk-nav-lbl">Revenue</span>
       </button>
@@ -653,7 +653,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 
     <!-- DISPLAY -->
     <div class="s-section">Display</div>
-    <div class="s-row">
+    <div class="s-row" id="settings-atm-row" style="display:none">
       <div>
         <div class="s-label">ATM revenue</div>
         <div class="s-sublabel">Include ATM income in net sales</div>
@@ -663,7 +663,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
         <span class="s-slider"></span>
       </label>
     </div>
-    <div class="s-row">
+    <div class="s-row" id="settings-sublet-row" style="display:none">
       <div>
         <div class="s-label">Sublet revenue</div>
         <div class="s-sublabel">Include sublet income in net sales</div>
@@ -789,7 +789,20 @@ const GC_SALES_AUTH = (function() {
   return { save, load, clear, isAuthed };
 })();
 
-function getToken() { return (GC_SALES_AUTH.load() || {}).token || ''; }
+function getToken()  { return (GC_SALES_AUTH.load() || {}).token || ''; }
+function isSky()    { return (GC_SALES_AUTH.load() || {}).user === 'sky@greencrosscanna.com'; }
+
+function updateRevVisibility() {
+  const sky = isSky();
+  // Revenue nav button (desktop sidebar)
+  const revBtn = document.getElementById('revenue-nav-btn');
+  if (revBtn) revBtn.style.display = sky ? '' : 'none';
+  // ATM + Sublet rows in Settings
+  const atmRow    = document.getElementById('settings-atm-row');
+  const subletRow = document.getElementById('settings-sublet-row');
+  if (atmRow)    atmRow.style.display    = sky ? '' : 'none';
+  if (subletRow) subletRow.style.display = sky ? '' : 'none';
+}
 
 const STORES = [
   { name:'Bend',        display:'Century',    color:'#1D9E75' },
@@ -3157,9 +3170,14 @@ function renderRevenue() {
   }).join('');
 
   // ── ATM block ────────────────────────────────────────────────
-  const storeOrder = ['Bend','Center','Commercial','Hillsboro','Portland','River'];
+  // Use canonical STORES order; display names from STORES array
+  const fmtRev = v => v > 0
+    ? `$${v.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}`
+    : '<span style="color:var(--muted)">—</span>';
+  const editIcon = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+
   let atmGrandTotal = 0;
-  const atmStoreHtml = storeOrder.map(store => {
+  const atmStoreHtml = STORES.map(({ name: store, display }) => {
     const machineList = machines[store] || [];
     if (!machineList.length) return '';
     const storeData = atm?.[month]?.[store] || {};
@@ -3167,21 +3185,18 @@ function renderRevenue() {
     const machineRows = machineList.map(machine => {
       const val = Number(storeData[machine] || 0);
       storeSub += val;
-      const display = val > 0 ? `$${val.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}` : '<span style="color:var(--muted)">—</span>';
+      const esc = s => s.replace(/'/g, "\\'");
       return `<div class="rev-machine">
         <div class="rev-machine-name">${machine}</div>
-        <div class="rev-machine-val">${display}</div>
-        <button class="rev-machine-edit" onclick="openRevModal('atm','${store.replace(/'/g,"\\'")}','${machine.replace(/'/g,"\\'")}','${month}','${year}')" title="Edit">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        </button>
+        <div class="rev-machine-val">${fmtRev(val)}</div>
+        <button class="rev-machine-edit" onclick="openRevModal('atm','${esc(store)}','${esc(machine)}','${month}','${year}')" title="Edit">${editIcon}</button>
       </div>`;
     }).join('');
     atmGrandTotal += storeSub;
-    const subDisplay = storeSub > 0 ? `$${storeSub.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}` : '—';
     return `<div class="rev-store">
       <div class="rev-store-head">
-        <span class="rev-store-name">${store}</span>
-        <span class="rev-store-sub">${subDisplay}</span>
+        <span class="rev-store-name">${display}</span>
+        <span class="rev-store-sub">${storeSub > 0 ? `$${storeSub.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}` : '—'}</span>
       </div>
       ${machineRows}
     </div>`;
@@ -3196,26 +3211,24 @@ function renderRevenue() {
     subletHtml = `<div class="rev-sublet-empty">No sublet categories configured yet.</div>`;
   } else {
     subletHtml = subletEntries.map(([store, cats]) => {
-      const storeData = sub?.[month]?.[store] || {};
+      const storeData  = sub?.[month]?.[store] || {};
+      const storeDisp  = STORES.find(s => s.name === store)?.display || store;
       let storeSub = 0;
       const rows = cats.map(cat => {
         const val = Number(storeData[cat] || 0);
         storeSub += val;
-        const display = val > 0 ? `$${val.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}` : '<span style="color:var(--muted)">—</span>';
+        const esc = s => s.replace(/'/g, "\\'");
         return `<div class="rev-machine">
           <div class="rev-machine-name">${cat}</div>
-          <div class="rev-machine-val">${display}</div>
-          <button class="rev-machine-edit" onclick="openRevModal('sub','${store.replace(/'/g,"\\'")}','${cat.replace(/'/g,"\\'")}','${month}','${year}')" title="Edit">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-          </button>
+          <div class="rev-machine-val">${fmtRev(val)}</div>
+          <button class="rev-machine-edit" onclick="openRevModal('sub','${esc(store)}','${esc(cat)}','${month}','${year}')" title="Edit">${editIcon}</button>
         </div>`;
       }).join('');
       subGrandTotal += storeSub;
-      const subDisplay = storeSub > 0 ? `$${storeSub.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}` : '—';
       return `<div class="rev-store">
         <div class="rev-store-head">
-          <span class="rev-store-name">${store}</span>
-          <span class="rev-store-sub">${subDisplay}</span>
+          <span class="rev-store-name">${storeDisp}</span>
+          <span class="rev-store-sub">${storeSub > 0 ? `$${storeSub.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}` : '—'}</span>
         </div>${rows}
       </div>`;
     }).join('');
@@ -3923,6 +3936,7 @@ async function doSalesLogin() {
       if (userEl) userEl.textContent = 'Signed in as ' + data.user;
       hideLoginScreen();
       document.getElementById('bug-fab').classList.add('visible');
+      updateRevVisibility();
       startSalesHeartbeat();
       loadAllStores();
       loadWhatsNewSales();
@@ -4138,6 +4152,7 @@ if (GC_SALES_AUTH.isAuthed()) {
   var _initUserEl = document.getElementById('s-logged-in-user');
   if (_initUserEl && _initSession && _initSession.user) _initUserEl.textContent = 'Signed in as ' + _initSession.user;
   document.getElementById('bug-fab').classList.add('visible');
+  updateRevVisibility();
   startSalesHeartbeat();
   loadAllStores();
   loadWhatsNewSales();
