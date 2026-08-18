@@ -837,6 +837,7 @@ let _invGmLoading = false;
 let expBudgets = null;  // loaded from Annual Budget sheet via proxy
 let otherRevData  = null; // { atm: { Jan: 9493, ... }, sublet: { Jan: 0, ... } }
 let revenueDetail = null; // { cfg, atm, sub, year } — full per-machine breakdown
+let periodGoalsCache = {}; // date string → { storeName: { period_start, period_end, period_total, dow_targets[7] } }
 let hiddenExpCats = new Set(JSON.parse(localStorage.getItem('hiddenExpCats') || '[]'));
 let hiddenOtherRevs = new Set(JSON.parse(localStorage.getItem('hiddenOtherRevs') || '[]'));
 let inventoryData = {}; // { storeName: { products: [...] } | { error, products: [] } }
@@ -915,15 +916,17 @@ function getWeeklyGoal(storeName, month, year, daysInMo) {
  * value when viewing current month, DOW-weighted budget fallback otherwise.
  */
 function getDailyGoal(storeName, dow, month /* 1–12 */, year, daysInMo, forDate) {
-  // lbGoals only holds the CURRENT pay period's targets. A past day may belong to a
-  // different period — using lbGoals for it would show the wrong goal after a period rolls.
-  const todayStr = new Date().toLocaleDateString('en-CA');
-  const isCurrentPeriod = !forDate || forDate === todayStr;
-  if (isCurrentPeriod && month > 0 && lbGoals && year === lbGoals.year && MONTHS[month - 1] === lbGoals.month) {
-    const lb = lbGoals.stores[storeName];
-    if (lb && lb.dow && lb.dow[dow] != null) return lb.dow[dow];
+  // 1. GXCore period goals — frozen per pay period, accurate for any past date
+  if (forDate && periodGoalsCache[forDate]) {
+    const pg = periodGoalsCache[forDate][storeName];
+    if (pg?.dow_targets?.[dow] != null) return pg.dow_targets[dow];
   }
-  // Fallback: budget monthly scaled by DOW weight
+  // 2. lbGoals — live, refreshes every 30 min; best for current period
+  if (month > 0 && lbGoals && year === lbGoals.year && MONTHS[month - 1] === lbGoals.month) {
+    const lb = lbGoals.stores[storeName];
+    if (lb?.dow?.[dow] != null) return lb.dow[dow];
+  }
+  // 3. Fallback: budget monthly scaled by DOW weight
   const sg = getGoal(storeName, month);
   const dowWeights = getDOWWeights([storeName]);
   return sg * 7 / daysInMo * dowWeights[dow];
@@ -967,6 +970,18 @@ async function loadLeaderboardGoals() {
   } catch (e) {
     console.warn('[lb-goals] fetch failed:', e.message);
   }
+}
+
+async function loadPeriodGoals(date) {
+  if (!date || periodGoalsCache[date]) return;
+  try {
+    const res  = await fetch(`${getProxyUrl()}?action=period_goals&date=${encodeURIComponent(date)}&token=${encodeURIComponent(getToken())}`);
+    const data = await res.json();
+    if (data.ok && data.goals && Object.keys(data.goals).length) {
+      periodGoalsCache[date] = data.goals;
+      render(); // re-render now that we have accurate per-period DOW targets
+    }
+  } catch(e) { console.warn('[period-goals] fetch failed:', e.message); }
 }
 
 let section = 'income';
@@ -1325,6 +1340,7 @@ function clearAllCache() {
   allDailyData  = {};
   liveData      = {};   // was missing — without it the on-screen figure survived a "clear" (the July 736k trap)
   lbGoals       = null;
+  periodGoalsCache = {};
   invGmData     = null; _invGmLoading = false;
   _invalidateDerivedCaches();
   console.log('Cache cleared');
@@ -1690,6 +1706,7 @@ function setDay(d) {
   expandedGroup = null;
   buildTimeNav();
   render();
+  if (activeDay) loadPeriodGoals(activeDay);
 }
 
 function setWeekAll() {

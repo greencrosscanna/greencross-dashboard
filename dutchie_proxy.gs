@@ -198,6 +198,7 @@ function doGet(e) {
 
   if (params.action === 'stores')      return getStoresMeta_();
   if (params.action === 'goals')       return getGoals();
+  if (params.action === 'period_goals') return getPeriodGoalsForDate_(params.date);
   if (params.action === 'expenses')    return getExpenses(params);
   if (params.action === 'qbaccounts')  return getQBAccountNames();
   if (params.action === 'qbmapping')   return getQBMappingSheet();
@@ -496,6 +497,40 @@ function getGoals() {
     output.setContent(JSON.stringify({ error: err.message }));
   }
   return output;
+}
+
+// Returns period goals (per-DOW targets) for all stores for a given date.
+// Uses GXCore.getPeriodGoals which resolves any date to its pay period and
+// returns the frozen goal. Keyed by Sales canonical store name.
+function getPeriodGoalsForDate_(date) {
+  if (!date) return jsonOut_({ ok: false, error: 'date required' });
+  const STORE_MAP = [
+    { dutchie: 'Bend',        sales: 'Bend'        },
+    { dutchie: 'Center',      sales: 'Center'      },
+    { dutchie: 'Commercial',  sales: 'Commercial'  },
+    { dutchie: 'Hillsboro',   sales: 'Hillsboro'   },
+    { dutchie: 'Portland Rd', sales: 'Portland Rd' },
+    { dutchie: 'River Rd',    sales: 'River'       },
+  ];
+  try {
+    const goals = {};
+    for (const s of STORE_MAP) {
+      try {
+        const pg = GXCore.getPeriodGoals(s.dutchie, date);
+        if (pg && pg.dow_targets) {
+          goals[s.sales] = {
+            period_start: pg.period_start,
+            period_end:   pg.period_end,
+            period_total: pg.period_total,
+            dow_targets:  pg.dow_targets,
+          };
+        }
+      } catch(e2) { /* store not in ledger yet — skip */ }
+    }
+    return jsonOut_({ ok: true, date, goals });
+  } catch(e) {
+    return jsonOut_({ ok: false, error: e.message });
+  }
 }
 
 // ── QuickBooks OAuth ──────────────────────────────────────────────────────────
