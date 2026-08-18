@@ -790,7 +790,11 @@ const GC_SALES_AUTH = (function() {
 })();
 
 function getToken()  { return (GC_SALES_AUTH.load() || {}).token || ''; }
-function isSky()    { return (GC_SALES_AUTH.load() || {}).user === 'sky@greencrosscanna.com'; }
+function isSky() {
+  const s = GC_SALES_AUTH.load() || {};
+  const u = (s.user || '').toLowerCase();
+  return u === 'sky@greencrosscanna.com' || u === 'sky' || u.startsWith('sky@');
+}
 
 function updateRevVisibility() {
   const sky = isSky();
