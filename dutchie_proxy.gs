@@ -717,11 +717,13 @@ function walkQBRows_(rows, cols, result, accounts, mapConfig) {
       const cat  = custom[raw] || QB_SUMMARY_MAP_[raw];
       if (cat) {
         summaryMatched = true;
-        if (!result[cat]) result[cat] = {};
-        cols.forEach((col, i) => {
-          const v = parseFloat((row.Summary.ColData?.[i + 1]?.value || '').replace(/,/g, '')) || 0;
-          if (col) result[cat][col] = (result[cat][col] || 0) + v;
-        });
+        if (result) {
+          if (!result[cat]) result[cat] = {};
+          cols.forEach((col, i) => {
+            const v = parseFloat((row.Summary.ColData?.[i + 1]?.value || '').replace(/,/g, '')) || 0;
+            if (col) result[cat][col] = (result[cat][col] || 0) + v;
+          });
+        }
         if (accounts && raw) accounts[raw] = { display: disp, mapped_to: cat, ignored: false, hardcoded: !!QB_SUMMARY_MAP_[raw] && !custom[raw] };
       }
     }
