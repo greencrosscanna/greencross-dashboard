@@ -199,6 +199,7 @@ function doGet(e) {
   if (params.action === 'stores')      return getStoresMeta_();
   if (params.action === 'goals')       return getGoals();
   if (params.action === 'period_goals') return getPeriodGoalsForDate_(params.date);
+  if (params.action === 'save_expense_mapping') return saveExpenseMapping_(params);
   if (params.action === 'expenses')    return getExpenses(params);
   if (params.action === 'qbaccounts')  return getQBAccountNames();
   if (params.action === 'qbmapping')   return getQBMappingSheet();
@@ -226,6 +227,18 @@ function doGet(e) {
   if (!store || !STORE_KEYS[store]) return jsonOut_({ error: 'Unknown store: ' + store });
 
   return getStoreSales_(store, from, to);
+}
+
+function doPost(e) {
+  const params = e.parameter || {};
+  const auth = requireAuth_(params);
+  if (!auth.ok) return jsonOut_({ ok: false, error: auth.error, code: 401 });
+
+  let body = {};
+  try { body = JSON.parse(e.postData.contents || '{}'); } catch(err) {}
+
+  if (params.action === 'save_expense_mapping') return saveExpenseMapping_(body);
+  return jsonOut_({ ok: false, error: 'Unknown POST action: ' + params.action });
 }
 
 // ── GX Core sales cache + live Dutchie split ──────────────────────────────────
@@ -632,41 +645,87 @@ const QB_DETAIL_MAP_ = {
   'UTILITIES':                 'Utilities / Garbage',
 };
 
-function walkQBRows_(rows, cols, result) {
+// Loads custom QB→dashboard mappings and ignored accounts from ScriptProperties.
+function getExpenseMapConfig_() {
+  const props = PropertiesService.getScriptProperties();
+  let custom = {}, ignored = [];
+  try { custom  = JSON.parse(props.getProperty('expense_map')     || '{}'); } catch(e) {}
+  try { ignored = JSON.parse(props.getProperty('expense_ignored') || '[]'); } catch(e) {}
+  return { custom, ignored: new Set(ignored) };
+}
+
+// Saves QB→dashboard mappings submitted from the in-app mapping tool.
+// mappings JSON: { QB_RAW_UPPER: dashCat | '__ignore__' | '' }
+// '' = revert to hardcoded (remove custom), '__ignore__' = suppress from expenses + unmapped
+function saveExpenseMapping_(params) {
+  let mappings;
+  const raw = params.mappings;
+  try {
+    mappings = (raw && typeof raw === 'object') ? raw : JSON.parse(raw || '{}');
+  } catch(e) {
+    return jsonOut_({ ok: false, error: 'Invalid mappings JSON' });
+  }
+  const props = PropertiesService.getScriptProperties();
+  let custom = {}, ignored = [];
+  try { custom  = JSON.parse(props.getProperty('expense_map')     || '{}'); } catch(e) {}
+  try { ignored = JSON.parse(props.getProperty('expense_ignored') || '[]'); } catch(e) {}
+  const ignoredSet = new Set(ignored);
+  for (const [qb, cat] of Object.entries(mappings)) {
+    if (cat === '__ignore__') { ignoredSet.add(qb); delete custom[qb]; }
+    else if (!cat)            { delete custom[qb];  ignoredSet.delete(qb); }
+    else                      { custom[qb] = cat;   ignoredSet.delete(qb); }
+  }
+  props.setProperty('expense_map',     JSON.stringify(custom));
+  props.setProperty('expense_ignored', JSON.stringify([...ignoredSet]));
+  cacheDelete_('expenses_' + new Date().getFullYear());
+  return jsonOut_({ ok: true });
+}
+
+function walkQBRows_(rows, cols, result, accounts, mapConfig) {
+  const custom  = mapConfig?.custom  || {};
+  const ignored = mapConfig?.ignored || new Set();
   for (const row of (rows || [])) {
     let summaryMatched = false;
 
     // Section summary row — strip "Total for " or "Total " prefix to get the section name
     if (row.Summary) {
-      const raw = (row.Summary.ColData?.[0]?.value || '')
-        .replace(/^Total\s+(for\s+)?/i, '').trim().toUpperCase();
-      const cat = QB_SUMMARY_MAP_[raw];
+      const raw  = (row.Summary.ColData?.[0]?.value || '').replace(/^Total\s+(for\s+)?/i, '').trim().toUpperCase();
+      const disp = (row.Summary.ColData?.[0]?.value || '').replace(/^Total\s+(for\s+)?/i, '').trim();
+      const cat  = custom[raw] || QB_SUMMARY_MAP_[raw];
       if (cat) {
-        summaryMatched = true; // skip recursion to avoid double-counting sub-items
+        summaryMatched = true;
         if (!result[cat]) result[cat] = {};
         cols.forEach((col, i) => {
           const v = parseFloat((row.Summary.ColData?.[i + 1]?.value || '').replace(/,/g, '')) || 0;
           if (col) result[cat][col] = (result[cat][col] || 0) + v;
         });
+        if (accounts && raw) accounts[raw] = { display: disp, mapped_to: cat, ignored: false, hardcoded: !!QB_SUMMARY_MAP_[raw] && !custom[raw] };
       }
     }
 
     // Individual data row (leaf node — no Summary sibling)
     if (row.ColData && !row.Summary) {
-      const raw = (row.ColData[0]?.value || '').trim().toUpperCase();
-      const cat = QB_DETAIL_MAP_[raw];
-      if (cat) {
+      const raw  = (row.ColData[0]?.value || '').trim().toUpperCase();
+      const disp = (row.ColData[0]?.value || '').trim();
+      if (!raw) continue;
+      const cat       = custom[raw] || QB_DETAIL_MAP_[raw];
+      const isIgnored = ignored.has(raw);
+      if (cat && !isIgnored) {
         if (!result[cat]) result[cat] = {};
         cols.forEach((col, i) => {
           const v = parseFloat((row.ColData[i + 1]?.value || '').replace(/,/g, '')) || 0;
           if (col) result[cat][col] = (result[cat][col] || 0) + v;
         });
+        if (accounts) accounts[raw] = { display: disp, mapped_to: cat, ignored: false, hardcoded: !!QB_DETAIL_MAP_[raw] && !custom[raw] };
+      } else if (accounts) {
+        const hasVal = cols.some((_, i) => Math.abs(parseFloat((row.ColData[i + 1]?.value || '').replace(/,/g, '')) || 0) > 0.01);
+        if (hasVal) accounts[raw] = { display: disp, mapped_to: null, ignored: isIgnored, hardcoded: false };
       }
     }
 
     // Recurse only if this section's summary wasn't matched (prevents double-counting)
     if (!summaryMatched && row.Rows?.Row) {
-      walkQBRows_(row.Rows.Row, cols, result);
+      walkQBRows_(row.Rows.Row, cols, result, accounts, mapConfig);
     }
   }
 }
@@ -744,8 +803,10 @@ function getExpenses(params) {
     // Column titles e.g. ["Jan 2026", "Feb 2026", ...]
     const cols = (report.Columns?.Column || []).map(c => c.ColTitle || '').filter(Boolean);
 
-    const expenses = {};
-    walkQBRows_(report.Rows?.Row || [], cols, expenses);
+    const mapConfig  = getExpenseMapConfig_();
+    const accounts   = {};
+    const expenses   = {};
+    walkQBRows_(report.Rows?.Row || [], cols, expenses, accounts, mapConfig);
 
     // debug=true returns raw report for mapping verification
     if (params && params.debug === 'true') {
@@ -753,7 +814,15 @@ function getExpenses(params) {
       return output;
     }
 
-    const content = JSON.stringify({ expenses, columns: cols });
+    const allAccounts = Object.entries(accounts)
+      .map(([qb_raw, a]) => ({ qb_raw, ...a }))
+      .sort((a, b) => {
+        const score = x => x.mapped_to ? 2 : (x.ignored ? 1 : 0);
+        return score(a) !== score(b) ? score(a) - score(b) : a.display.localeCompare(b.display);
+      });
+    const unmappedCount = allAccounts.filter(a => !a.mapped_to && !a.ignored).length;
+
+    const content = JSON.stringify({ expenses, columns: cols, allAccounts, unmappedCount });
     cacheSet_(cacheKey, content, 1800); // 30 min
     output.setContent(content);
   } catch (err) {
