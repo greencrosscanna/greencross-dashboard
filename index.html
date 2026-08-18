@@ -439,8 +439,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .rev-block-total{font-size:16px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
 .rev-block-meta{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;margin-top:-6px}
 .rev-atm-rate{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;flex:1;padding-left:8px}
-.rev-refresh-btn{font-size:11px;background:none;border:.5px solid var(--border);color:var(--muted);cursor:pointer;padding:3px 8px;border-radius:12px;white-space:nowrap}
-.rev-refresh-btn:hover{color:var(--text);border-color:var(--border-strong)}
+.rev-year-tabs{display:flex;gap:4px}
 .rev-store{margin-bottom:16px}
 .rev-store-head{display:flex;align-items:baseline;gap:12px;padding:6px 0;border-bottom:1px solid var(--border)}
 .rev-store-name{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);flex:1}
@@ -971,7 +970,8 @@ async function loadLeaderboardGoals() {
 }
 
 let section = 'income';
-let activeYear  = new Date().getFullYear();
+let activeYear    = new Date().getFullYear();
+let activeRevYear = new Date().getFullYear();
 let activeMonth = new Date().getMonth() + 1;
 let activeWeek  = null;
 let activeDay   = null;
@@ -3139,7 +3139,7 @@ async function loadOtherRevenue() {
 }
 
 async function loadRevenueDetail() {
-  const year = activeYear || new Date().getFullYear();
+  const year = activeRevYear || new Date().getFullYear();
   const cacheKey = `rev_detail_${year}`;
   const cached = readCache(cacheKey);
   if (cached) { revenueDetail = cached; if (section === 'revenue') renderRevenue(); return; }
@@ -3259,7 +3259,10 @@ function renderRevenue() {
   mc.innerHTML = `<div class="rev-wrap">
     <div class="rev-head">
       <span class="rev-title">Additional Revenue</span>
-      <span class="rev-year">${year}</span>
+      <div class="rev-year-tabs">
+        <button class="rev-mo-btn${activeRevYear===2025?' on':''}" onclick="setRevYear(2025)">2025</button>
+        <button class="rev-mo-btn${activeRevYear===2026?' on':''}" onclick="setRevYear(2026)">2026</button>
+      </div>
     </div>
     <div class="rev-month-nav">${moNav}</div>
 
@@ -3271,7 +3274,6 @@ function renderRevenue() {
       </div>
       <div class="rev-block-meta">
         <span style="opacity:.5;font-size:.72rem">${atmGrandTxns > 0 ? atmGrandTxns.toLocaleString('en-US') + ' total transactions' : ''}</span>
-        <button class="rev-refresh-btn" onclick="clearAndRefreshAtm('${year}')" title="Re-read from GX2 sheet">↺ Refresh from sheet</button>
       </div>
       ${atmStoreHtml}
     </div>
@@ -3286,16 +3288,12 @@ function renderRevenue() {
   </div>`;
 }
 
-async function clearAndRefreshAtm(year) {
-  if (!confirm('Re-read ATM data from the GX2 sheet for ' + year + '? This will overwrite any manual edits.')) return;
-  try {
-    const url = `${getProxyUrl()}?action=clear_atm_cache&token=${encodeURIComponent(getToken())}&year=${year}`;
-    const r = await fetch(url); const d = await r.json();
-    if (!d.ok) throw new Error(d.error || 'Clear failed');
-    revenueDetail = null;
-    localStorage.removeItem('gc_cache_rev_detail_' + year);
-    loadRevenueDetail();
-  } catch(e) { alert('Error: ' + e.message); }
+function setRevYear(yr) {
+  if (activeRevYear === yr) return;
+  localStorage.removeItem('gc_cache_rev_detail_' + activeRevYear);
+  activeRevYear = yr;
+  revenueDetail = null;
+  loadRevenueDetail();
 }
 
 function setRevMonth(mo) {
