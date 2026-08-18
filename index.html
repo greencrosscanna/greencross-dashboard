@@ -437,15 +437,21 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .rev-block-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
 .rev-block-title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--dim)}
 .rev-block-total{font-size:16px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
+.rev-block-meta{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;margin-top:-6px}
+.rev-atm-rate{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;flex:1;padding-left:8px}
+.rev-refresh-btn{font-size:11px;background:none;border:.5px solid var(--border);color:var(--muted);cursor:pointer;padding:3px 8px;border-radius:12px;white-space:nowrap}
+.rev-refresh-btn:hover{color:var(--text);border-color:var(--border-strong)}
 .rev-store{margin-bottom:16px}
-.rev-store-head{display:flex;align-items:baseline;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)}
-.rev-store-name{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.rev-store-head{display:flex;align-items:baseline;gap:12px;padding:6px 0;border-bottom:1px solid var(--border)}
+.rev-store-name{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);flex:1}
 .rev-store-sub{font-size:13px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
-.rev-machine{display:flex;align-items:center;padding:8px 0 8px 12px;border-bottom:.5px solid var(--border)}
+.rev-machine{display:flex;align-items:center;padding:7px 0 7px 12px;border-bottom:.5px solid var(--border)}
 .rev-machine:last-child{border-bottom:none}
 .rev-machine-name{font-size:13px;color:var(--dim);flex:1}
-.rev-machine-val{font-size:14px;font-weight:500;color:var(--text);font-variant-numeric:tabular-nums;min-width:72px;text-align:right}
-.rev-machine-edit{background:none;border:none;cursor:pointer;padding:2px 6px;color:var(--muted);line-height:0;border-radius:4px;margin-left:8px;opacity:.6}
+.rev-machine-val{font-size:14px;font-weight:500;color:var(--text);font-variant-numeric:tabular-nums;min-width:80px;text-align:right}
+.rev-txns{color:var(--muted);font-size:13px;min-width:90px}
+.rev-rev{min-width:90px}
+.rev-machine-edit{background:none;border:none;cursor:pointer;padding:2px 6px;color:var(--muted);line-height:0;border-radius:4px;margin-left:4px;opacity:.6}
 .rev-machine-edit:hover{opacity:1;color:var(--text)}
 .rev-sublet-empty{font-size:13px;color:var(--muted);padding:12px 0;font-style:italic}
 .rev-month-nav{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:24px}
@@ -3174,38 +3180,49 @@ function renderRevenue() {
   }).join('');
 
   // ── ATM block ────────────────────────────────────────────────
-  // Use canonical STORES order; display names from STORES array
-  const fmtRev = v => v > 0
+  const atmRate  = Number(cfg?.atm_rate) || 1.75;
+  const fmtMoney = v => v > 0
     ? `$${v.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}`
     : '<span style="color:var(--muted)">—</span>';
+  const fmtTxns  = v => v > 0 ? v.toLocaleString('en-US') : '<span style="color:var(--muted)">—</span>';
   const editIcon = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
 
-  let atmGrandTotal = 0;
+  let atmGrandTxns = 0, atmGrandRev = 0;
   const atmStoreHtml = STORES.map(({ name: store, display }) => {
     const machineList = machines[store] || [];
     if (!machineList.length) return '';
     const storeData = atm?.[month]?.[store] || {};
-    let storeSub = 0;
+    let storeTxns = 0, storeRev = 0;
     const machineRows = machineList.map(machine => {
-      const val = Number(storeData[machine] || 0);
-      storeSub += val;
+      const txns = Number(storeData[machine] || 0);
+      const rev  = Math.round(txns * atmRate * 100) / 100;
+      storeTxns += txns; storeRev += rev;
       const esc = s => s.replace(/'/g, "\\'");
       return `<div class="rev-machine">
         <div class="rev-machine-name">${machine}</div>
-        <div class="rev-machine-val">${fmtRev(val)}</div>
+        <div class="rev-machine-val rev-txns">${fmtTxns(txns)}</div>
+        <div class="rev-machine-val rev-rev">${fmtMoney(rev)}</div>
         <button class="rev-machine-edit" onclick="openRevModal('atm','${esc(store)}','${esc(machine)}','${month}','${year}')" title="Edit">${editIcon}</button>
       </div>`;
     }).join('');
-    atmGrandTotal += storeSub;
+    atmGrandTxns += storeTxns; atmGrandRev += Math.round(storeRev * 100) / 100;
+    const storeRevFmt = storeRev > 0 ? `$${storeRev.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}` : '—';
     return `<div class="rev-store">
       <div class="rev-store-head">
         <span class="rev-store-name">${display}</span>
-        <span class="rev-store-sub">${storeSub > 0 ? `$${storeSub.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}` : '—'}</span>
+        <span class="rev-store-sub">${storeTxns > 0 ? `${storeTxns.toLocaleString('en-US')} txns` : ''}</span>
+        <span class="rev-store-sub">${storeRevFmt}</span>
+      </div>
+      <div class="rev-machine rev-machine-hdr">
+        <div class="rev-machine-name"></div>
+        <div class="rev-machine-val rev-txns" style="opacity:.55;font-size:.72rem">Transactions</div>
+        <div class="rev-machine-val rev-rev" style="opacity:.55;font-size:.72rem">Revenue</div>
+        <div style="width:24px"></div>
       </div>
       ${machineRows}
     </div>`;
   }).join('');
-  const atmTotalDisplay = atmGrandTotal > 0 ? `$${atmGrandTotal.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}` : '—';
+  const atmTotalDisplay = atmGrandRev > 0 ? `$${atmGrandRev.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}` : '—';
 
   // ── Sublet block ──────────────────────────────────────────────
   let subGrandTotal = 0;
@@ -3224,7 +3241,7 @@ function renderRevenue() {
         const esc = s => s.replace(/'/g, "\\'");
         return `<div class="rev-machine">
           <div class="rev-machine-name">${cat}</div>
-          <div class="rev-machine-val">${fmtRev(val)}</div>
+          <div class="rev-machine-val">${fmtMoney(val)}</div>
           <button class="rev-machine-edit" onclick="openRevModal('sub','${esc(store)}','${esc(cat)}','${month}','${year}')" title="Edit">${editIcon}</button>
         </div>`;
       }).join('');
@@ -3249,7 +3266,12 @@ function renderRevenue() {
     <div class="rev-block">
       <div class="rev-block-head">
         <span class="rev-block-title">ATM Revenue</span>
+        <span class="rev-atm-rate" title="Surcharge rate per transaction">@ $${atmRate.toFixed(2)}/txn</span>
         <span class="rev-block-total">${atmTotalDisplay}</span>
+      </div>
+      <div class="rev-block-meta">
+        <span style="opacity:.5;font-size:.72rem">${atmGrandTxns > 0 ? atmGrandTxns.toLocaleString('en-US') + ' total transactions' : ''}</span>
+        <button class="rev-refresh-btn" onclick="clearAndRefreshAtm('${year}')" title="Re-read from GX2 sheet">↺ Refresh from sheet</button>
       </div>
       ${atmStoreHtml}
     </div>
@@ -3264,6 +3286,19 @@ function renderRevenue() {
   </div>`;
 }
 
+async function clearAndRefreshAtm(year) {
+  if (!confirm('Re-read ATM data from the GX2 sheet for ' + year + '? This will overwrite any manual edits.')) return;
+  try {
+    const url = `${getProxyUrl()}?action=clear_atm_cache&token=${encodeURIComponent(getToken())}&year=${year}`;
+    const r = await fetch(url); const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'Clear failed');
+    revenueDetail = null;
+    const cacheKey = `rev_detail_${year}`;
+    localStorage.removeItem(cacheKey);
+    loadRevenueDetail();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
 function setRevMonth(mo) {
   activeMonth = mo;
   activeWeek  = null;
@@ -3275,12 +3310,13 @@ function setRevMonth(mo) {
 let _revEdit = {};
 function openRevModal(type, store, item, month, year) {
   _revEdit = { type, store, item, month, year };
-  const label = type === 'atm' ? 'ATM Revenue' : 'Sublet Revenue';
-  document.getElementById('otherrev-modal-title').textContent = `Edit ${label}`;
-  document.getElementById('otherrev-modal-label').textContent = `${store} · ${item} · ${month} ${year}`;
-  const cur = revenueDetail?.[type === 'atm' ? 'atm' : 'sub']?.[month]?.[store]?.[item] || 0;
+  const isAtm = type === 'atm';
+  document.getElementById('otherrev-modal-title').textContent = isAtm ? 'Edit ATM Transactions' : 'Edit Sublet Revenue';
+  document.getElementById('otherrev-modal-label').textContent = `${store} · ${item} · ${month} ${year}${isAtm ? ' — enter transaction count' : ''}`;
+  const cur = revenueDetail?.[isAtm ? 'atm' : 'sub']?.[month]?.[store]?.[item] || 0;
   const inp = document.getElementById('otherrev-modal-input');
   inp.value = cur > 0 ? cur : '';
+  inp.placeholder = isAtm ? 'Transaction count' : 'Revenue amount';
   document.getElementById('otherrev-modal-status').textContent = '';
   document.getElementById('otherrev-modal-save').disabled = false;
   document.getElementById('otherrev-modal-save').onclick = saveRevModal;

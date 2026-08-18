@@ -210,6 +210,7 @@ function doGet(e) {
   if (params.action === 'set_otherrev')   return setOtherRevenue(params);
   if (params.action === 'revenue_detail') return getRevenueDetail(params);
   if (params.action === 'set_revenue')    return setRevenueLine(params);
+  if (params.action === 'clear_atm_cache') return clearAtmCache_(params, auth.user);
   if (params.action === 'inventory')     return getInventory(params);
   if (params.action === 'invprobe')      return probeInventoryEndpoints(params);
   if (params.action === 'invfields')     return getInvFields(params);
@@ -1343,9 +1344,18 @@ const ATM_MACHINE_MAP = {
 function getRevConfig_() {
   const props = PropertiesService.getScriptProperties();
   const raw   = props.getProperty('rev_config');
-  if (raw) return JSON.parse(raw);
-  const cfg = { machines: DEFAULT_ATM_MACHINES, sublet_cats: {} };
-  props.setProperty('rev_config', JSON.stringify(cfg));
+  const cfg   = raw ? JSON.parse(raw) : {};
+  let dirty = false;
+  if (!cfg.machines)    { cfg.machines    = DEFAULT_ATM_MACHINES; dirty = true; }
+  if (!cfg.sublet_cats) { cfg.sublet_cats = {}; dirty = true; }
+  if (!cfg.atm_rate)    { cfg.atm_rate    = 1.75; dirty = true; }
+  // Migrate legacy 'Portland' key → 'Portland Rd' (canonical store name)
+  if (cfg.machines['Portland'] && !cfg.machines['Portland Rd']) {
+    cfg.machines['Portland Rd'] = cfg.machines['Portland'];
+    delete cfg.machines['Portland'];
+    dirty = true;
+  }
+  if (dirty) props.setProperty('rev_config', JSON.stringify(cfg));
   return cfg;
 }
 
@@ -1354,47 +1364,84 @@ function getRevYearData_(type, year) {
   return raw ? JSON.parse(raw) : {};
 }
 
-// One-time bootstrap: reads every machine row from the ATM sheet, computes
-// revenue = txn_count × surcharge_rate, and populates rev_atm_YEAR.
+// One-time bootstrap: reads per-machine rows from the ATM sheet and stores txn counts.
+// Revenue = txns × rate is computed at display time (rate lives in rev_config.atm_rate).
+// Sum-row detection is VALUE-based: within each store group, if one row's monthly values
+// equal the sum of all other rows in that group, it's a subtotal row and gets skipped.
 function bootstrapAtmFromSheet_(year) {
   try {
-    const ss       = SpreadsheetApp.openById(BUDGET_SHEET_ID);
-    const sheet    = ss.getSheets().find(s => s.getSheetId() === ATM_SHEET_GID);
+    const ss    = SpreadsheetApp.openById(BUDGET_SHEET_ID);
+    const sheet = ss.getSheets().find(s => s.getSheetId() === ATM_SHEET_GID);
     if (!sheet) return;
-    const rows     = sheet.getDataRange().getValues();
+    const rows  = sheet.getDataRange().getValues();
 
-    // Find the rate row (col A is a small decimal like 1.75 or 2.00)
-    let rate = 0;
-    const machineRows = [];
+    // Collect all matched rows; also capture rate row if present
+    let sheetRate = 0;
+    const allMatched = [];
     for (const row of rows) {
       const colA = row[0];
       if (typeof colA === 'number' && colA > 0.5 && colA < 5) {
-        rate = colA;
+        sheetRate = colA;
       } else if (typeof colA === 'string' && colA.trim() !== '') {
         const key = colA.trim().toLowerCase();
-        if (ATM_MACHINE_MAP[key]) machineRows.push({ map: ATM_MACHINE_MAP[key], row });
+        if (ATM_MACHINE_MAP[key]) allMatched.push({ map: ATM_MACHINE_MAP[key], row });
       }
     }
+    if (!allMatched.length) return;
 
-    if (!rate || !machineRows.length) return;
+    // Group by store, then remove any row whose monthly values equal the sum of all others
+    const storeGroups = {};
+    for (const r of allMatched) {
+      const s = r.map.store;
+      if (!storeGroups[s]) storeGroups[s] = [];
+      storeGroups[s].push(r);
+    }
 
+    const rowsToUse = [];
+    for (const group of Object.values(storeGroups)) {
+      if (group.length <= 1) { rowsToUse.push(...group); continue; }
+      const sumIdx = group.findIndex((cand, ci) => {
+        const others = group.filter((_, j) => j !== ci);
+        let checks = 0, matches = 0;
+        for (let mi = 0; mi < 12; mi++) {
+          const cv = Number(cand.row[mi + 1]) || 0;
+          const ov = others.reduce((acc, g) => acc + (Number(g.row[mi + 1]) || 0), 0);
+          if (cv === 0 && ov === 0) continue;
+          checks++;
+          if (Math.abs(cv - ov) < 0.5) matches++;
+        }
+        return checks > 0 && matches === checks;
+      });
+      rowsToUse.push(...group.filter((_, i) => i !== sumIdx));
+    }
+
+    // Store transaction counts (not revenue — rate applied at render time)
     const data = {};
-    MONTHS_12_.forEach((month, mi) => {
-      data[month] = {};
-    });
-    for (const { map, row } of machineRows) {
+    MONTHS_12_.forEach(month => { data[month] = {}; });
+    for (const { map, row } of rowsToUse) {
       const { store, machine } = map;
       MONTHS_12_.forEach((month, mi) => {
         const txns = Number(row[mi + 1]) || 0;
-        const rev  = Math.round(txns * rate * 100) / 100;
         if (!data[month][store]) data[month][store] = {};
-        data[month][store][machine] = (data[month][store][machine] || 0) + rev;
+        data[month][store][machine] = (data[month][store][machine] || 0) + txns;
       });
     }
 
-    PropertiesService.getScriptProperties().setProperty('rev_atm_' + year, JSON.stringify(data));
+    const props = PropertiesService.getScriptProperties();
+    props.setProperty('rev_atm_' + year, JSON.stringify(data));
+
+    // Persist the sheet rate into config if not already set
+    if (sheetRate > 0) {
+      const cfg = getRevConfig_();
+      if (!cfg.atm_rate || cfg.atm_rate === 1.75) {
+        cfg.atm_rate = sheetRate;
+        props.setProperty('rev_config', JSON.stringify(cfg));
+      }
+    }
+
     cacheDelete_('otherrev');
-    Logger.log('ATM bootstrap complete for ' + year + ': ' + machineRows.length + ' machines @ $' + rate);
+    const skipped = allMatched.length - rowsToUse.length;
+    Logger.log('ATM bootstrap ' + year + ': ' + rowsToUse.length + ' rows kept, ' + skipped + ' sum rows skipped');
   } catch(e) {
     Logger.log('ATM bootstrap error: ' + e.message);
   }
@@ -1418,6 +1465,17 @@ function getRevenueDetail(params) {
   } catch(e) {
     return jsonOut_({ ok: false, error: e.message });
   }
+}
+
+// Sky-only: delete stored ATM bootstrap so next revenue_detail re-reads from sheet
+function clearAtmCache_(params, user) {
+  const u = (user || '').toLowerCase();
+  const isSky = u === 'sky@greencrosscanna.com' || u === 'sky' || u.startsWith('sky@');
+  if (!isSky) return jsonOut_({ ok: false, error: 'Forbidden' });
+  const year = params.year || String(new Date().getFullYear());
+  PropertiesService.getScriptProperties().deleteProperty('rev_atm_' + year);
+  cacheDelete_('otherrev');
+  return jsonOut_({ ok: true, cleared: 'rev_atm_' + year });
 }
 
 function setRevenueLine(params) {
