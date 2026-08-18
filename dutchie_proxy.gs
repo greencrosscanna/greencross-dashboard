@@ -1232,6 +1232,20 @@ const SUBLET_SHEET_GID = 1274502465;
 const OTHERREV_PROP    = 'otherrev_data';
 const MONTHS_12_       = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
+// Per-year ATM sheet config. sid = spreadsheet ID; gid = sheet GID (0 = first sheet).
+const ATM_SHEET_CONFIG_ = {
+  '2025': { sid: '10xW3f4nhGAFGPfpjQod0VOdfKalW4hWtLnBlrGttTmU', gid: 0 },
+  '2026': { sid: BUDGET_SHEET_ID, gid: ATM_SHEET_GID },
+};
+
+// Header cell text → MONTHS_12_ 3-letter abbreviation (handles full and abbreviated names)
+const MONTH_ABBR_ = {
+  jan:'Jan', january:'Jan', feb:'Feb', february:'Feb', mar:'Mar', march:'Mar',
+  apr:'Apr', april:'Apr', may:'May', jun:'Jun', june:'Jun', jul:'Jul', july:'Jul',
+  aug:'Aug', august:'Aug', sep:'Sep', sept:'Sep', september:'Sep',
+  oct:'Oct', october:'Oct', nov:'Nov', november:'Nov', dec:'Dec', december:'Dec',
+};
+
 function getOtherRevData_() {
   const props = PropertiesService.getScriptProperties();
   const raw   = props.getProperty(OTHERREV_PROP);
@@ -1372,20 +1386,41 @@ function getRevYearData_(type, year) {
 // Sum-row detection uses INDENTATION: sheet machine rows have leading whitespace;
 // store total rows (uppercase, no indent) are skipped when a store has any indented siblings.
 function bootstrapAtmFromSheet_(year) {
+  const sheetCfg = ATM_SHEET_CONFIG_[String(year)];
+  if (!sheetCfg) { Logger.log('ATM bootstrap: no sheet configured for year ' + year); return; }
   try {
-    const ss    = SpreadsheetApp.openById(BUDGET_SHEET_ID);
-    const sheet = ss.getSheets().find(s => s.getSheetId() === ATM_SHEET_GID);
-    if (!sheet) return;
+    const ss    = SpreadsheetApp.openById(sheetCfg.sid);
+    const sheet = ss.getSheets().find(s => s.getSheetId() === sheetCfg.gid);
+    if (!sheet) { Logger.log('ATM bootstrap: sheet GID ' + sheetCfg.gid + ' not found'); return; }
     const rows  = sheet.getDataRange().getValues();
 
-    // Collect all matched rows; track indentation and capture rate row if present
+    // Scan for header row (col A = "location") and rate row (col A is a number 0.5–5)
     let sheetRate = 0;
+    let monthColMap = null; // { 'Jan': colIdx, 'May': colIdx, ... }
+    for (const row of rows) {
+      const a = row[0];
+      if (typeof a === 'number' && a > 0.5 && a < 5) {
+        sheetRate = a;
+      } else if (typeof a === 'string' && a.trim().toLowerCase() === 'location') {
+        monthColMap = {};
+        for (let c = 1; c < row.length; c++) {
+          const abbr = MONTH_ABBR_[String(row[c]).trim().toLowerCase()];
+          if (abbr) monthColMap[abbr] = c;
+        }
+      }
+    }
+    // Fallback: no header found → assume Jan=col1…Dec=col12
+    if (!monthColMap || !Object.keys(monthColMap).length) {
+      monthColMap = {};
+      MONTHS_12_.forEach((m, i) => { monthColMap[m] = i + 1; });
+    }
+    const activeCols = Object.values(monthColMap);
+
+    // Collect all matched label rows; track indentation
     const allMatched = [];
     for (const row of rows) {
       const colA = row[0];
-      if (typeof colA === 'number' && colA > 0.5 && colA < 5) {
-        sheetRate = colA;
-      } else if (typeof colA === 'string' && colA.trim() !== '') {
+      if (typeof colA === 'string' && colA.trim() !== '') {
         const key = colA.trim().toLowerCase();
         if (ATM_MACHINE_MAP[key]) {
           allMatched.push({ map: ATM_MACHINE_MAP[key], row, indented: /^\s/.test(colA) });
@@ -1394,7 +1429,7 @@ function bootstrapAtmFromSheet_(year) {
     }
     if (!allMatched.length) return;
 
-    // Group by store; if any row is indented (machine row), keep only indented (skip sum rows)
+    // Group by store
     const storeGroups = {};
     for (const r of allMatched) {
       const s = r.map.store;
@@ -1402,41 +1437,63 @@ function bootstrapAtmFromSheet_(year) {
       storeGroups[s].push(r);
     }
 
+    // Sum-row detection per group
     const rowsToUse = [];
     for (const group of Object.values(storeGroups)) {
       const indented = group.filter(r => r.indented);
-      rowsToUse.push(...(indented.length > 0 ? indented : group));
+      if (indented.length > 0) {
+        // Indent-based (2026): keep only rows with leading whitespace
+        rowsToUse.push(...indented);
+      } else if (group.length <= 1) {
+        rowsToUse.push(...group);
+      } else {
+        // Value-based (2025): find the row whose column values = sum of all others
+        const sumIdx = group.findIndex((cand, ci) => {
+          const others = group.filter((_, j) => j !== ci);
+          let checks = 0, matches = 0;
+          for (const colIdx of activeCols) {
+            const cv = Number(cand.row[colIdx]) || 0;
+            const ov = others.reduce((acc, g) => acc + (Number(g.row[colIdx]) || 0), 0);
+            if (cv === 0 && ov === 0) continue;
+            checks++;
+            if (Math.abs(cv - ov) < 0.5) matches++;
+          }
+          return checks > 0 && matches === checks;
+        });
+        rowsToUse.push(...group.filter((_, i) => i !== sumIdx));
+      }
     }
 
-    // Store transaction counts (not revenue — rate applied at render time)
+    // Store txn counts indexed by month using actual column positions
     const data = {};
     MONTHS_12_.forEach(month => { data[month] = {}; });
     for (const { map, row } of rowsToUse) {
       const { store, machine } = map;
-      MONTHS_12_.forEach((month, mi) => {
-        const txns = Number(row[mi + 1]) || 0;
+      MONTHS_12_.forEach(month => {
+        const colIdx = monthColMap[month];
+        if (colIdx === undefined) return;
+        const txns = Number(row[colIdx]) || 0;
+        if (txns <= 0) return;
         if (!data[month][store]) data[month][store] = {};
         data[month][store][machine] = (data[month][store][machine] || 0) + txns;
       });
     }
 
-    const props = PropertiesService.getScriptProperties();
-    props.setProperty('rev_atm_' + year, JSON.stringify(data));
+    PropertiesService.getScriptProperties().setProperty('rev_atm_' + year, JSON.stringify(data));
 
-    // Persist the sheet rate into config if not already set
     if (sheetRate > 0) {
-      const cfg = getRevConfig_();
-      if (!cfg.atm_rate || cfg.atm_rate === 1.75) {
-        cfg.atm_rate = sheetRate;
-        props.setProperty('rev_config', JSON.stringify(cfg));
+      const revCfg = getRevConfig_();
+      if (!revCfg.atm_rate || revCfg.atm_rate === 1.75) {
+        revCfg.atm_rate = sheetRate;
+        PropertiesService.getScriptProperties().setProperty('rev_config', JSON.stringify(revCfg));
       }
     }
 
     cacheDelete_('otherrev');
-    const skipped = allMatched.length - rowsToUse.length;
-    Logger.log('ATM bootstrap ' + year + ': ' + rowsToUse.length + ' rows kept, ' + skipped + ' sum rows skipped');
+    Logger.log('ATM bootstrap ' + year + ': ' + rowsToUse.length + ' rows kept, ' +
+      (allMatched.length - rowsToUse.length) + ' sum rows skipped, months: ' + Object.keys(monthColMap).join(','));
   } catch(e) {
-    Logger.log('ATM bootstrap error: ' + e.message);
+    Logger.log('ATM bootstrap error for ' + year + ': ' + e.message);
   }
 }
 
@@ -1447,9 +1504,9 @@ function getRevenueDetail(params) {
     let   atm    = getRevYearData_('atm', year);
     const sub    = getRevYearData_('sub', year);
 
-    // Bootstrap from GX2 sheet on first access (no data stored yet)
+    // Bootstrap from sheet on first access (only for years with a configured sheet)
     const hasAtm = Object.values(atm).some(mo => Object.keys(mo).length > 0);
-    if (!hasAtm) {
+    if (!hasAtm && ATM_SHEET_CONFIG_[String(year)]) {
       bootstrapAtmFromSheet_(year);
       atm = getRevYearData_('atm', year);
     }
