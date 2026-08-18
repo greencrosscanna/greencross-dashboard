@@ -729,10 +729,11 @@ function walkQBRows_(rows, cols, result, accounts, seenRaws, mapConfig, depth) {
             if (col) result[cat][col] = (result[cat][col] || 0) + v;
           });
         }
-        if (accounts && raw && !seenRaws.has(raw)) {
-          seenRaws.add(raw);
-          accounts.push({ qb_raw: raw, display: disp, depth, mapped_to: cat, ignored: false, hardcoded: !!QB_SUMMARY_MAP_[raw] && !custom[raw] });
-        }
+      }
+      // Always record section in accounts so the full QB tree appears in the mapping UI
+      if (accounts && raw && !seenRaws.has(raw)) {
+        seenRaws.add(raw);
+        accounts.push({ qb_raw: raw, display: disp, depth, mapped_to: cat || null, ignored: false, hardcoded: !!QB_SUMMARY_MAP_[raw] && !custom[raw], isSection: true });
       }
     }
 
@@ -758,13 +759,13 @@ function walkQBRows_(rows, cols, result, accounts, seenRaws, mapConfig, depth) {
         }
         if (accounts && !seenRaws.has(raw)) {
           seenRaws.add(raw);
-          accounts.push({ qb_raw: raw, display: disp, depth, mapped_to: cat, ignored: false, hardcoded: !!QB_DETAIL_MAP_[raw] && !custom[raw] });
+          accounts.push({ qb_raw: raw, display: disp, depth, mapped_to: cat, ignored: false, hardcoded: !!QB_DETAIL_MAP_[raw] && !custom[raw], isSection: false });
         }
       } else if (accounts) {
         const hasVal = cols.some((_, i) => Math.abs(parseFloat((row.ColData[i + 1]?.value || '').replace(/,/g, '')) || 0) > 0.01);
         if (hasVal && !seenRaws.has(raw)) {
           seenRaws.add(raw);
-          accounts.push({ qb_raw: raw, display: disp, depth, mapped_to: null, ignored: isIgnored, hardcoded: false });
+          accounts.push({ qb_raw: raw, display: disp, depth, mapped_to: null, ignored: isIgnored, hardcoded: false, isSection: false });
         }
       }
     }

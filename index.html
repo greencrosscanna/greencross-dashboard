@@ -848,7 +848,8 @@ let otherRevData  = null; // { atm: { Jan: 9493, ... }, sublet: { Jan: 0, ... } 
 let revenueDetail = null; // { cfg, atm, sub, year } — full per-machine breakdown
 let periodGoalsCache = {};
 let paceFracs = null; // { storeName: 0-1 frac } from GXCore.expectedSalesFrac — today only
-let expSection = 'main'; // 'main' | 'mapping' // date string → { storeName: { period_start, period_end, period_total, dow_targets[7] } }
+let expSection = 'main';
+let collapsedMapSections = new Set(); // 'main' | 'mapping' // date string → { storeName: { period_start, period_end, period_total, dow_targets[7] } }
 let hiddenExpCats = new Set(JSON.parse(localStorage.getItem('hiddenExpCats') || '[]'));
 let hiddenOtherRevs = new Set(JSON.parse(localStorage.getItem('hiddenOtherRevs') || '[]'));
 let inventoryData = {}; // { storeName: { products: [...] } | { error, products: [] } }
@@ -3690,6 +3691,40 @@ function renderExpenseMapping() {
   const catOptions = `<option value="__ignore__">— ignore —</option>` +
     ALL_EXPENSE_CATS.map(c => `<option value="${escHtml(c)}">${escHtml(c)}</option>`).join('');
 
+  // Build tree rows respecting collapse state
+  const collapseStack = []; // stack of depths of currently-collapsed sections
+  const rowHtml = accounts.map((a, idx) => {
+    // Pop any collapsed ancestors we've moved past
+    while (collapseStack.length && a.depth <= collapseStack[collapseStack.length - 1]) collapseStack.pop();
+    const hidden = collapseStack.length > 0;
+
+    const hasChildren = idx + 1 < accounts.length && accounts[idx + 1].depth > a.depth;
+    const isCollapsed = collapsedMapSections.has(a.qb_raw);
+    if (!hidden && hasChildren && isCollapsed) collapseStack.push(a.depth);
+    if (hidden) return '';
+
+    const isMapped  = !!a.mapped_to;
+    const isIgnored = a.ignored;
+    const cls  = isIgnored ? 'ignored' : isMapped ? '' : 'unmapped';
+    const curVal = isIgnored ? '__ignore__' : (a.mapped_to || '');
+    const indent = (a.depth || 0) * 14;
+    const fs     = a.depth > 0 ? '12px' : '13px';
+    const fw     = a.isSection ? '600' : '400';
+    const arrow  = hasChildren
+      ? `<span onclick="toggleMapSection('${escHtml(a.qb_raw)}')" style="cursor:pointer;user-select:none;display:inline-block;width:14px;text-align:center;color:var(--muted);font-size:9px">${isCollapsed ? '▶' : '▼'}</span>`
+      : `<span style="display:inline-block;width:14px"></span>`;
+
+    return `<div class="exp-map-row">
+      <div class="exp-map-qb ${cls}" title="${escHtml(a.qb_raw)}" style="padding-left:${indent}px;font-size:${fs};font-weight:${fw}">
+        ${arrow}${escHtml(a.display)}
+      </div>
+      <select class="exp-map-sel" data-qb="${escHtml(a.qb_raw)}">
+        <option value="">— unmapped —</option>
+        ${catOptions.replace(`value="${escHtml(curVal)}"`, `value="${escHtml(curVal)}" selected`)}
+      </select>
+    </div>`;
+  }).join('');
+
   destroyCharts();
   document.getElementById('main-content').innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
@@ -3697,19 +3732,7 @@ function renderExpenseMapping() {
       <span style="font-size:12px;color:var(--muted)">${accounts.length} QB accounts${expenseData.unmappedCount > 0 ? ` · <span style="color:#F59E0B;font-weight:600">${expenseData.unmappedCount} unmapped</span>` : ' · all mapped'}</span>
     </div>
     <div class="card" style="padding:0 14px">
-      ${accounts.length === 0 ? '<div class="empty-state" style="padding:20px">No accounts found — reload expenses first.</div>' : accounts.map(a => {
-        const isMapped  = !!a.mapped_to;
-        const isIgnored = a.ignored;
-        const cls = isIgnored ? 'ignored' : isMapped ? '' : 'unmapped';
-        const curVal = isIgnored ? '__ignore__' : (a.mapped_to || '');
-        return `<div class="exp-map-row">
-          <div class="exp-map-qb ${cls}" title="${escHtml(a.qb_raw)}" style="padding-left:${(a.depth||0)*16}px;font-size:${a.depth>0?'12px':'13px'}">${escHtml(a.display)}</div>
-          <select class="exp-map-sel" data-qb="${escHtml(a.qb_raw)}">
-            <option value="">— unmapped —</option>
-            ${catOptions.replace(`value="${escHtml(curVal)}"`, `value="${escHtml(curVal)}" selected`)}
-          </select>
-        </div>`;
-      }).join('')}
+      ${rowHtml || '<div class="empty-state" style="padding:20px">No accounts found — reload expenses first.</div>'}
     </div>
     ${accounts.length > 0 ? `
     <div style="display:flex;gap:8px;margin-top:14px">
@@ -3717,6 +3740,12 @@ function renderExpenseMapping() {
       <button class="pill-btn" onclick="setExpSection('main')">Cancel</button>
     </div>` : ''}
   `;
+}
+
+function toggleMapSection(raw) {
+  if (collapsedMapSections.has(raw)) collapsedMapSections.delete(raw);
+  else collapsedMapSections.add(raw);
+  renderExpenseMapping();
 }
 
 async function saveExpenseMappings() {
