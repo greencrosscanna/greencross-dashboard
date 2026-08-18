@@ -199,6 +199,7 @@ function doGet(e) {
   if (params.action === 'stores')      return getStoresMeta_();
   if (params.action === 'goals')       return getGoals();
   if (params.action === 'period_goals') return getPeriodGoalsForDate_(params.date);
+  if (params.action === 'pace')        return getPacingFracs_();
   if (params.action === 'save_expense_mapping') return saveExpenseMapping_(params);
   if (params.action === 'expenses')    return getExpenses(params);
   if (params.action === 'qbaccounts')  return getQBAccountNames();
@@ -544,6 +545,28 @@ function getPeriodGoalsForDate_(date) {
   } catch(e) {
     return jsonOut_({ ok: false, error: e.message });
   }
+}
+
+function getPacingFracs_() {
+  const now    = new Date();
+  const hour   = now.getHours();
+  const minute = now.getMinutes();
+  const STORE_MAP = [
+    { dutchie: 'Bend',        sales: 'Bend'        },
+    { dutchie: 'Center',      sales: 'Center'      },
+    { dutchie: 'Commercial',  sales: 'Commercial'  },
+    { dutchie: 'Hillsboro',   sales: 'Hillsboro'   },
+    { dutchie: 'Portland Rd', sales: 'Portland Rd' },
+    { dutchie: 'River Rd',    sales: 'River'       },
+  ];
+  const fracs = {};
+  for (const s of STORE_MAP) {
+    try {
+      const frac = GXCore.expectedSalesFrac(s.dutchie, hour, minute);
+      if (typeof frac === 'number' && frac >= 0) fracs[s.sales] = frac;
+    } catch(e) { /* store not in shape table yet — skip */ }
+  }
+  return jsonOut_({ ok: true, fracs, hour, minute });
 }
 
 // ── QuickBooks OAuth ──────────────────────────────────────────────────────────

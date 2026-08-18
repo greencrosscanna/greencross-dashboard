@@ -847,6 +847,7 @@ let expBudgets = null;  // loaded from Annual Budget sheet via proxy
 let otherRevData  = null; // { atm: { Jan: 9493, ... }, sublet: { Jan: 0, ... } }
 let revenueDetail = null; // { cfg, atm, sub, year } — full per-machine breakdown
 let periodGoalsCache = {};
+let paceFracs = null; // { storeName: 0-1 frac } from GXCore.expectedSalesFrac — today only
 let expSection = 'main'; // 'main' | 'mapping' // date string → { storeName: { period_start, period_end, period_total, dow_targets[7] } }
 let hiddenExpCats = new Set(JSON.parse(localStorage.getItem('hiddenExpCats') || '[]'));
 let hiddenOtherRevs = new Set(JSON.parse(localStorage.getItem('hiddenOtherRevs') || '[]'));
@@ -992,6 +993,18 @@ async function loadPeriodGoals(date) {
       render(); // re-render now that we have accurate per-period DOW targets
     }
   } catch(e) { console.warn('[period-goals] fetch failed:', e.message); }
+}
+
+async function loadPaceFracs() {
+  if (paceFracs !== null) return;
+  try {
+    const res  = await fetch(`${getProxyUrl()}?action=pace&token=${encodeURIComponent(getToken())}`);
+    const data = await res.json();
+    if (data.ok && data.fracs && Object.keys(data.fracs).length) {
+      paceFracs = data.fracs;
+      render();
+    }
+  } catch(e) { console.warn('[pace] fetch failed:', e.message); }
 }
 
 let section = 'income';
@@ -1351,6 +1364,7 @@ function clearAllCache() {
   liveData      = {};   // was missing — without it the on-screen figure survived a "clear" (the July 736k trap)
   lbGoals       = null;
   periodGoalsCache = {};
+  paceFracs        = null;
   invGmData     = null; _invGmLoading = false;
   _invalidateDerivedCaches();
   console.log('Cache cleared');
@@ -1672,6 +1686,8 @@ async function loadAllStores() {
       activeDay  = new Date().toLocaleDateString('en-CA');
       buildTimeNav();
       render();
+      loadPeriodGoals(activeDay);
+      loadPaceFracs();
     }
   }
   } finally {
@@ -1717,7 +1733,14 @@ function setDay(d) {
   expandedGroup = null;
   buildTimeNav();
   render();
-  if (activeDay) loadPeriodGoals(activeDay);
+  if (activeDay) {
+    loadPeriodGoals(activeDay);
+    const todayStr = toDateStr(new Date());
+    if (activeDay === todayStr) {
+      paceFracs = null; // refresh fracs on every day-tap to today (time has moved)
+      loadPaceFracs();
+    }
+  }
 }
 
 function setWeekAll() {
@@ -2266,12 +2289,25 @@ function closeMobTrays() {
  * Returns % of the selected period that has elapsed (0–100).
  * Used by both income and expenses renderers — was duplicated.
  */
-function getPacingPct() {
+function getPacingPct(stores) {
   const today = new Date();
   const yr    = activeYear;
   const daysInMo = activeMonth > 0 ? new Date(yr, activeMonth, 0).getDate() : 365;
   if (activeDay) {
     if (activeDay !== toDateStr(today)) return 100; // past or future day
+    // Use GXCore shaped pacing when available — weighted avg across selected stores
+    if (paceFracs && stores && stores.length) {
+      const dow = today.getDay();
+      const mo  = today.getMonth() + 1;
+      let totalW = 0, weightedSum = 0;
+      for (const s of stores) {
+        const goal = getDailyGoal(s, dow, mo, yr, daysInMo);
+        const frac = paceFracs[s];
+        if (frac != null) { weightedSum += frac * goal; totalW += goal; }
+      }
+      if (totalW > 0) return Math.max(0, Math.min(100, Math.round(weightedSum / totalW * 100)));
+    }
+    // Fallback: linear 8am-10pm ramp
     const elapsed = today.getHours() + today.getMinutes() / 60;
     return Math.max(0, Math.min(100, Math.round(
       (elapsed - THRESHOLDS.STORE_OPEN_HOUR) /
@@ -2425,12 +2461,12 @@ function _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, und
     </div>` : ''}`;
 }
 
-function _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo) {
+function _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores) {
   if (activeDay) {
     if (!periodGoal) return `<div class="ic-proj-lbl">Projection</div><div class="ic-proj-val">—</div>`;
     const isToday = activeDay === toDateStr(new Date());
     if (isToday && !isClosed) {
-      const p = getPacingPct();
+      const p = getPacingPct(stores);
       const estEOD = p > 5 ? Math.round(net / (p / 100)) : net;
       const delta = estEOD - periodGoal;
       return `
@@ -2585,6 +2621,7 @@ function storeSparklineHtml(storeName) {
 }
 
 function _storeBreakdownRows(stores, storeNets, isClosed, pacingPct, yr, daysInMo) {
+  const today = toDateStr(new Date());
   return stores.filter(s => liveData[s]).map(s => {
     const st          = STORE_MAP.get(s);
     const col         = st?.color || '#888';
@@ -2594,13 +2631,17 @@ function _storeBreakdownRows(stores, storeNets, isClosed, pacingPct, yr, daysInM
       ? getDailyGoal(s, new Date(activeDay + 'T12:00:00').getDay(), activeMonth, yr, daysInMo, activeDay)
       : activeWeek ? getWeeklyGoal(s, activeMonth, yr, daysInMo)
       : sMonthGoal;
-    const sCompareGoal = isClosed ? sPeriodGoal : Math.round(sPeriodGoal * pacingPct / 100);
+    // For today's day view use per-store GXCore frac; else fall back to hero pacingPct
+    const sFrac = (!isClosed && activeDay && activeDay === today && paceFracs?.[s] != null)
+      ? paceFracs[s] * 100
+      : pacingPct;
+    const sCompareGoal = isClosed ? sPeriodGoal : Math.round(sPeriodGoal * sFrac / 100);
     const diff         = snet - sCompareGoal;
     const sGoalPct     = sPeriodGoal > 0 ? Math.round(snet / sPeriodGoal * 100) : 0;
-    const sPaceRatio   = pacingPct > 0 ? sGoalPct / pacingPct * 100 : (sGoalPct > 0 ? 100 : 0);
+    const sPaceRatio   = sFrac > 0 ? sGoalPct / sFrac * 100 : (sGoalPct > 0 ? 100 : 0);
     const sOnPace      = sPaceRatio >= PACE_GREEN;
     const sBarW        = Math.min(sGoalPct * THRESHOLDS.GOAL_BAR_FILL_RATIO, 100);
-    const sPacePos     = pacingPct * THRESHOLDS.GOAL_BAR_FILL_RATIO;
+    const sPacePos     = sFrac * THRESHOLDS.GOAL_BAR_FILL_RATIO;
     const markInFill   = sOnPace && sBarW > 0 ? (sPacePos / sBarW * 100).toFixed(1) : 100;
     const sFillCls     = sPaceRatio >= PACE_GREEN ? 'green over' : sPaceRatio >= PACE_AMBER ? 'amber' : 'red';
     const sFillStyle   = sOnPace ? `--mark-in-fill:${markInFill}%` : '';
@@ -2747,7 +2788,7 @@ function renderIncome() {
   }
 
   const goalPct   = periodGoal > 0 ? Math.round(net / periodGoal * 100) : 0;
-  const pacingPct = getPacingPct();
+  const pacingPct = getPacingPct(stores);
   const isClosed  = pacingPct >= 100;
 
   let pacedGoal;
@@ -2808,7 +2849,7 @@ function renderIncome() {
             ${_incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under)}
           </div>
           <div class="ic-proj-card" id="ic-dsk-proj">
-            ${_incomeProjCardHtml(net, periodGoal, isClosed, daysInMo)}
+            ${_incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores)}
           </div>
         </div>
         <div class="ic-dsk-kpis" id="ic-dsk-kpis">
@@ -2842,7 +2883,7 @@ function renderIncome() {
 
     patchEl('ic-mob-hero',   _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under));
     patchEl('ic-dsk-hero',   _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under));
-    patchEl('ic-dsk-proj',   _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo));
+    patchEl('ic-dsk-proj',   _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores));
     patchEl('ic-mob-kpis',   _incomeKpiMobHtml(net, gross, orders, disc, cost, aov));
     patchEl('ic-dsk-kpis',   _incomeKpiDskHtml(net, gross, orders, disc, cost, aov));
     patchEl('ic-mob-bd',     _incomeBreakdownMobHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo));
