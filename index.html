@@ -3293,8 +3293,7 @@ async function clearAndRefreshAtm(year) {
     const r = await fetch(url); const d = await r.json();
     if (!d.ok) throw new Error(d.error || 'Clear failed');
     revenueDetail = null;
-    const cacheKey = `rev_detail_${year}`;
-    localStorage.removeItem(cacheKey);
+    localStorage.removeItem('gc_cache_rev_detail_' + year);
     loadRevenueDetail();
   } catch(e) { alert('Error: ' + e.message); }
 }
@@ -3346,9 +3345,7 @@ async function saveRevModal() {
     if (!revenueDetail[block][month])        revenueDetail[block][month]       = {};
     if (!revenueDetail[block][month][store]) revenueDetail[block][month][store] = {};
     revenueDetail[block][month][store][item] = value;
-    // Bust cache
-    const cacheKey = `rev_detail_${year}`;
-    writeCache(cacheKey, revenueDetail, 3600000);
+    writeCache('rev_detail_' + year, revenueDetail, 3600000);
     closeOtherRevModal();
     renderRevenue();
   } catch(e) {
