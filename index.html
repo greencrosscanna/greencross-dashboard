@@ -849,7 +849,8 @@ let revenueDetail = null; // { cfg, atm, sub, year } — full per-machine breakd
 let periodGoalsCache = {};
 let paceFracs = null; // { storeName: 0-1 frac } from GXCore.expectedSalesFrac — today only
 let expSection = 'main';
-let collapsedMapSections = new Set(); // 'main' | 'mapping' // date string → { storeName: { period_start, period_end, period_total, dow_targets[7] } }
+let collapsedMapSections = new Set();
+let pendingMappings = {}; // tracks in-progress changes in the mapping UI // 'main' | 'mapping' // date string → { storeName: { period_start, period_end, period_total, dow_targets[7] } }
 let hiddenExpCats = new Set(JSON.parse(localStorage.getItem('hiddenExpCats') || '[]'));
 let hiddenOtherRevs = new Set(JSON.parse(localStorage.getItem('hiddenOtherRevs') || '[]'));
 let inventoryData = {}; // { storeName: { products: [...] } | { error, products: [] } }
@@ -3682,6 +3683,12 @@ function drawExpMonthlyChart() {
 }
 
 function setExpSection(s) {
+  if (s === 'mapping') {
+    pendingMappings = {};
+    (expenseData?.allAccounts || []).forEach(a => {
+      pendingMappings[a.qb_raw] = a.ignored ? '__ignore__' : (a.mapped_to || '');
+    });
+  }
   expSection = s;
   renderExpenses();
 }
@@ -3703,10 +3710,10 @@ function renderExpenseMapping() {
     if (!hidden && hasChildren && isCollapsed) collapseStack.push(a.depth);
     if (hidden) return '';
 
-    const isMapped  = !!a.mapped_to;
-    const isIgnored = a.ignored;
+    const curVal = a.qb_raw in pendingMappings ? pendingMappings[a.qb_raw] : (a.ignored ? '__ignore__' : (a.mapped_to || ''));
+    const isMapped  = !!curVal && curVal !== '__ignore__';
+    const isIgnored = curVal === '__ignore__';
     const cls  = isIgnored ? 'ignored' : isMapped ? '' : 'unmapped';
-    const curVal = isIgnored ? '__ignore__' : (a.mapped_to || '');
     const indent = (a.depth || 0) * 14;
     const fs     = a.depth > 0 ? '12px' : '13px';
     const fw     = a.isSection ? '600' : '400';
@@ -3718,7 +3725,7 @@ function renderExpenseMapping() {
       <div class="exp-map-qb ${cls}" title="${escHtml(a.qb_raw)}" style="padding-left:${indent}px;font-size:${fs};font-weight:${fw}">
         ${arrow}${escHtml(a.display)}
       </div>
-      <select class="exp-map-sel" data-qb="${escHtml(a.qb_raw)}">
+      <select class="exp-map-sel" data-qb="${escHtml(a.qb_raw)}" onchange="pendingMappings[this.dataset.qb]=this.value">
         <option value="">— unmapped —</option>
         ${catOptions.replace(`value="${escHtml(curVal)}"`, `value="${escHtml(curVal)}" selected`)}
       </select>
@@ -3749,19 +3756,19 @@ function toggleMapSection(raw) {
 }
 
 async function saveExpenseMappings() {
-  const sels = document.querySelectorAll('.exp-map-sel');
-  const mappings = {};
-  sels.forEach(sel => {
-    mappings[sel.dataset.qb] = sel.value;
+  // Also capture any visible DOM selects not yet reflected in pendingMappings
+  document.querySelectorAll('.exp-map-sel').forEach(sel => {
+    pendingMappings[sel.dataset.qb] = sel.value;
   });
   try {
     const res  = await fetch(`${getProxyUrl()}?action=save_expense_mapping&token=${encodeURIComponent(getToken())}`, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ mappings })
+      body: JSON.stringify({ mappings: pendingMappings })
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'save failed');
+    pendingMappings = {};
     expenseData = null;
     expSection  = 'main';
     renderExpenses();
