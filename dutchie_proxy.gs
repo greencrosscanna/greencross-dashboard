@@ -630,6 +630,7 @@ function getQBAccessToken_() {
 // Section summaries: when matched, add the total and DON'T recurse into children
 // Keys are the section name after stripping "Total " or "Total for "
 const QB_SUMMARY_MAP_ = {
+  'COST OF GOODS SOLD':             'COGS',
   'COGS - SUPPLIES & MATERIALS':    'COGS - Supplies & Materials',
   'PAYROLL EXPENSES':               'Payroll Expenses',
   'PURCHASED MATERIALS FOR RESALE': 'COGS',
@@ -700,7 +701,7 @@ function saveExpenseMapping_(params) {
   }
   props.setProperty('expense_map',     JSON.stringify(custom));
   props.setProperty('expense_ignored', JSON.stringify([...ignoredSet]));
-  cacheDelete_('expenses_' + new Date().getFullYear() + '_v3');
+  cacheDelete_('expenses_' + new Date().getFullYear() + '_v4');
   return jsonOut_({ ok: true });
 }
 
@@ -823,7 +824,7 @@ function qbReportLocal_(start, end) {
 function getExpenses(params) {
   const output = ContentService.createTextOutput();
   output.setMimeType(ContentService.MimeType.JSON);
-  const cacheKey = 'expenses_' + new Date().getFullYear() + '_v3';
+  const cacheKey = 'expenses_' + new Date().getFullYear() + '_v4';
   if (!params?.debug) {
     const cached = cacheGet_(cacheKey);
     if (cached) { output.setContent(cached); return output; }
