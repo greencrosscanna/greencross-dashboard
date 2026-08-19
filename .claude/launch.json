@@ -2,9 +2,11 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "Static file server",
+      "name": "sales",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "3000", "--directory", "."],
+      "runtimeArgs": [
+        "serve.py"
+      ],
       "port": 3000
     }
   ]
