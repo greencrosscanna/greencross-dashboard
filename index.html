@@ -3725,7 +3725,7 @@ function renderExpenseMapping() {
       <div class="exp-map-qb ${cls}" title="${escHtml(a.qb_raw)}" style="padding-left:${indent}px;font-size:${fs};font-weight:${fw}">
         ${arrow}${escHtml(a.display)}
       </div>
-      <select class="exp-map-sel" data-qb="${escHtml(a.qb_raw)}" onchange="pendingMappings[this.dataset.qb]=this.value">
+      <select class="exp-map-sel" data-qb="${escHtml(a.qb_raw)}" onchange="updatePendingMapping(this)">
         <option value="">— unmapped —</option>
         ${catOptions.replace(`value="${escHtml(curVal)}"`, `value="${escHtml(curVal)}" selected`)}
       </select>
@@ -3747,6 +3747,10 @@ function renderExpenseMapping() {
       <button class="pill-btn" onclick="setExpSection('main')">Cancel</button>
     </div>` : ''}
   `;
+}
+
+function updatePendingMapping(sel) {
+  pendingMappings[sel.dataset.qb] = sel.value;
 }
 
 function toggleMapSection(raw) {
