@@ -700,7 +700,7 @@ function saveExpenseMapping_(params) {
   }
   props.setProperty('expense_map',     JSON.stringify(custom));
   props.setProperty('expense_ignored', JSON.stringify([...ignoredSet]));
-  cacheDelete_('expenses_' + new Date().getFullYear());
+  cacheDelete_('expenses_' + new Date().getFullYear() + '_v3');
   return jsonOut_({ ok: true });
 }
 
@@ -823,7 +823,7 @@ function qbReportLocal_(start, end) {
 function getExpenses(params) {
   const output = ContentService.createTextOutput();
   output.setMimeType(ContentService.MimeType.JSON);
-  const cacheKey = 'expenses_' + new Date().getFullYear();
+  const cacheKey = 'expenses_' + new Date().getFullYear() + '_v3';
   if (!params?.debug) {
     const cached = cacheGet_(cacheKey);
     if (cached) { output.setContent(cached); return output; }

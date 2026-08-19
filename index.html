@@ -3762,10 +3762,6 @@ async function saveExpenseMappings() {
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'save failed');
-    // Bust expense cache so next render re-fetches from QB
-    const yr = new Date().getFullYear();
-    localStorage.removeItem('gc_cache_expenses_' + yr);
-    localStorage.removeItem('gc_cache_expenses_' + (yr - 1));
     expenseData = null;
     expSection  = 'main';
     renderExpenses();
