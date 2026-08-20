@@ -195,10 +195,17 @@ function doGet(e) {
     try {
       if (typeof GXCore === 'undefined' || !GXCore) return jsonOut_({ ok: false, error: 'GXCore binding missing' });
       // libVersion() landed in Core v153. Its absence is not an error — it dates the pin as older than that.
+      const props = PropertiesService.getScriptProperties();
+      // Which connector actually served the last uncached Expenses load, and whether the precondition
+      // for using Core at all is even in place. qb_last_source is stamped by getExpenses on a cache miss.
+      const qb = {
+        secret_configured: !!secret,
+        last_source: props.getProperty('QB_LAST_SOURCE') || null   // 'gxcore@<iso>' | 'local@<iso>' | null
+      };
       if (typeof GXCore.libVersion !== 'function') {
-        return jsonOut_({ ok: true, app: 'sales', gxcore_version: null, note: 'pinned Core predates libVersion() (added v153)' });
+        return jsonOut_({ ok: true, app: 'sales', gxcore_version: null, qb: qb, note: 'pinned Core predates libVersion() (added v153)' });
       }
-      return jsonOut_({ ok: true, app: 'sales', gxcore_version: GXCore.libVersion() });
+      return jsonOut_({ ok: true, app: 'sales', gxcore_version: GXCore.libVersion(), qb: qb });
     } catch (e) {
       return jsonOut_({ ok: false, error: e.message });
     }
@@ -797,14 +804,23 @@ function walkQBRows_(rows, cols, result, accounts, seenRaws, mapConfig, depth) {
 // QB Profit & Loss raw report. Prefer the centralized GX Core connector (the single token owner); fall back
 // to the local Sales token only if GX Core is unreachable or not yet connected — so the Expenses tab keeps
 // working right through the cutover and auto-switches to GX Core the moment it's connected.
+// Returns { report, source: 'gxcore'|'local', fallback_reason }. The source is NOT decoration: this
+// function's whole job is to prefer Core and quietly survive when it can't, which means correct-looking
+// numbers are consistent with either path. That is precisely how a missing GX_DEPLOY_SECRET kept the
+// Expenses tab rendering off the legacy local token while the code read as if it were centralized. You
+// cannot retire qbReportLocal_ on "Expenses works" — only on knowing which path served it.
 function qbProfitAndLoss_(start, end) {
+  let why = '';
   try {
     const r = qbReportViaGXCore_(start, end);
-    if (r) return r;
+    if (r) return { report: r, source: 'gxcore', fallback_reason: '' };
+    // qbReportViaGXCore_ returns null for exactly one reason: no secret configured on this script.
+    why = 'GX_DEPLOY_SECRET not set on this script — never reached GX Core';
   } catch (e) {
+    why = e.message;
     Logger.log('QB via GX Core unavailable, falling back to local token: ' + e.message);
   }
-  return qbReportLocal_(start, end);
+  return { report: qbReportLocal_(start, end), source: 'local', fallback_reason: why };
 }
 
 // Fetch the P&L through GX Core's centralized, health-instrumented QB connector (secret-gated qb_pnl route).
@@ -845,7 +861,7 @@ function qbReportLocal_(start, end) {
 function getExpenses(params) {
   const output = ContentService.createTextOutput();
   output.setMimeType(ContentService.MimeType.JSON);
-  const cacheKey = 'expenses_' + new Date().getFullYear() + '_v5';
+  const cacheKey = 'expenses_' + new Date().getFullYear() + '_v6';   // v6: response now carries qb_source
   if (!params?.debug && !params?.nocache) {
     const cached = cacheGet_(cacheKey);
     if (cached) { output.setContent(cached); return output; }
@@ -860,8 +876,17 @@ function getExpenses(params) {
     // Prefer the centralized GX Core QB connector (single token owner — no two-refresher desync); fall back
     // to the local Sales token only if GX Core is unreachable/unconnected, so Expenses never gaps during the
     // cutover. Once GX Core is the proven owner, the local fallback (qbReportLocal_) can be removed.
-    const report = qbProfitAndLoss_(start, end);
+    const qb     = qbProfitAndLoss_(start, end);
+    const report = qb.report;
     const raw    = JSON.stringify(report);
+    // Park the answer where an unauthenticated caller can read it. Every QB path here is behind the
+    // login gate, so without this the only way to learn which connector served the tab is to open
+    // devtools while logged in — and a fact that inconvenient to check is a fact nobody checks.
+    // Cache-miss only, so this writes at most twice an hour.
+    try {
+      PropertiesService.getScriptProperties()
+        .setProperty('QB_LAST_SOURCE', qb.source + '@' + new Date().toISOString());
+    } catch (e) { /* diagnostics must never break the tab */ }
     if (report.Fault) throw new Error(JSON.stringify(report.Fault));
 
     // Column titles e.g. ["Jan 2026", "Feb 2026", ...]
@@ -881,7 +906,8 @@ function getExpenses(params) {
 
     const unmappedCount = allAccounts.filter(a => !a.mapped_to && !a.ignored).length;
 
-    const content = JSON.stringify({ expenses, columns: cols, allAccounts, unmappedCount });
+    const content = JSON.stringify({ expenses, columns: cols, allAccounts, unmappedCount,
+                                     qb_source: qb.source, qb_fallback_reason: qb.fallback_reason });
     cacheSet_(cacheKey, content, 1800); // 30 min
     output.setContent(content);
   } catch (err) {
