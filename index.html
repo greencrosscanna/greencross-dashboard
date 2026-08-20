@@ -895,7 +895,8 @@ let periodGoalsCache = {};
 let paceFracs = null; // { storeName: 0-1 frac } from GXCore.expectedSalesFrac — today only
 let expSection = 'main';
 let collapsedMapSections = new Set();
-let pendingMappings = {}; // tracks in-progress changes in the mapping UI // 'main' | 'mapping' // date string → { storeName: { period_start, period_end, period_total, dow_targets[7] } }
+let pendingMappings = {}; // tracks in-progress changes in the mapping UI
+let expensesNocache = false; // set true after a save to bypass GAS cache on next load
 let hiddenExpCats = new Set(JSON.parse(localStorage.getItem('hiddenExpCats') || '[]'));
 let hiddenOtherRevs = new Set(JSON.parse(localStorage.getItem('hiddenOtherRevs') || '[]'));
 let inventoryData = {}; // { storeName: { products: [...] } | { error, products: [] } }
@@ -3208,11 +3209,13 @@ function drawWeekChart(weekly) {
 async function loadExpenses() {
   const proxyUrl = getProxyUrl();
   if (!proxyUrl) return;
+  const nocache = expensesNocache;
+  expensesNocache = false;
   try {
-    const res  = await fetch(`${proxyUrl}?action=expenses&token=${encodeURIComponent(getToken())}`);
+    const res  = await fetch(`${proxyUrl}?action=expenses&token=${encodeURIComponent(getToken())}${nocache ? '&nocache=1' : ''}`);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
-    expenseData = data; // { expenses: {catName: {colLabel: value}}, columns: [...] }
+    expenseData = data;
   } catch(e) {
     console.warn('Expenses fetch failed:', e.message);
     expenseData = null;
@@ -3805,21 +3808,21 @@ function toggleMapSection(raw) {
 }
 
 async function saveExpenseMappings() {
-  // Also capture any visible DOM selects not yet reflected in pendingMappings
+  // Capture all visible DOM selects (merged into pendingMappings which already has collapsed ones)
   document.querySelectorAll('.exp-map-sel').forEach(sel => {
     pendingMappings[sel.dataset.qb] = sel.value;
   });
   try {
-    const res  = await fetch(`${getProxyUrl()}?action=save_expense_mapping&token=${encodeURIComponent(getToken())}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ mappings: pendingMappings })
-    });
+    // Send as GET with mappings in URL — avoids GAS POST redirect that silently drops the body
+    const res = await fetch(
+      `${getProxyUrl()}?action=save_expense_mapping&token=${encodeURIComponent(getToken())}&mappings=${encodeURIComponent(JSON.stringify(pendingMappings))}`
+    );
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'save failed');
     pendingMappings = {};
-    expenseData = null;
-    expSection  = 'main';
+    expenseData    = null;
+    expSection     = 'main';
+    expensesNocache = true; // bypass 30-min GAS cache so saved changes show immediately
     renderExpenses();
   } catch(e) {
     alert('Save failed: ' + e.message);

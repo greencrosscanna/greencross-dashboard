@@ -825,7 +825,7 @@ function getExpenses(params) {
   const output = ContentService.createTextOutput();
   output.setMimeType(ContentService.MimeType.JSON);
   const cacheKey = 'expenses_' + new Date().getFullYear() + '_v4';
-  if (!params?.debug) {
+  if (!params?.debug && !params?.nocache) {
     const cached = cacheGet_(cacheKey);
     if (cached) { output.setContent(cached); return output; }
   }
