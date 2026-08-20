@@ -431,20 +431,11 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .vhist-date{color:var(--muted);flex-shrink:0;width:60px}
 .vhist-desc{color:var(--muted);line-height:1.5}
 /* ── Login Screen ─────────────────────────────────────── */
-.login-screen{position:fixed;inset:0;z-index:999;min-height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(900px 500px at 60% 20%,rgba(74,222,128,0.04),transparent 60%),radial-gradient(600px 400px at 0% 80%,rgba(96,165,250,0.03),transparent 60%),var(--bg)}
-.login-card{width:360px;background:var(--card);border:1px solid var(--border-strong);border-radius:14px;padding:32px;box-shadow:var(--gx-shadow,0 24px 60px rgba(0,0,0,0.5))}
-.login-logo{text-align:center;margin-bottom:6px}
-.login-tagline{text-align:center;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1.4px;margin-bottom:28px}
-.login-label{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px;margin-top:16px}
-.login-input{width:100%;background:var(--card-2);border:1px solid var(--border-strong);border-radius:6px;color:var(--text);padding:10px 14px;font-size:14px;font-family:inherit;transition:border-color 0.15s;box-sizing:border-box}
-.login-input:focus{outline:none;border-color:var(--green)}
-.login-input::placeholder{color:var(--muted)}
-.login-submit{width:100%;margin-top:22px;background:var(--green);color:var(--green-ink);border:none;border-radius:6px;padding:11px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;transition:opacity 0.15s,transform 0.1s;letter-spacing:0.3px}
-.login-submit:hover{opacity:0.9}
-.login-submit:active{transform:scale(0.98)}
-.login-submit:disabled{opacity:0.5;cursor:not-allowed}
-.login-error{margin-top:12px;padding:10px 12px;background:var(--red-soft);border:1px solid rgba(239,68,68,.3);border-radius:6px;color:var(--red);font-size:12px;text-align:center;display:none}
-.login-error.visible{display:block}
+/* This app's sign-in is an OVERLAY on top of the loaded dashboard, not a standalone page, so it
+   keeps its own fixed positioning. Everything else about the card — surface, border, the green
+   hairline, input and button treatment — comes from .gx-login* in the shared theme now. The ~13
+   private .login-* rules that used to live here were a hand-maintained copy of it. */
+#gc-login-overlay.gx-login{position:fixed;inset:0;z-index:999;}
 /* ── Additional Revenue section ────────────────────────────────────────────── */
 .rev-wrap{max-width:700px}
 .rev-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:20px}
@@ -4144,19 +4135,25 @@ function showLoginScreen() {
   if (!el) {
     el = document.createElement('div');
     el.id = 'gc-login-overlay';
-    el.className = 'login-screen';
+    // Shared sign-in card — the same .gx-login-* markup every GX app uses, so a refinement to the
+    // login reaches this app instead of being re-applied by hand. The IDs are unchanged, so all the
+    // wiring below binds exactly as before. This login is an OVERLAY rather than a page, so
+    // #gc-login-overlay keeps its own fixed positioning layered on top of .gx-login.
+    el.className = 'gx-login';
     el.innerHTML = [
-      '<div class="login-card">',
-      '  <div class="login-logo">',
-      '    <img src="' + GC_LOGO_PNG + '" alt="Green Cross" style="height:36px;width:auto;display:block;margin:0 auto">',
+      '<div class="gx-login-card">',
+      '  <div class="gx-login-head">',
+      '    <img class="gx-login-mark" src="' + GC_LOGO_PNG + '" alt="Green Cross">',
+      '    <div class="gx-login-sub">Sales Dashboard</div>',
       '  </div>',
-      '  <div class="login-tagline">Sales Dashboard</div>',
-      '  <label class="login-label" for="gc-login-user">Username</label>',
-      '  <input class="login-input" type="text" id="gc-login-user" placeholder="your username" autocomplete="username" autocapitalize="none">',
-      '  <label class="login-label" for="gc-login-pass">Password</label>',
-      '  <input class="login-input" type="password" id="gc-login-pass" placeholder="••••••••" autocomplete="current-password">',
-      '  <button class="login-submit" id="gc-login-btn">Sign in</button>',
-      '  <div class="login-error" id="gc-login-err"></div>',
+      '  <form class="gx-login-form" onsubmit="return false">',
+      '    <label class="gx-login-field" for="gc-login-user"><span>Username</span>',
+      '      <input class="gx-input" type="text" id="gc-login-user" placeholder="your username" autocomplete="username" autocapitalize="none"></label>',
+      '    <label class="gx-login-field" for="gc-login-pass"><span>Password</span>',
+      '      <input class="gx-input" type="password" id="gc-login-pass" placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" autocomplete="current-password"></label>',
+      '    <button class="gx-btn gx-btn-green gx-login-submit" type="button" id="gc-login-btn">Sign in</button>',
+      '    <div class="gx-login-err" id="gc-login-err"></div>',
+      '  </form>',
       '</div>',
     ].join('\n');
     document.body.appendChild(el);
@@ -4172,7 +4169,7 @@ function showLoginScreen() {
   var btnEl = document.getElementById('gc-login-btn');
   if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Sign in'; }
   var errEl = document.getElementById('gc-login-err');
-  if (errEl) errEl.classList.remove('visible');
+  if (errEl) { errEl.textContent = ''; errEl.classList.remove('visible'); }
   setTimeout(function() {
     var u = document.getElementById('gc-login-user');
     if (u) u.focus();
@@ -4193,7 +4190,10 @@ async function doSalesLogin() {
   var pass = passInput ? passInput.value || '' : '';
 
   function showError(msg) { errEl.textContent = msg; errEl.classList.add('visible'); }
-  function clearError()   { errEl.classList.remove('visible'); }
+  // Clear the TEXT, not just the class: .gx-login-err is always in flow, unlike the old
+  // .login-error which was display:none until .visible. Dropping the class alone would leave
+  // a stale message sitting on the card.
+  function clearError()   { errEl.textContent = ''; errEl.classList.remove('visible'); }
 
   clearError();
   if (!user || !pass) { showError('Please enter your username and password.'); return; }
