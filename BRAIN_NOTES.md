@@ -6,7 +6,7 @@
 > bug-reports task (→ `sales`) and the `lbGoals` note-back (→ `core-admin`). Kept only as a local archive.
 
 Owner: Shawn (code access: Sky)
-Repo: `greencross-sales` → GitHub Pages at https://skygreencross.github.io/greencross-dashboard/
+Repo: `greencross-sales` → GitHub Pages at https://greencrosscanna.github.io/greencross-sales/
 Backend GAS: `dutchie_proxy.gs` (Dutchie + QuickBooks proxy; no dedicated GAS web app for this repo — proxy is deployed separately)
 
 ## Integration status (as of 2026-08-09)

@@ -8,3 +8,6 @@
 .clasprc.json
 # Local GX Core deploy secret — never commit (used by deploy auto-record)
 .gx_deploy_secret
+
+# Netlify CLI link state — machine-local (site id, and a .DS_Store). Not repo content.
+.netlify/
