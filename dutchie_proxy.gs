@@ -701,7 +701,7 @@ function saveExpenseMapping_(params) {
   }
   props.setProperty('expense_map',     JSON.stringify(custom));
   props.setProperty('expense_ignored', JSON.stringify([...ignoredSet]));
-  cacheDelete_('expenses_' + new Date().getFullYear() + '_v4');
+  cacheDelete_('expenses_' + new Date().getFullYear() + '_v5');
   return jsonOut_({ ok: true });
 }
 
@@ -721,7 +721,7 @@ function walkQBRows_(rows, cols, result, accounts, seenRaws, mapConfig, depth) {
       const raw  = summaryLabel.toUpperCase();
       const disp = (row.Header?.ColData?.[0]?.value || summaryLabel);
       const cat  = custom[raw] || QB_SUMMARY_MAP_[raw];
-      if (cat) {
+      if (cat && !ignored.has(raw)) {
         summaryMatched = true;
         if (result) {
           if (!result[cat]) result[cat] = {};
@@ -734,7 +734,7 @@ function walkQBRows_(rows, cols, result, accounts, seenRaws, mapConfig, depth) {
       // Always record section in accounts so the full QB tree appears in the mapping UI
       if (accounts && raw && !seenRaws.has(raw)) {
         seenRaws.add(raw);
-        accounts.push({ qb_raw: raw, display: disp, depth, mapped_to: cat || null, ignored: false, hardcoded: !!QB_SUMMARY_MAP_[raw] && !custom[raw], isSection: true });
+        accounts.push({ qb_raw: raw, display: disp, depth, mapped_to: cat || null, ignored: ignored.has(raw), hardcoded: !!QB_SUMMARY_MAP_[raw] && !custom[raw], isSection: true });
       }
     }
 
@@ -824,7 +824,7 @@ function qbReportLocal_(start, end) {
 function getExpenses(params) {
   const output = ContentService.createTextOutput();
   output.setMimeType(ContentService.MimeType.JSON);
-  const cacheKey = 'expenses_' + new Date().getFullYear() + '_v4';
+  const cacheKey = 'expenses_' + new Date().getFullYear() + '_v5';
   if (!params?.debug && !params?.nocache) {
     const cached = cacheGet_(cacheKey);
     if (cached) { output.setContent(cached); return output; }

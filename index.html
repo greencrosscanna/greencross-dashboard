@@ -895,8 +895,9 @@ let periodGoalsCache = {};
 let paceFracs = null; // { storeName: 0-1 frac } from GXCore.expectedSalesFrac — today only
 let expSection = 'main';
 let collapsedMapSections = new Set();
-let pendingMappings = {}; // tracks in-progress changes in the mapping UI
-let expensesNocache = false; // set true after a save to bypass GAS cache on next load
+let pendingMappings  = {}; // tracks in-progress changes in the mapping UI
+let originalMappings = {}; // snapshot at mapping-view load, used to compute delta on save
+let expensesNocache  = false; // set true after a save to bypass GAS cache on next load
 let hiddenExpCats = new Set(JSON.parse(localStorage.getItem('hiddenExpCats') || '[]'));
 let hiddenOtherRevs = new Set(JSON.parse(localStorage.getItem('hiddenOtherRevs') || '[]'));
 let inventoryData = {}; // { storeName: { products: [...] } | { error, products: [] } }
@@ -3733,8 +3734,11 @@ function drawExpMonthlyChart() {
 function setExpSection(s) {
   if (s === 'mapping') {
     pendingMappings = {};
+    originalMappings = {};
     (expenseData?.allAccounts || []).forEach(a => {
-      pendingMappings[a.qb_raw] = a.ignored ? '__ignore__' : (a.mapped_to || '');
+      const v = a.ignored ? '__ignore__' : (a.mapped_to || '');
+      pendingMappings[a.qb_raw]  = v;
+      originalMappings[a.qb_raw] = v;
     });
   }
   expSection = s;
@@ -3808,21 +3812,33 @@ function toggleMapSection(raw) {
 }
 
 async function saveExpenseMappings() {
-  // Capture all visible DOM selects (merged into pendingMappings which already has collapsed ones)
+  // Capture all visible DOM selects into pendingMappings (collapsed sections already tracked there)
   document.querySelectorAll('.exp-map-sel').forEach(sel => {
     pendingMappings[sel.dataset.qb] = sel.value;
   });
+  // Only send the delta — entries that changed from the originally loaded state.
+  // Keeps the URL short enough for GAS (avoids truncation of the mappings param).
+  const delta = {};
+  for (const [qb, val] of Object.entries(pendingMappings)) {
+    if (val !== (originalMappings[qb] ?? '')) delta[qb] = val;
+  }
+  if (!Object.keys(delta).length) {
+    expSection = 'main';
+    renderExpenses();
+    return; // nothing changed
+  }
   try {
-    // Send as GET with mappings in URL — avoids GAS POST redirect that silently drops the body
+    // GET with mappings in URL — avoids GAS POST redirect that silently drops the body
     const res = await fetch(
-      `${getProxyUrl()}?action=save_expense_mapping&token=${encodeURIComponent(getToken())}&mappings=${encodeURIComponent(JSON.stringify(pendingMappings))}`
+      `${getProxyUrl()}?action=save_expense_mapping&token=${encodeURIComponent(getToken())}&mappings=${encodeURIComponent(JSON.stringify(delta))}`
     );
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'save failed');
-    pendingMappings = {};
-    expenseData    = null;
-    expSection     = 'main';
-    expensesNocache = true; // bypass 30-min GAS cache so saved changes show immediately
+    pendingMappings  = {};
+    originalMappings = {};
+    expenseData      = null;
+    expSection       = 'main';
+    expensesNocache  = true; // bypass 30-min GAS cache so saved changes show immediately
     renderExpenses();
   } catch(e) {
     alert('Save failed: ' + e.message);
