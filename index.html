@@ -329,14 +329,6 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .dsk-logo-row{display:none;align-items:center;justify-content:space-between;margin-bottom:14px}
 .dsk-live{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:500;color:var(--green);white-space:nowrap;cursor:pointer}
 .dsk-live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s ease-in-out infinite;flex-shrink:0}
-.dsk-nav{display:none;flex-direction:column;gap:2px;margin-bottom:12px}
-.dsk-nav-btn{display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:8px;cursor:pointer;border:none;background:transparent;font-family:inherit;width:100%;text-align:left;-webkit-tap-highlight-color:transparent;transition:background .1s}
-.dsk-nav-btn.on{background:var(--green)}
-.dsk-nav-btn:not(.on):hover{background:var(--card-2)}
-.dsk-nav-icon{width:16px;height:16px;flex-shrink:0;opacity:.7}
-.dsk-nav-btn.on .dsk-nav-icon{opacity:1}
-.dsk-nav-lbl{font-size:13px;color:var(--dim);font-weight:500}
-.dsk-nav-btn.on .dsk-nav-lbl{color:var(--green-ink);font-weight:600}
 .dsk-period{display:none;flex-direction:column;gap:0;margin-bottom:12px;border-top:.5px solid var(--border);padding-top:12px}
 .dsk-period-lbl{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px}
 .dsk-pfield-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
@@ -387,7 +379,6 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   /* These were built for a 264px COLUMN, where full width and vertical stacking were right. In a
      horizontal bar they have to size to their content, or one tab eats the whole row and the rest
      scroll out of sight — which is exactly what happened: four tabs, each 418px wide. */
-  #dsk-nav .dsk-nav-btn{width:auto;flex:0 0 auto;white-space:nowrap;}
   #dsk-stores .dsk-store-rows{flex-direction:row;flex-wrap:wrap;gap:6px;}
   #dsk-stores .dsk-store-row{width:auto;flex:0 0 auto;}
   #dsk-stores .dsk-stores-hdr{margin-bottom:0;margin-right:8px;}
@@ -563,24 +554,15 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
     <img class="gx-topnav-logo" src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" alt="Green Cross">
     <span class="gx-topnav-sub">Sales</span>
   </div>
+  <!-- Plain text tabs on the shared classes, exactly as every other app renders them: no icons,
+       no pill, active state is the green underline .gx-topnav-tab.is-active draws. The old
+       .dsk-nav-btn treatment (green pill, 13px label, icon) was a sidebar design and fought the
+       shared one when both classes were on the same element. -->
   <div class="gx-topnav-tabs" id="dsk-nav">
-
-      <button class="dsk-nav-btn gx-topnav-tab is-active" data-s="income" onclick="setSection('income')">
-        <svg class="dsk-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-        <span class="dsk-nav-lbl">Income</span>
-      </button>
-      <button class="dsk-nav-btn gx-topnav-tab" data-s="expenses" onclick="setSection('expenses')">
-        <svg class="dsk-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-        <span class="dsk-nav-lbl">Expenses</span>
-      </button>
-      <button class="dsk-nav-btn gx-topnav-tab" data-s="inventory" onclick="setSection('inventory')">
-        <svg class="dsk-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-        <span class="dsk-nav-lbl">Inventory</span>
-      </button>
-      <button class="dsk-nav-btn gx-topnav-tab" id="revenue-nav-btn" data-s="revenue" onclick="setSection('revenue')" style="display:none">
-        <svg class="dsk-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-4 0v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
-        <span class="dsk-nav-lbl">Revenue</span>
-      </button>
+    <button class="gx-topnav-tab is-active" data-s="income" onclick="setSection('income')">Income</button>
+    <button class="gx-topnav-tab" data-s="expenses" onclick="setSection('expenses')">Expenses</button>
+    <button class="gx-topnav-tab" data-s="inventory" onclick="setSection('inventory')">Inventory</button>
+    <button class="gx-topnav-tab" data-s="revenue" id="revenue-nav-btn" style="display:none" onclick="setSection('revenue')">Revenue</button>
   </div>
   <div class="gx-topnav-right">
     <div class="dsk-live" id="dsk-live-pill" onclick="refreshLiveData()" title="Click to refresh">
@@ -1804,7 +1786,8 @@ function setSection(s) {
   section       = s;
   expandedGroup = null;
   document.querySelectorAll('.stab').forEach(t => t.classList.toggle('on', t.textContent.toLowerCase() === s));
-  document.querySelectorAll('.dsk-nav-btn').forEach(t => t.classList.toggle('on', t.dataset.s === s));
+  // Desktop tabs use the shared active class, not this app's old .on pill.
+  document.querySelectorAll('#dsk-nav .gx-topnav-tab').forEach(t => t.classList.toggle('is-active', t.dataset.s === s));
   buildTimeNav();
   if (s === 'revenue' && !revenueDetail) loadRevenueDetail();
   render();
