@@ -22,6 +22,8 @@
 <title>Green Cross — Live Dashboard v39</title>
 <!-- v39: Year tabs; historical month caching; Refresh Dutchie data button -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css">
+<script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-avatar.js"></script>
+<script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-topnav.js"></script>
 <style>
 :root{
   --bg:var(--gx-bg,#0a0e0d);
@@ -125,7 +127,9 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .desk-gear{display:none}
 
 /* 1c mobile layout: sidebar hidden — nav in pinned bottom bar */
-.sidebar{display:none}
+/* The nav and its sub-row are DESKTOP-ONLY, the same gate the sidebar had: mobile keeps its own
+   bottom bar and trays, which are a different design and are deliberately untouched. */
+.dsk-chrome{display:none}
 .main-col{padding-bottom:140px}
 /* Mobile hero */
 .mob-hero{padding:18px 0 14px}
@@ -368,9 +372,27 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 /* Desktop layout — requires BOTH a wide viewport AND a hover-capable pointer (mouse).
    This means phones are excluded even when GAS serves inside a wide iframe. */
 @media(min-width:768px) and (hover:hover) and (pointer:fine){
-  .w{max-width:1400px;padding:24px;display:grid;grid-template-columns:264px 1fr;gap:0 28px;align-items:start}
-  .sidebar{display:flex!important;flex-direction:column;position:sticky;top:24px;max-height:calc(100vh - 48px);overflow-y:auto;overflow-x:hidden;padding-right:4px;scrollbar-width:none}
-  .sidebar::-webkit-scrollbar{display:none}
+  /* Single column now — the 264px sidebar became the top nav, which lives outside .w so the bar
+     spans the window while the content below stays centred. */
+  .w{max-width:1400px;padding:24px;display:block}
+  header.gx-topnav.dsk-chrome{display:flex!important;position:sticky;top:0;z-index:50;}
+  .gx-subnav.dsk-chrome{display:flex!important;gap:18px;align-items:flex-start;flex-wrap:wrap;}
+  /* These two were vertical stacks in a narrow column; in a horizontal row they lay out side by
+     side and must not stretch to fill it. */
+  .dsk-period{display:flex!important;flex-direction:row;align-items:center;gap:10px;
+    margin-bottom:0;border-top:none;padding-top:0;flex-wrap:wrap;}
+  .dsk-stores{display:flex!important;flex-direction:row;align-items:center;gap:8px;
+    border-top:none;padding-top:0;flex-wrap:wrap;margin-left:auto;}
+  .dsk-live{flex-shrink:0;}
+  /* These were built for a 264px COLUMN, where full width and vertical stacking were right. In a
+     horizontal bar they have to size to their content, or one tab eats the whole row and the rest
+     scroll out of sight — which is exactly what happened: four tabs, each 418px wide. */
+  #dsk-nav .dsk-nav-btn{width:auto;flex:0 0 auto;white-space:nowrap;}
+  #dsk-stores .dsk-store-rows{flex-direction:row;flex-wrap:wrap;gap:6px;}
+  #dsk-stores .dsk-store-row{width:auto;flex:0 0 auto;}
+  #dsk-stores .dsk-stores-hdr{margin-bottom:0;margin-right:8px;}
+  #dsk-period .dsk-period-lbl{margin:0 6px 0 0;}
+
   .main-col{min-width:0;padding-bottom:0}
   .mob-hero{display:none}
   .mob-bottom-bar{display:none}
@@ -525,55 +547,62 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 </script>
 </head>
 <body>
-<div class="w">
+<!-- ── Chrome ─────────────────────────────────────────────────────────────────────────────────
+     Was a 264px sidebar. Now the shared top nav, so this app reads like the rest of the suite.
+     It sits OUTSIDE .w deliberately: .w is a centred max-width wrapper, and a bar rendered inside
+     it stops short of the window edges on a wide display while its own border ends with it.
 
-  <!-- ── Sidebar (desktop only; sidebar{display:none} on mobile via base CSS) ── -->
-  <div class="sidebar">
+     Period and store pickers keep their ORIGINAL ids and move to a .gx-subnav row underneath —
+     buildDskPeriod() and buildDskStores() fill them by id, so those builders are untouched.
+     The date selector had to stay reachable; a second row under the nav is where it lives.
 
-    <!-- Logo + live status pill -->
-    <div class="dsk-logo-row">
-      <img src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" style="width:140px;height:auto;display:block">
-      <div class="dsk-live" id="dsk-live-pill" onclick="refreshLiveData()" title="Click to refresh">
-        <div class="dsk-live-dot" id="dsk-live-dot"></div>
-        <span id="dsk-live-txt">Loading…</span>
-      </div>
-    </div>
+     Mobile is NOT affected: it has its own bottom bar and trays, and the desktop rules below are
+     still behind the same (min-width:768px) and (hover:hover) query. -->
+<header class="gx-topnav dsk-chrome">
+  <div class="gx-topnav-brand">
+    <img class="gx-topnav-logo" src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" alt="Green Cross">
+    <span class="gx-topnav-sub">Sales</span>
+  </div>
+  <div class="gx-topnav-tabs" id="dsk-nav">
 
-    <!-- Section nav -->
-    <div class="dsk-nav" id="dsk-nav">
-      <button class="dsk-nav-btn on" data-s="income" onclick="setSection('income')">
+      <button class="dsk-nav-btn gx-topnav-tab is-active" data-s="income" onclick="setSection('income')">
         <svg class="dsk-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         <span class="dsk-nav-lbl">Income</span>
       </button>
-      <button class="dsk-nav-btn" data-s="expenses" onclick="setSection('expenses')">
+      <button class="dsk-nav-btn gx-topnav-tab" data-s="expenses" onclick="setSection('expenses')">
         <svg class="dsk-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
         <span class="dsk-nav-lbl">Expenses</span>
       </button>
-      <button class="dsk-nav-btn" data-s="inventory" onclick="setSection('inventory')">
+      <button class="dsk-nav-btn gx-topnav-tab" data-s="inventory" onclick="setSection('inventory')">
         <svg class="dsk-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
         <span class="dsk-nav-lbl">Inventory</span>
       </button>
-      <button class="dsk-nav-btn" id="revenue-nav-btn" data-s="revenue" onclick="setSection('revenue')" style="display:none">
+      <button class="dsk-nav-btn gx-topnav-tab" id="revenue-nav-btn" data-s="revenue" onclick="setSection('revenue')" style="display:none">
         <svg class="dsk-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-4 0v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
         <span class="dsk-nav-lbl">Revenue</span>
       </button>
+  </div>
+  <div class="gx-topnav-right">
+    <div class="dsk-live" id="dsk-live-pill" onclick="refreshLiveData()" title="Click to refresh">
+      <div class="dsk-live-dot" id="dsk-live-dot"></div>
+      <span id="dsk-live-txt">Loading…</span>
     </div>
-
-    <!-- Period fields (built by buildDskPeriod) -->
-    <div class="dsk-period" id="dsk-period"></div>
-
-    <!-- Store list (built by buildDskStores) -->
-    <div class="dsk-stores" id="dsk-stores"></div>
-
-    <!-- Gear button at bottom -->
-    <div class="dsk-gear">
-      <button class="gear-btn" onclick="openSettings()" title="Settings">
+    <span id="salesUserSlot"></span>
+    <!-- Kept as a fallback: the gear only shows if the shared user tray could not be painted, so
+         Settings is never unreachable because an external script failed to load. -->
+    <span class="dsk-gear" id="dsk-gear-fallback"><button class="gear-btn" onclick="openSettings()" title="Settings">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-      </button>
-    </div>
+      </button></span>
+  </div>
+</header>
+<div class="gx-subnav dsk-chrome" id="dsk-subnav">
+  <div class="dsk-period" id="dsk-period"></div>
+  <div class="dsk-stores" id="dsk-stores"></div>
+</div>
 
-  </div><!-- /sidebar -->
+<div class="w">
 
+  <!-- ── Sidebar (desktop only; sidebar{display:none} on mobile via base CSS) ── -->
   <!-- ── Main content ── -->
   <div class="main-col">
     <div id="main-content">
@@ -1225,6 +1254,37 @@ function pill(color, text) {
   }
   if (dskTxt) dskTxt.textContent = text;
 }
+
+/* Shared user tray: avatar + name in the header, Settings / Version / Sign out beneath it, in the
+   canonical order used across the suite. GXTopNav builds the markup so this app does not hand-write
+   it and the menus cannot drift apart; what each action MEANS stays here.
+   The settings GEAR stays in the DOM as a fallback and is hidden only once the tray paints, so
+   Settings is never unreachable because an external script failed to load. */
+function paintSalesUserTray() {
+  var slot = document.getElementById('salesUserSlot');
+  if (!slot || !window.GXTopNav) return;
+  var sess = GC_SALES_AUTH.load() || {};
+  var name = sess.displayName || sess.user || '';
+  if (!name) { slot.innerHTML = ''; return; }
+  GXTopNav.renderUser(slot, {
+    name: name,
+    role: String(sess.role || '').replace(/_/g, ' '),
+    avatar: window.GXAvatar ? GXAvatar.chip(sess.avatarConfig, name, sess.user || name) : null,
+    items: [
+      { action: 'settings', label: 'Settings' },
+      { action: 'version',  label: 'Version', value: APP_VERSION },
+      { action: 'logout',   label: 'Sign out', danger: true },
+    ],
+  });
+  var gear = document.getElementById('dsk-gear-fallback');
+  if (gear) gear.style.display = 'none';        // only now that the tray is definitely there
+}
+
+document.addEventListener('gx-topnav:action', function (e) {
+  var a = e.detail && e.detail.action;
+  if (a === 'settings')    openSettings();
+  else if (a === 'logout') salesLogout();
+});
 
 function openSettings() {
   document.getElementById('s-overlay').classList.add('open');
@@ -4207,10 +4267,15 @@ async function doSalesLogin() {
     var res = await fetch(url);
     var data = await res.json();
     if (data.ok && data.token) {
-      GC_SALES_AUTH.save({ token: data.token, expiresAt: data.expiresAt, user: data.user, role: data.role });
+      // displayName and avatarConfig come back from GXCore.login and were being thrown away, so the
+      // header had nothing but a username to show. Keeping them is what lets the shared user chip
+      // render a real name and face instead of bare initials.
+      GC_SALES_AUTH.save({ token: data.token, expiresAt: data.expiresAt, user: data.user, role: data.role,
+                           displayName: data.displayName || '', avatarConfig: data.avatarConfig || null });
       var userEl = document.getElementById('s-logged-in-user');
       if (userEl) userEl.textContent = 'Signed in as ' + data.user;
       hideLoginScreen();
+      paintSalesUserTray();
       document.getElementById('bug-fab').classList.add('visible');
       updateRevVisibility();
       startSalesHeartbeat();
@@ -4428,6 +4493,7 @@ if (GC_SALES_AUTH.isAuthed()) {
   var _initUserEl = document.getElementById('s-logged-in-user');
   if (_initUserEl && _initSession && _initSession.user) _initUserEl.textContent = 'Signed in as ' + _initSession.user;
   document.getElementById('bug-fab').classList.add('visible');
+  paintSalesUserTray();          // returning session — paint the chip on boot too, not just at login
   updateRevVisibility();
   startSalesHeartbeat();
   loadAllStores();
