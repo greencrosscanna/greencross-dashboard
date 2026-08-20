@@ -183,6 +183,27 @@ function doGet(e) {
     }
   }
 
+  // Which GXCore snapshot is this deployment ACTUALLY running? A GXCore.x() call executes the version this
+  // app PINS, and a deployment snapshots the manifest — so the pin in appsscript.json at HEAD tells you
+  // nothing about the live app, and reading gx_core.gs tells you less. The only honest answer comes from
+  // the live deployment asking the library itself. Ask this URL, not the repo, after every re-pin.
+  // Guarded by the deploy secret like debuglogin: a Forbidden here means GX_DEPLOY_SECRET is unset or
+  // stale on THIS script, which is its own finding — that same property gates qbReportViaGXCore_.
+  if (params.action === 'gxpin') {
+    const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
+    if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
+    try {
+      if (typeof GXCore === 'undefined' || !GXCore) return jsonOut_({ ok: false, error: 'GXCore binding missing' });
+      // libVersion() landed in Core v153. Its absence is not an error — it dates the pin as older than that.
+      if (typeof GXCore.libVersion !== 'function') {
+        return jsonOut_({ ok: true, app: 'sales', gxcore_version: null, note: 'pinned Core predates libVersion() (added v153)' });
+      }
+      return jsonOut_({ ok: true, app: 'sales', gxcore_version: GXCore.libVersion() });
+    } catch (e) {
+      return jsonOut_({ ok: false, error: e.message });
+    }
+  }
+
   // Heartbeat: renew a still-valid token to extend the session
   if (params.action === 'ping') {
     const pAuth = requireAuth_(params);
