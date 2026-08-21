@@ -173,6 +173,7 @@ function validateSessionToken_(token) {
 const GX_WRITE_GUARD_KEY = 'GX_WRITE_GUARD';      // 'log' (default) | 'enforce' | 'off'
 const GX_WRITE_GUARD_LOG = 'GX_WRITE_GUARD_LOG';  // capped ring — history tables never grow unbounded
 const GX_WRITE_GUARD_CAP = 25;
+const GX_WRITE_GUARD_TALLY = 'GX_WRITE_GUARD_TALLY';  // monotonic counters — survive the ring rolling
 
 function writeGuard_(user, action) {
   const props = PropertiesService.getScriptProperties();
@@ -207,6 +208,22 @@ function recordGuard_(props, entry) {
     ring.push(entry);
     while (ring.length > GX_WRITE_GUARD_CAP) ring.shift();
     props.setProperty(GX_WRITE_GUARD_LOG, JSON.stringify(ring));
+
+    // COUNTERS ALONGSIDE THE RING, because they answer a question the ring cannot. The ring holds
+    // detail for the last 25 decisions and then rolls — and the single most valuable record here is
+    // the FIRST admit by a real non-superadmin, since that is the event that licenses flipping to
+    // enforce. A batch of saves right after a grant lands would push it off the end. Counters are
+    // monotonic, so "has a real user ever been admitted" and "did the gate start refusing everyone"
+    // stay answerable as numbers long after the detail has rolled away.
+    // Shape borrowed from pricecards via inventory so the suite reads the same way.
+    const kind = entry.err ? 'error' : (entry.role ? 'admitted' : 'refused_no_grant');
+    const tally = JSON.parse(props.getProperty(GX_WRITE_GUARD_TALLY) || '{}');
+    tally[kind] = (tally[kind] || 0) + 1;
+    // First admit is stamped once and never overwritten — it is the evidence, not a running value.
+    if (kind === 'admitted' && !tally.first_admit) {
+      tally.first_admit = { user: entry.user, role: entry.role, ts: entry.ts };
+    }
+    props.setProperty(GX_WRITE_GUARD_TALLY, JSON.stringify(tally));
   } catch (e) {
     // A diagnostic must never be the reason a write fails.
   }
@@ -369,6 +386,7 @@ function doGet(e) {
     try {
       out.write_guard_mode = props0.getProperty(GX_WRITE_GUARD_KEY) || 'log';
       out.write_guard_log  = JSON.parse(props0.getProperty(GX_WRITE_GUARD_LOG) || '[]');
+      out.write_guard_tally = JSON.parse(props0.getProperty(GX_WRITE_GUARD_TALLY) || '{}');
     } catch (e) {
       out.write_guard_error = e.message;
     }
