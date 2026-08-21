@@ -11,6 +11,26 @@ const STORE_KEYS = {
   'River':       '5212417431014845a6db39bcb4ccef6b',
 };
 
+// ── A LOOKUP TABLE IS NOT A WHITELIST ────────────────────────────────────────────
+// Every plain object inherits constructor, __proto__, toString, valueOf, hasOwnProperty and
+// isPrototypeOf, so MAP[userInput] returns a truthy FUNCTION for those names and any `if (MAP[x])`
+// gate waves them straight through. Reported as a suite-wide idiom by pricecards (whose router
+// returned a whole pricing sheet to ?action=toString) and fixed in GX Core v170.
+// Measured here before fixing: all SIX inherited names passed `if (!STORE_KEYS[store])`. Core got
+// away with toString and valueOf only because it lowercases keys first; we do not slug, so nothing
+// was covering us. The gate is post-auth, so this was never the Price Cards hole — an
+// unauthenticated request reaches no read or write here — but a caller could still turn a clean
+// "Unknown store" into an outbound Dutchie call carrying a stringified function as its credential.
+// Every read of STORE_KEYS now goes through storeKey_, so an inherited name resolves to null and
+// fails the gate like any other unknown store.
+function hasOwn_(obj, key) {
+  return !!obj && Object.prototype.hasOwnProperty.call(obj, String(key));
+}
+
+function storeKey_(store) {
+  return hasOwn_(STORE_KEYS, store) ? STORE_KEYS[store] : null;
+}
+
 const BASE = 'https://api.pos.dutchie.com';
 
 const BUDGET_SHEET_ID  = '1OBNzkBrJtLIlf8xknVlGd6Jb8nlkg4_KG-Gq6BD7HHY';
@@ -151,7 +171,7 @@ function _loginUserLocal_(params) {
   const users = JSON.parse(props.getProperty(GC_USERS_KEY) || '{}');
   const key   = String(params.user).toLowerCase().trim();
   const hash  = hashPass_(String(params.pass));
-  if (users[key] && users[key] === hash) {
+  if (hasOwn_(users, key) && users[key] === hash) {
     return { ok: true, user: key, token: issueSessionToken_(key), expiresAt: new Date(Date.now() + GC_SESSION_TTL_MS).toISOString() };
   }
   return { ok: false, error: 'Invalid username or password' };
@@ -211,6 +231,74 @@ function doGet(e) {
     }
   }
 
+  // Inventory's snippet, adopted as offered. gxpin answers the same question but is secret-gated;
+  // this one is public and needs no session, which is the point — "what version am I running" should
+  // cost nothing to ask right after a deploy, or nobody runs it. An old pin IDENTIFIES ITSELF here
+  // rather than throwing, so the diagnostic still answers when it is most needed. Leaks one integer,
+  // and Core's own action=health already publishes the matching side.
+  if (params.action === 'libversion') {
+    try {
+      if (typeof GXCore === 'undefined' || !GXCore) return jsonOut_({ ok: false, error: 'GXCore not bound' });
+      if (typeof GXCore.libVersion !== 'function') return jsonOut_({ ok: false, error: 'pinned GXCore has no libVersion() - pre-v153' });
+      return jsonOut_({ ok: true, gxcore: GXCore.libVersion() });
+    } catch (e) {
+      return jsonOut_({ ok: false, error: e.message });
+    }
+  }
+
+  // Two facts this app cannot settle by inspection, both secret-gated like gxpin.
+  //
+  // 1. THE SESSION SECRET FINGERPRINT. Core and every spoke read the SAME property name,
+  //    GC_SESSION_SECRET, and each project AUTO-GENERATES a random value when it finds none set — so
+  //    matching NAMES prove nothing about matching VALUES. Two projects can hold different secrets
+  //    under one name and their tokens will never interoperate. A truncated SHA-256 compares the two
+  //    without either side handing over a value. Core publishes 625516f184e4f203.
+  //    Read the property DIRECTLY, never through sessionSecret_() — that helper MINTS a secret when
+  //    it finds none, so a diagnostic built on it would create the very thing it claims to measure
+  //    and then report a confident fingerprint for a brand-new value nobody shares.
+  //
+  // 2. WHETHER THE GRANT RE-CHECK IS AVAILABLE AND WHAT IT SAYS. roleForApp went public in Core
+  //    v170. Pass &user= to see how Core answers for a REAL account before anything fails closed on
+  //    it. A fail-closed auth check wired against a wrong assumption is an outage for every user of
+  //    the app, not a quiet degradation, so the refusal path gets measured before it is trusted.
+  if (params.action === 'authprobe') {
+    const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
+    if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
+    const out = { ok: true, app: 'sales' };
+    try {
+      const raw = PropertiesService.getScriptProperties().getProperty(GC_SESSION_SECRET_KEY) || '';
+      out.session_secret_set = !!raw;
+      out.session_fingerprint = raw
+        ? Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, raw)
+            .map(function (b) { return ('0' + (b & 255).toString(16)).slice(-2); }).join('').slice(0, 16)
+        : null;
+    } catch (e) {
+      out.session_fingerprint_error = e.message;
+    }
+    // WHO WOULD A FAIL-CLOSED GRANT CHECK ACTUALLY LOCK OUT? Names only, never hashes. roleForApp
+    // answered null for every account name I could guess, which has two very different causes —
+    // nobody holds a sales grant in Core, or I was simply guessing the wrong ids — and they call for
+    // opposite responses. Listing the ids this app really authenticates tells the two apart instead
+    // of leaving a guess in a report.
+    try {
+      const uraw = PropertiesService.getScriptProperties().getProperty(GC_USERS_KEY) || '{}';
+      out.local_users = Object.keys(JSON.parse(uraw));
+    } catch (e) {
+      out.local_users_error = e.message;
+    }
+    try {
+      out.gxcore_version  = (typeof GXCore !== 'undefined' && GXCore && typeof GXCore.libVersion === 'function') ? GXCore.libVersion() : null;
+      out.has_roleForApp  = !!(typeof GXCore !== 'undefined' && GXCore && typeof GXCore.roleForApp === 'function');
+      if (out.has_roleForApp && params.user) {
+        const u = String(params.user).toLowerCase().trim();
+        out.role_for_user = { user: u, role: GXCore.roleForApp(u, 'sales') };
+      }
+    } catch (e) {
+      out.gxcore_error = e.message;
+    }
+    return jsonOut_(out);
+  }
+
   // Heartbeat: renew a still-valid token to extend the session
   if (params.action === 'ping') {
     const pAuth = requireAuth_(params);
@@ -253,7 +341,7 @@ function doGet(e) {
   const from  = params.from;
   const to    = params.to;
 
-  if (!store || !STORE_KEYS[store]) return jsonOut_({ error: 'Unknown store: ' + store });
+  if (!store || !storeKey_(store)) return jsonOut_({ error: 'Unknown store: ' + store });
 
   return getStoreSales_(store, from, to);
 }
@@ -371,7 +459,7 @@ function getStoreSales_(store, from, to) {
 
 // Live intraday Dutchie fetch — today only, same logic as the old full handler.
 function dutchieTodayFetch_(store, todayPT, toISO) {
-  const apiKey = STORE_KEYS[store];
+  const apiKey = storeKey_(store);
   const auth   = Utilities.base64Encode(apiKey + ':');
   // Wide lastModified window (approx Pacific midnight); filter by transaction date below.
   const fromUTC = todayPT + 'T07:00:00Z';
@@ -922,7 +1010,7 @@ function getEodTest(params) {
   output.setMimeType(ContentService.MimeType.JSON);
   try {
     const store  = params.store || 'River';
-    const apiKey = STORE_KEYS[store];
+    const apiKey = storeKey_(store);
     const auth   = Utilities.base64Encode(apiKey + ':');
     const date   = params.date || '2026-04-20'; // use yesterday by default
     const today2 = new Date();
@@ -968,7 +1056,7 @@ function getTxFields(params) {
   output.setMimeType(ContentService.MimeType.JSON);
   try {
     const store  = params.store || 'River';
-    const apiKey = STORE_KEYS[store];
+    const apiKey = storeKey_(store);
     const auth   = Utilities.base64Encode(apiKey + ':');
     const today  = new Date();
     const from   = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().replace('.000','');
@@ -1221,7 +1309,7 @@ function getTxDetail(params) {
   const output = ContentService.createTextOutput();
   output.setMimeType(ContentService.MimeType.JSON);
   const store  = params.store || 'River';
-  const apiKey = STORE_KEYS[store];
+  const apiKey = storeKey_(store);
   const auth   = Utilities.base64Encode(apiKey + ':');
   const hdrs   = { Authorization: 'Basic ' + auth, Accept: 'application/json' };
   const today  = new Date();
@@ -1252,7 +1340,7 @@ function probeInventoryEndpoints(params) {
   const output = ContentService.createTextOutput();
   output.setMimeType(ContentService.MimeType.JSON);
   const store  = params.store || 'River';
-  const apiKey = STORE_KEYS[store];
+  const apiKey = storeKey_(store);
   const auth   = Utilities.base64Encode(apiKey + ':');
   const hdrs   = { Authorization: 'Basic ' + auth, Accept: 'application/json' };
   const paths  = [
@@ -1287,7 +1375,7 @@ function getItemsTest(params) {
   const output = ContentService.createTextOutput();
   output.setMimeType(ContentService.MimeType.JSON);
   const store  = params.store || 'River';
-  const apiKey = STORE_KEYS[store];
+  const apiKey = storeKey_(store);
   const auth   = Utilities.base64Encode(apiKey + ':');
   const hdrs   = { Authorization: 'Basic ' + auth, Accept: 'application/json' };
   const today  = new Date();
@@ -1317,7 +1405,7 @@ function getInvFields(params) {
   const output = ContentService.createTextOutput();
   output.setMimeType(ContentService.MimeType.JSON);
   const store  = params.store || 'River';
-  const apiKey = STORE_KEYS[store];
+  const apiKey = storeKey_(store);
   const auth   = Utilities.base64Encode(apiKey + ':');
   const resp   = UrlFetchApp.fetch(BASE + '/reporting/inventory', {
     method: 'get',
@@ -1343,7 +1431,7 @@ function getInventory(params) {
   output.setMimeType(ContentService.MimeType.JSON);
 
   const store = params.store;
-  if (!store || !STORE_KEYS[store]) {
+  if (!store || !storeKey_(store)) {
     output.setContent(JSON.stringify({ error: 'Unknown store: ' + store }));
     return output;
   }
@@ -1353,7 +1441,7 @@ function getInventory(params) {
   if (cached) { output.setContent(cached); return output; }
 
   try {
-    const apiKey = STORE_KEYS[store];
+    const apiKey = storeKey_(store);
     const auth   = Utilities.base64Encode(apiKey + ':');
     const hdrs   = { Authorization: 'Basic ' + auth, Accept: 'application/json' };
 
@@ -1611,7 +1699,7 @@ function bootstrapAtmFromSheet_(year) {
       const colA = row[0];
       if (typeof colA === 'string' && colA.trim() !== '') {
         const key = colA.trim().toLowerCase();
-        if (ATM_MACHINE_MAP[key]) {
+        if (hasOwn_(ATM_MACHINE_MAP, key)) {
           allMatched.push({ map: ATM_MACHINE_MAP[key], row, indented: /^\s/.test(colA) });
         }
       }
