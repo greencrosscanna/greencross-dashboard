@@ -58,7 +58,12 @@ Everyone else came back null, **including Shawn — because he has not been gran
 (confirmed by Sky 2026-08-20). That is the true answer, not a lookup miss and not the local-fallback theory
 that was current when the guard was built. Shawn is a user of this app, not its owner; Sky owns it.
 
-**The admit test PASSED on 2026-08-20 and the guard is ready to enforce.** Shawn was granted, signed in and
+**ENFORCING since 2026-08-20.** `GX_WRITE_GUARD` = `enforce`, flipped by Sky's explicit instruction after
+the admit test below passed. Reads unaffected; unauthenticated and forged-token writes are still refused at
+the session gate ABOVE the guard, so a signature failure never reaches the grant lookup. **Roll back in one
+command:** the same `guardmode` call with `mode=log`.
+
+**The admit test PASSED on 2026-08-20 and is what licensed enforcing.** Shawn was granted, signed in and
 saved an expense mapping, and the guard recorded `user shawn / role editor / err null`, with
 `tally.first_admit` stamped and zero refusals. That closes the last gap: my earlier probe passed a
 hand-typed `"shawn"`, whereas this exercised the REAL path — session token → `auth.user` → `roleForApp` —
