@@ -403,6 +403,29 @@ function doGet(e) {
     return jsonOut_(out);
   }
 
+  // Flip the write guard between log / enforce / off WITHOUT opening the editor. Secret-gated.
+  // THE REASON THIS EXISTS IS ROLLBACK, NOT CONVENIENCE. GX_WRITE_GUARD arms a FAIL-CLOSED auth gate;
+  // if it ever misbehaves, the fix must be seconds away and must not depend on anyone being at a
+  // browser. A revert that requires opening the Apps Script editor is a revert that happens late.
+  //
+  // The accepted values are an ARRAY checked with indexOf, deliberately not an object checked with
+  // MAP[value]. This app spent a session removing exactly that idiom after measuring six inherited
+  // names passing a lookup gate; reintroducing it on the route that arms the auth gate would be a
+  // poor joke. 'constructor' is not a mode.
+  if (params.action === 'guardmode') {
+    const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
+    if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
+    const MODES = ['log', 'enforce', 'off'];
+    const want  = String(params.mode || '');
+    if (MODES.indexOf(want) === -1) {
+      return jsonOut_({ ok: false, error: 'mode must be one of ' + MODES.join(', '), got: want });
+    }
+    const props = PropertiesService.getScriptProperties();
+    const was   = props.getProperty(GX_WRITE_GUARD_KEY) || 'log';
+    props.setProperty(GX_WRITE_GUARD_KEY, want);
+    return jsonOut_({ ok: true, app: 'sales', was: was, now: want });
+  }
+
   // Heartbeat: renew a still-valid token to extend the session
   if (params.action === 'ping') {
     const pAuth = requireAuth_(params);

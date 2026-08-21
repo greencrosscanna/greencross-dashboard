@@ -3,7 +3,7 @@
 Part of the Green Cross app suite. The **GX Command Center** (GX Core) is the shared "brain": shared
 sign-on, the stores registry, the Dutchie connector, and the centralized bug-report + release-note logs
 all live there. This app is being integrated with it. Owner: **Sky** — Shawn is a USER of this app, not its
-owner (corrected by Sky 2026-08-21; the shared brain's app-owner list still says otherwise). Backend:
+owner (corrected by Sky 2026-08-20; the shared brain's app-owner list still says otherwise). Backend:
 `dutchie_proxy.gs` (Dutchie + QuickBooks proxy). Frontend: `index.html`, deployed via **GitHub Pages**. Its
 app key in GX Core is **`sales`**.
 
@@ -55,11 +55,23 @@ second one licenses flipping to `enforce`.
 **Do not flip to `enforce` until the log shows a real NON-SUPERADMIN user ADMITTED.** Probed on live v170,
 `roleForApp` returned a role for exactly one account — `sky`, who is also the account that deploys.
 Everyone else came back null, **including Shawn — because he has not been granted access in GX Core yet**
-(confirmed by Sky 2026-08-21). That is the true answer, not a lookup miss and not the local-fallback theory
+(confirmed by Sky 2026-08-20). That is the true answer, not a lookup miss and not the local-fallback theory
 that was current when the guard was built. Shawn is a user of this app, not its owner; Sky owns it.
 
-So the path to enforcing is: **grant a real non-superadmin → have them sign in and save something → confirm
-they appear in `write_guard_tally.first_admit` as ADMITTED → flip `GX_WRITE_GUARD` to `enforce`.**
+**The admit test PASSED on 2026-08-20 and the guard is ready to enforce.** Shawn was granted, signed in and
+saved an expense mapping, and the guard recorded `user shawn / role editor / err null`, with
+`tally.first_admit` stamped and zero refusals. That closes the last gap: my earlier probe passed a
+hand-typed `"shawn"`, whereas this exercised the REAL path — session token → `auth.user` → `roleForApp` —
+proving the token-derived id matches what the grant lookup expects. A mismatch there would have refused him
+while the probe kept saying `editor`.
+
+Flip it with `action=guardmode` (secret-gated, below). Enforce mode changes nothing for an admitted user:
+the same call already ran in production and returned `editor`; enforce only acts on a null.
+
+**Know the tradeoff before flipping:** enforce fails CLOSED on a Core error as well as on a missing grant,
+per core-admin's rule for auth checks. That means a GX Core outage blocks Sales writes — deliberate, since
+failing open on an auth check is no check at all, but it is a real availability cost that the read paths
+do not pay.
 
 **Why it stays in `log` even though Sales is effectively single-user today.** Sky is currently the only
 account that resolves, and he is superadmin, so enforcing right now would be harmless — and would also buy
@@ -71,6 +83,19 @@ mode costs nothing and collects exactly the evidence that removes that risk.
 Still true and worth keeping separately: this app has a **local-login fallback** (`gc_sales_users`, which
 holds only `sky`), so "signed in" and "holds a grant" are two different statements here where for Inventory
 they are one. That is a real hazard for any grant check, just not the reason Shawn returned null.
+
+**Flip or roll back the guard by curl — `action=guardmode`, no editor needed.** This exists for ROLLBACK,
+not convenience: the guard arms a fail-closed auth gate, so a revert must be seconds away and must not
+depend on anyone being at a browser.
+
+```
+curl -sL -G "<sales /exec>" --data-urlencode action=guardmode --data-urlencode "secret=$(cat .gx_deploy_secret)" --data-urlencode mode=enforce
+```
+
+`mode` is one of `log` · `enforce` · `off`, validated against an array with `indexOf` — deliberately not an
+object checked with `MAP[value]`, since this app spent a session removing exactly that idiom. Verified to
+refuse `constructor`, `__proto__`, `toString`, an unknown string and an empty one, and to refuse a bad
+secret, all without perturbing the current mode.
 
 **What to build next — `/gxwhatsnext`:** run `/gxwhatsnext` in this chat to pull this app's next prioritized work — the Command Center's dependency-ordered build sequence, filtered to this app — so you can build here without switching to the CC. It reads the app key above automatically.
 
