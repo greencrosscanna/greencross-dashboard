@@ -2,7 +2,8 @@
 
 Part of the Green Cross app suite. The **GX Command Center** (GX Core) is the shared "brain": shared
 sign-on, the stores registry, the Dutchie connector, and the centralized bug-report + release-note logs
-all live there. This app is being integrated with it. Owner: **Shawn** (code access: Sky). Backend:
+all live there. This app is being integrated with it. Owner: **Sky** — Shawn is a USER of this app, not its
+owner (corrected by Sky 2026-08-21; the shared brain's app-owner list still says otherwise). Backend:
 `dutchie_proxy.gs` (Dutchie + QuickBooks proxy). Frontend: `index.html`, deployed via **GitHub Pages**. Its
 app key in GX Core is **`sales`**.
 
@@ -53,14 +54,19 @@ second one licenses flipping to `enforce`.
 
 **Do not flip to `enforce` until the log shows a real NON-SUPERADMIN user ADMITTED.** Probed on live v170,
 `roleForApp` returned a role for exactly one account — `sky`, who is also the account that deploys.
-Everyone else came back null, **including Shawn, who owns this app — because he has not been granted access
-in GX Core yet** (confirmed by Sky 2026-08-21). That is the true answer, not a lookup miss and not the
-local-fallback theory that was current when the guard was built.
+Everyone else came back null, **including Shawn — because he has not been granted access in GX Core yet**
+(confirmed by Sky 2026-08-21). That is the true answer, not a lookup miss and not the local-fallback theory
+that was current when the guard was built. Shawn is a user of this app, not its owner; Sky owns it.
 
-So the path to enforcing is now concrete: **grant Shawn in the shared user list → have him sign in and save
-something → confirm he appears in `write_guard_log` as ADMITTED → flip `GX_WRITE_GUARD` to `enforce`.**
-Until a real non-superadmin has been admitted, enforcing would leave `sky` as the only account that can
-write, which is the configuration where nobody notices.
+So the path to enforcing is: **grant a real non-superadmin → have them sign in and save something → confirm
+they appear in `write_guard_tally.first_admit` as ADMITTED → flip `GX_WRITE_GUARD` to `enforce`.**
+
+**Why it stays in `log` even though Sales is effectively single-user today.** Sky is currently the only
+account that resolves, and he is superadmin, so enforcing right now would be harmless — and would also buy
+almost nothing, since the whole point of the check is closing a revocation window and there is presently no
+non-superadmin grant to revoke. The risk is all on the other side: flip it now and the FIRST person ever
+granted meets a live fail-closed gate on day one, with no evidence it admits anyone but the deployer. Log
+mode costs nothing and collects exactly the evidence that removes that risk.
 
 Still true and worth keeping separately: this app has a **local-login fallback** (`gc_sales_users`, which
 holds only `sky`), so "signed in" and "holds a grant" are two different statements here where for Inventory
