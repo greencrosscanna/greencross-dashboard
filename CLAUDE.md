@@ -36,6 +36,28 @@ connector that actually served the last uncached Expenses load (`gxcore@<iso>` v
 script, and that same property gates `qbReportViaGXCore_` — which fails *silently* to the legacy local
 QuickBooks token, the path that must not run while Core also refreshes.
 
+**The write guard is LIVE BUT DARK — don't mistake it for enforcing.** All four writes
+(`save_expense_mapping` GET+POST, `set_otherrev`, `set_revenue`, `clear_atm_cache`) call `writeGuard_`,
+which asks `GXCore.roleForApp(user, 'sales')` and **records what it would have decided without acting on
+it**. Mode is the `GX_WRITE_GUARD` script property: `log` (default) · `enforce` · `off`.
+
+Read the decisions, never infer them:
+
+```
+curl -sL -G "<sales /exec>" --data-urlencode action=authprobe --data-urlencode "secret=$(cat .gx_deploy_secret)"
+```
+
+`write_guard_log` is a capped ring of the last 25 decisions, recording **admits as well as refusals** —
+deliberately, because "refuses the bad" and "admits the good" are two different assertions and only the
+second one licenses flipping to `enforce`.
+
+**Do not flip to `enforce` until the log shows a real NON-SUPERADMIN user ADMITTED.** Probed on live v170,
+`roleForApp` returned a role for exactly one account — `sky`, who is also the account that deploys.
+Everyone else, the app owner included, came back null. Enforcing on that would write-lock the owner while
+working perfectly for whoever shipped it. The likely root cause (inventory's diagnosis): this app still has
+a **local-login fallback**, so "signed in" and "holds a grant" are two different statements here, where for
+Inventory they are one. Retiring that fallback is a precondition for enforcing.
+
 **What to build next — `/gxwhatsnext`:** run `/gxwhatsnext` in this chat to pull this app's next prioritized work — the Command Center's dependency-ordered build sequence, filtered to this app — so you can build here without switching to the CC. It reads the app key above automatically.
 
 **Close the loop when you're done:** When a dispatched or `/gxwhatsnext`-started task's goals look met — the moment you'd naturally say "that should do it" — proactively tell Sky and **offer to ship/close it out; don't wait to be asked.** Shipping (spoke apps: open/return the PR → `dev_update … status=in_review`; on merge → `dev_ship`; `core-admin` deploys directly → `dev_ship`) auto-completes the Asana to-do and clears it from the Command Center. Find the job via `dev_queue` (filtered to this app) if you need its id.
