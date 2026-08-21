@@ -17,8 +17,24 @@ retired): `/gxbrain` reads notes addressed to `to_app=sales`, resolves done ones
 note-backs to any app (`add_note`). The SessionStart hook surfaces the same inbox.
 
 Integration status: app key **`sales`**; deploys clasp (backend) + GitHub Pages (frontend). ✅ shared login
-(Phase-2), ✅ auto-record (`deploy_version`), ✅ changelog from `version_history`, ✅ gx-theme. ⬜ bug
-forwarding (`gxIngestBug`) — the last seam, now a note in the central inbox.
+(Phase-2), ✅ auto-record (`deploy_version`), ✅ changelog from `version_history`, ✅ gx-theme, ✅ bug
+forwarding (`gxIngestBug` in `reportBug_`) — verified 2026-08-20: real 🐞 reports from this app are on Core's
+board with reporter/tab/app_version filled in. Fully integrated; no seam left open.
+
+**Verify the `GXCore` pin by asking the live app, never by reading the repo.** A `GXCore.x()` call runs the
+snapshot of the version this app PINS, and a deployment snapshots the manifest — so `appsscript.json` at HEAD
+and `gx_core.gs` as it reads today both tell you nothing about what the running app has. Re-pinning is two
+steps and the second is the one people skip: set the version, then **deploy**. Then measure:
+
+```
+curl -sL -G "<sales /exec>" --data-urlencode action=gxpin --data-urlencode "secret=$(cat .gx_deploy_secret)"
+```
+
+`gxpin` returns `GXCore.libVersion()` from the live deployment plus `qb.last_source`, which names the
+connector that actually served the last uncached Expenses load (`gxcore@<iso>` vs `local@<iso>`). A
+`Forbidden` here is a finding, not a route bug: it means `GX_DEPLOY_SECRET` is unset or stale on this
+script, and that same property gates `qbReportViaGXCore_` — which fails *silently* to the legacy local
+QuickBooks token, the path that must not run while Core also refreshes.
 
 **What to build next — `/gxwhatsnext`:** run `/gxwhatsnext` in this chat to pull this app's next prioritized work — the Command Center's dependency-ordered build sequence, filtered to this app — so you can build here without switching to the CC. It reads the app key above automatically.
 
