@@ -53,10 +53,18 @@ second one licenses flipping to `enforce`.
 
 **Do not flip to `enforce` until the log shows a real NON-SUPERADMIN user ADMITTED.** Probed on live v170,
 `roleForApp` returned a role for exactly one account — `sky`, who is also the account that deploys.
-Everyone else, the app owner included, came back null. Enforcing on that would write-lock the owner while
-working perfectly for whoever shipped it. The likely root cause (inventory's diagnosis): this app still has
-a **local-login fallback**, so "signed in" and "holds a grant" are two different statements here, where for
-Inventory they are one. Retiring that fallback is a precondition for enforcing.
+Everyone else came back null, **including Shawn, who owns this app — because he has not been granted access
+in GX Core yet** (confirmed by Sky 2026-08-21). That is the true answer, not a lookup miss and not the
+local-fallback theory that was current when the guard was built.
+
+So the path to enforcing is now concrete: **grant Shawn in the shared user list → have him sign in and save
+something → confirm he appears in `write_guard_log` as ADMITTED → flip `GX_WRITE_GUARD` to `enforce`.**
+Until a real non-superadmin has been admitted, enforcing would leave `sky` as the only account that can
+write, which is the configuration where nobody notices.
+
+Still true and worth keeping separately: this app has a **local-login fallback** (`gc_sales_users`, which
+holds only `sky`), so "signed in" and "holds a grant" are two different statements here where for Inventory
+they are one. That is a real hazard for any grant check, just not the reason Shawn returned null.
 
 **What to build next — `/gxwhatsnext`:** run `/gxwhatsnext` in this chat to pull this app's next prioritized work — the Command Center's dependency-ordered build sequence, filtered to this app — so you can build here without switching to the CC. It reads the app key above automatically.
 
