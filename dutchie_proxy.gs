@@ -144,6 +144,74 @@ function validateSessionToken_(token) {
   return { ok: true, user };
 }
 
+// ── Write-auth grant re-check — SHIPPED DARK ON PURPOSE ──────────────────────────
+// THE GAP: validateSessionToken_ checks a signature and an expiry, never a GRANT. A token proves who
+// you are, not that you still have access, so revoking someone in the shared user list leaves them
+// able to write here for the remainder of a SEVEN DAY TTL. Core's roleForApp (public in v170) closes
+// that — it is superadmin-aware, filters on status, and invalidates on revoke, so a revocation bites
+// in a minute instead of waiting out the token.
+//
+// WHY IT DOES NOT ENFORCE YET, WHICH IS THE WHOLE POINT OF THIS SHAPE. Probing roleForApp against
+// real accounts on live v170 returned a role for exactly ONE of them — the superadmin, who is also
+// the person deploying. Every other name came back null, including the owner of this app. Turning
+// that into a refusal would have write-locked the owner while working perfectly for whoever shipped
+// it, which is precisely the configuration in which nobody notices. Inventory has since made the
+// rule explicit and it is adopted here: BEFORE wiring an auth check fail-closed, probe a real
+// NON-SUPERADMIN account through it and require ADMITTED. The deployer is the worst test subject
+// because they are usually the one account that resolves.
+//
+// SO THE CHECK RUNS AND RECORDS INSTEAD OF REFUSING. Mode lives in the GX_WRITE_GUARD property:
+//   'log'     (default) — decide, record, ALLOW regardless. Cannot cause an outage.
+//   'enforce'           — actually refuse. Flip only once the log shows real users being ADMITTED.
+//   'off'               — skip entirely.
+//
+// IT RECORDS ADMITS AS WELL AS REFUSALS, DELIBERATELY. The lesson both this app and inventory landed
+// on this week is that "refuses the bad" and "admits the good" are two different assertions, and a
+// probe that only ever asserts the first reads green while locking everyone out. A log that captured
+// only refusals would repeat that exact error one level down: it could never show the positive path
+// working, which is the only evidence that justifies flipping to enforce.
+const GX_WRITE_GUARD_KEY = 'GX_WRITE_GUARD';      // 'log' (default) | 'enforce' | 'off'
+const GX_WRITE_GUARD_LOG = 'GX_WRITE_GUARD_LOG';  // capped ring — history tables never grow unbounded
+const GX_WRITE_GUARD_CAP = 25;
+
+function writeGuard_(user, action) {
+  const props = PropertiesService.getScriptProperties();
+  const mode  = props.getProperty(GX_WRITE_GUARD_KEY) || 'log';
+  if (mode === 'off') return { ok: true, mode: mode };
+
+  let role = null, err = null;
+  try {
+    role = (typeof GXCore !== 'undefined' && GXCore && typeof GXCore.roleForApp === 'function')
+      ? GXCore.roleForApp(String(user || '').toLowerCase().trim(), 'sales')
+      : null;
+    if (!role && typeof GXCore.roleForApp !== 'function') err = 'roleForApp unavailable at this pin';
+  } catch (e) {
+    err = e.message;
+  }
+
+  recordGuard_(props, { user: user, action: action, role: role || null, err: err || null });
+
+  // Fail CLOSED when enforcing, including on a Core error. We fail open everywhere else so a Core
+  // hiccup never blanks a board, but failing open on an AUTH check means no check at all.
+  if (mode === 'enforce' && !role) {
+    return { ok: false, mode: mode, error: err ? 'Access check unavailable' : 'No access to Sales', code: 'no_access' };
+  }
+  return { ok: true, mode: mode, role: role || null, would_refuse: !role };
+}
+
+function recordGuard_(props, entry) {
+  try {
+    const ring = JSON.parse(props.getProperty(GX_WRITE_GUARD_LOG) || '[]');
+    // Dates in this suite are TEXT, never Date objects.
+    entry.ts = Utilities.formatDate(new Date(), 'America/Los_Angeles', "yyyy-MM-dd'T'HH:mm:ss");
+    ring.push(entry);
+    while (ring.length > GX_WRITE_GUARD_CAP) ring.shift();
+    props.setProperty(GX_WRITE_GUARD_LOG, JSON.stringify(ring));
+  } catch (e) {
+    // A diagnostic must never be the reason a write fails.
+  }
+}
+
 function requireAuth_(params) {
   return validateSessionToken_(params.token || params.session || params.auth || '');
 }
@@ -262,7 +330,8 @@ function doGet(e) {
   //    it. A fail-closed auth check wired against a wrong assumption is an outage for every user of
   //    the app, not a quiet degradation, so the refusal path gets measured before it is trusted.
   if (params.action === 'authprobe') {
-    const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
+    const props0 = PropertiesService.getScriptProperties();
+    const secret = props0.getProperty('GX_DEPLOY_SECRET') || '';
     if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
     const out = { ok: true, app: 'sales' };
     try {
@@ -285,6 +354,23 @@ function doGet(e) {
       out.local_users = Object.keys(JSON.parse(uraw));
     } catch (e) {
       out.local_users_error = e.message;
+    }
+    // WHAT CAN THIS PIN ACTUALLY CALL? Asked because the grant question above is unanswerable from
+    // outside Core — no HTTP route enumerates who holds a grant — but we are a BOUND spoke, so
+    // anything public on the library is callable from in here. Listing the surface says whether a
+    // user/grant listing function exists at our pin instead of guessing route names over HTTP.
+    if (params.surface) {
+      try {
+        out.gxcore_surface = Object.keys(GXCore).sort();
+      } catch (e) {
+        out.gxcore_surface_error = e.message;
+      }
+    }
+    try {
+      out.write_guard_mode = props0.getProperty(GX_WRITE_GUARD_KEY) || 'log';
+      out.write_guard_log  = JSON.parse(props0.getProperty(GX_WRITE_GUARD_LOG) || '[]');
+    } catch (e) {
+      out.write_guard_error = e.message;
     }
     try {
       out.gxcore_version  = (typeof GXCore !== 'undefined' && GXCore && typeof GXCore.libVersion === 'function') ? GXCore.libVersion() : null;
@@ -316,7 +402,7 @@ function doGet(e) {
   if (params.action === 'goals')       return getGoals();
   if (params.action === 'period_goals') return getPeriodGoalsForDate_(params.date);
   if (params.action === 'pace')        return getPacingFracs_();
-  if (params.action === 'save_expense_mapping') return saveExpenseMapping_(params);
+  if (params.action === 'save_expense_mapping') { const g = writeGuard_(auth.user, 'save_expense_mapping'); if (!g.ok) return jsonOut_(g); return saveExpenseMapping_(params); }
   if (params.action === 'expenses')    return getExpenses(params);
   if (params.action === 'qbaccounts')  return getQBAccountNames();
   if (params.action === 'qbmapping')   return getQBMappingSheet();
@@ -326,10 +412,10 @@ function doGet(e) {
   if (params.action === 'cogs_dutchie')  return jsonOut_(getCogsDutchie(params));
   if (params.action === 'expbudgets')    return getExpenseBudgets();
   if (params.action === 'otherrev')       return getOtherRevenue();
-  if (params.action === 'set_otherrev')   return setOtherRevenue(params);
+  if (params.action === 'set_otherrev')   { const g = writeGuard_(auth.user, 'set_otherrev'); if (!g.ok) return jsonOut_(g); return setOtherRevenue(params); }
   if (params.action === 'revenue_detail') return getRevenueDetail(params);
-  if (params.action === 'set_revenue')    return setRevenueLine(params);
-  if (params.action === 'clear_atm_cache') return clearAtmCache_(params, auth.user);
+  if (params.action === 'set_revenue')    { const g = writeGuard_(auth.user, 'set_revenue'); if (!g.ok) return jsonOut_(g); return setRevenueLine(params); }
+  if (params.action === 'clear_atm_cache') { const g = writeGuard_(auth.user, 'clear_atm_cache'); if (!g.ok) return jsonOut_(g); return clearAtmCache_(params, auth.user); }
   if (params.action === 'inventory')     return getInventory(params);
   if (params.action === 'invprobe')      return probeInventoryEndpoints(params);
   if (params.action === 'invfields')     return getInvFields(params);
@@ -354,7 +440,7 @@ function doPost(e) {
   let body = {};
   try { body = JSON.parse(e.postData.contents || '{}'); } catch(err) {}
 
-  if (params.action === 'save_expense_mapping') return saveExpenseMapping_(body);
+  if (params.action === 'save_expense_mapping') { const g = writeGuard_(auth.user, 'save_expense_mapping:POST'); if (!g.ok) return jsonOut_(g); return saveExpenseMapping_(body); }
   return jsonOut_({ ok: false, error: 'Unknown POST action: ' + params.action });
 }
 
