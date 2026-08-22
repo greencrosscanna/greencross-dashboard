@@ -83,6 +83,13 @@ the admit test below passed. Reads unaffected; unauthenticated and forged-token 
 the session gate ABOVE the guard, so a signature failure never reaches the grant lookup. **Roll back in one
 command:** the same `guardmode` call with `mode=log`.
 
+**Re-confirmed on 2026-08-22 under GXCore v194.** The app was re-pinned v188 → v194 and redeployed;
+Shawn then saved an expense mapping successfully. That matters because `writeGuard_` fails CLOSED — a
+Core-side change that broke `roleForApp` would look exactly like an outage, and the six versions crossed
+included v191, which changed `gxRead_` to return null-prototype rows that cross the library boundary into
+this app. A real non-superadmin admit is the only evidence that actually settles it; the deployer's own
+account cannot, because `sky` is superadmin and resolves by a different path.
+
 **The admit test PASSED on 2026-08-20 and is what licensed enforcing.** Shawn was granted, signed in and
 saved an expense mapping, and the guard recorded `user shawn / role editor / err null`, with
 `tally.first_admit` stamped and zero refusals. That closes the last gap: my earlier probe passed a
