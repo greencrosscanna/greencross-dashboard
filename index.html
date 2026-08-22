@@ -870,12 +870,12 @@ function updateRevVisibility() {
 }
 
 const STORES = [
-  { name:'Bend',        display:'Century',    color:'#1D9E75' },
-  { name:'Center',      display:'Center',     color:'#378ADD' },
-  { name:'Commercial',  display:'Commercial', color:'#D85A30' },
-  { name:'Hillsboro',   display:'Baseline',   color:'#7F77DD' },
-  { name:'Portland Rd', display:'Portland',   color:'#BA7517' },
-  { name:'River',       display:'River',      color:'#D4537E' },
+  { name:'Bend',        display:'Century',    color:'#22D3EE' },
+  { name:'Center',      display:'Center',     color:'#3B82F6' },
+  { name:'Commercial',  display:'Commercial', color:'#A855F7' },
+  { name:'Hillsboro',   display:'Baseline',   color:'#6366F1' },
+  { name:'Portland Rd', display:'Portland',   color:'#D946EF' },
+  { name:'River',       display:'River',      color:'#EC4899' },
 ];
 
 const GXCORE = 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec';
@@ -1005,9 +1005,13 @@ async function loadLeaderboardGoals() {
       if (cached_url && cached_url.v && Date.now() - cached_url.ts < LB_URL_TTL) {
         LEADERBOARD_GAS = cached_url.v;
       } else {
-        const cfgRes = await fetch(`${GXCORE}?action=config&key=lbGoals`);
-        const cfg = await cfgRes.json();
-        if (cfg.ok && cfg.value) {
+        // GXClient, not a bare fetch: GX Core's /exec second hop 404s on ~6% of rapid calls and the
+        // client's retry is the only thing that covers it. This call resolves the Leaderboard URL, so
+        // a silent miss here is what strands us on the hardcoded fallback below.
+        const cfg = (typeof GXClient !== 'undefined')
+          ? await GXClient(GXCORE).jsonp('config', { key: 'lbGoals' })
+          : await (await fetch(`${GXCORE}?action=config&key=lbGoals`)).json();
+        if (cfg && cfg.ok && cfg.value) {
           LEADERBOARD_GAS = cfg.value;
           localStorage.setItem(LB_URL_KEY, JSON.stringify({ v: cfg.value, ts: Date.now() }));
         }
