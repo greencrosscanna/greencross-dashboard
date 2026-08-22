@@ -7,14 +7,34 @@ owner (corrected by Sky 2026-08-20; the shared brain's app-owner list still says
 `dutchie_proxy.gs` (Dutchie + QuickBooks proxy). Frontend: `index.html`, deployed via **GitHub Pages**. Its
 app key in GX Core is **`sales`**.
 
+## Stack & local loop
+
+**No build step — the file on disk IS the app.**
+
+| | |
+|---|---|
+| frontend | `index.html` — a **monolith with inline JS**, on GitHub Pages |
+| backend | `dutchie_proxy.gs` — the Dutchie **and QuickBooks** proxy, deployed with clasp |
+| version | the **`APP_VERSION` constant** in `index.html` (no `?v=` cache-buster — there's no external `.js`) |
+| run | `python3 serve.py` → <http://localhost:3000> |
+| ship | commit → push (Pages) → `./deploy.sh` records the release to `version_history` |
+| tests | no automated suite — verify with the `gxpin` / `authprobe` routes below |
+
+The dev server talks to the **live** backend; `gx-dev.js` blocks writes until armed — which matters more
+here than elsewhere, since this app's writes now run through a fail-closed auth guard. `gx-preflight.sh`
+runs as a **pre-push hook** and refuses dev leftovers.
+
+**Shared files** (`deploy.sh`, `serve.py`, `gx-preflight.sh`, `.claude/gx-brain-notes.sh`) come from
+**gx-theme** via `./gx-sync.sh`, filled from `.gx_app`. Edit them **there**, then re-sync. This CLAUDE.md is
+intentionally **not** synced.
+
 ## Sync with the brain — run `/gxbrain` (or say "brain sync")
 
 This app is on the shared brain. **`/gxbrain`** loads the shared rules and reconciles this chat with GX Core
 — the sync protocol lives in that one command, not copied here. **"brain sync" / "sync brain"** = the
 reconcile-and-report step alone (skips orientation).
 
-Coordination is now the **central brain-notes inbox** in GX Core (not this repo's `BRAIN_NOTES.md`, which is
-retired): `/gxbrain` reads notes addressed to `to_app=sales`, resolves done ones (`resolve_note`), and writes
+Coordination is now the **central brain-notes inbox** in GX Core (this repo's `BRAIN_NOTES.md` was retired and has now been deleted): `/gxbrain` reads notes addressed to `to_app=sales`, resolves done ones (`resolve_note`), and writes
 note-backs to any app (`add_note`). The SessionStart hook surfaces the same inbox.
 
 Integration status: app key **`sales`**; deploys clasp (backend) + GitHub Pages (frontend). ✅ shared login
@@ -77,6 +97,10 @@ the same call already ran in production and returned `editor`; enforce only acts
 per core-admin's rule for auth checks. That means a GX Core outage blocks Sales writes — deliberate, since
 failing open on an auth check is no check at all, but it is a real availability cost that the read paths
 do not pay.
+
+**SUPERSEDED — kept for the reasoning, not the conclusion.** The two paragraphs below argue for staying in
+`log`; that was the correct call *until* the admit test passed on 2026-08-20. The guard is **`enforce`**
+now. Read them as the rationale for why the admit test was required first, not as current state.
 
 **Why it stays in `log` even though Sales is effectively single-user today.** Sky is currently the only
 account that resolves, and he is superadmin, so enforcing right now would be harmless — and would also buy
