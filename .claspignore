@@ -1,3 +1,8 @@
+# Node-side dev tests. rootDir is "." here and this list does not exclude JS by extension, so
+# without this clasp pushes tests/*_test.js into the Apps Script project as .gs source — where it
+# fails to parse and blocks the whole deploy. That is exactly what happened on 2026-08-22.
+tests/
+tests/**
 **/*.html
 !index.html
 **/*.json
