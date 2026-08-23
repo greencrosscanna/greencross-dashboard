@@ -24,6 +24,7 @@
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css">
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-avatar.js"></script>
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-topnav.js"></script>
+<script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-changelog.js"></script>
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-bugreport.js"></script>
 <style>
 :root{
@@ -852,7 +853,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = '2.5';
+const APP_VERSION = 'v2.500';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1351,6 +1352,9 @@ function paintSalesUserTray() {
   var sess = GC_SALES_AUTH.load() || {};
   var name = sess.displayName || sess.user || '';
   if (!name) { slot.innerHTML = ''; return; }
+  if (window.GXChangelog) {
+    GXChangelog.init({ app: 'sales', title: 'GX Sales & Cashflow', version: APP_VERSION });
+  }
   GXTopNav.renderUser(slot, {
     name: name,
     role: String(sess.role || '').replace(/_/g, ' '),
