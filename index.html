@@ -532,7 +532,8 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   // Guarded writes: reportbug, save_expense_mapping, set_otherrev, set_revenue
   window.GX_DEV_READS = [
     'cogs', 'cogs_dutchie', 'config', 'expbudgets', 'expenses', 'getdailygoals', 'goals',
-    'inventory', 'login', 'otherrev', 'pace', 'period_goals', 'ping', 'revenue_detail',
+    'inventory', 'login', 'otherrev', 'pace', 'period_goals', 'ping', 'published_goals',
+    'revenue_detail',
     'stores', 'velocity', 'version_history'
   ];
 </script>
@@ -826,7 +827,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = '2.1';
+const APP_VERSION = '2.2';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -994,48 +995,121 @@ function getDailyGoal(storeName, dow, month /* 1–12 */, year, daysInMo, forDat
   return sg * 7 / daysInMo * dowWeights[dow];
 }
 
-async function loadLeaderboardGoals() {
-  try {
-    // Resolve the authoritative GAS URL from GX Core config (offline-safe)
-    // Resolve authoritative GAS URL from GX Core — cached 24h so only one slow GAS round-trip
-    const LB_URL_KEY = 'gc_lb_gas_url';
-    const LB_URL_TTL = 24 * 60 * 60 * 1000;
-    try {
-      const cached_url = JSON.parse(localStorage.getItem(LB_URL_KEY) || 'null');
-      if (cached_url && cached_url.v && Date.now() - cached_url.ts < LB_URL_TTL) {
-        LEADERBOARD_GAS = cached_url.v;
-      } else {
-        // GXClient, not a bare fetch: GX Core's /exec second hop 404s on ~6% of rapid calls and the
-        // client's retry is the only thing that covers it. This call resolves the Leaderboard URL, so
-        // a silent miss here is what strands us on the hardcoded fallback below.
-        const cfg = (typeof GXClient !== 'undefined')
-          ? await GXClient(GXCORE).jsonp('config', { key: 'lbGoals' })
-          : await (await fetch(`${GXCORE}?action=config&key=lbGoals`)).json();
-        if (cfg && cfg.ok && cfg.value) {
-          LEADERBOARD_GAS = cfg.value;
-          localStorage.setItem(LB_URL_KEY, JSON.stringify({ v: cfg.value, ts: Date.now() }));
-        }
-      }
-    } catch(e) { /* use hardcoded fallback */ }
+// A published payload is at most ~24h old by design (Leaderboard publishes nightly at 3am PT,
+// plus on every goal-write). 30h leaves headroom for a late/skipped nightly run without ever
+// tripping on a normal evening — a threshold under 24h would fall through to the direct fetch
+// every single night.
+const LB_GOALS_MAX_AGE_MIN = 1800;
 
-    const now = new Date();
-    const curMonth = MONTHS[now.getMonth()];
-    const curYear  = now.getFullYear();
-    const cached = readCache('lb_goals');
-    // Only use cache if it's for the current month — stale month → re-fetch
-    if (cached && cached.month === curMonth && cached.year === curYear && cached.stores) {
-      lbGoals = cached;
+// Which path actually served lbGoals: 'cache' | 'core' | 'leaderboard' | null (budget fallback).
+let lbGoalsSource = null;
+
+/** Payload is for the month we're actually rendering. */
+function lbGoalsIsCurrentMonth(p, curMonth, curYear) {
+  return !!(p && p.stores && p.year === curYear && p.month === curMonth);
+}
+
+/**
+ * Preferred path: GX Core serves the Leaderboard's FINISHED goal payload verbatim.
+ * Nothing recomputes it, so a silent publisher outage would otherwise render last month's
+ * targets with no error anywhere — hence the two guards below. Returns null (never throws)
+ * so the caller falls through to the direct fetch.
+ */
+async function fetchPublishedGoals(curMonth, curYear) {
+  // GXClient, not a bare fetch: GX Core's /exec second hop 404s on ~6% of rapid calls.
+  if (typeof GXClient === 'undefined') return null;
+  const r = await GXClient(GXCORE).jsonp('published_goals', { producer: 'performance' });
+  if (!r || !r.ok || !r.payload) {
+    console.warn('[lb-goals] core published_goals unavailable:', (r && r.error) || 'no payload');
+    return null;
+  }
+  const age = Number(r.age_minutes);
+  if (!isFinite(age) || age > LB_GOALS_MAX_AGE_MIN) {
+    console.warn(`[lb-goals] core payload stale (age_minutes=${r.age_minutes}, max ${LB_GOALS_MAX_AGE_MIN}) — falling back`);
+    return null;
+  }
+  // Applied to the FETCH RESULT, not just the cache, and load-bearing: between midnight and
+  // 3am on the 1st, Core's newest publication is still LAST month's, because the publish rides
+  // the 3am job. Age alone would happily admit it.
+  if (!lbGoalsIsCurrentMonth(r.payload, curMonth, curYear)) {
+    console.warn(`[lb-goals] core payload is ${r.payload.month} ${r.payload.year}, expected ${curMonth} ${curYear} (age_minutes=${age}) — falling back`);
+    return null;
+  }
+  console.log(`[lb-goals] served by GX Core published_goals (age_minutes=${age}, published_at=${r.published_at})`);
+  return r.payload;
+}
+
+/**
+ * Fallback path: fetch the Leaderboard GAS directly. This is an app-to-app call, which the
+ * suite forbids as a primary route — kept ONLY so a GX Core outage can't blank the goal
+ * numbers on this read-only view. Core first, this second, budget spreadsheet third.
+ */
+async function fetchLeaderboardGoalsDirect() {
+  // Resolve authoritative GAS URL from GX Core — cached 24h so only one slow GAS round-trip
+  const LB_URL_KEY = 'gc_lb_gas_url';
+  const LB_URL_TTL = 24 * 60 * 60 * 1000;
+  try {
+    const cached_url = JSON.parse(localStorage.getItem(LB_URL_KEY) || 'null');
+    if (cached_url && cached_url.v && Date.now() - cached_url.ts < LB_URL_TTL) {
+      LEADERBOARD_GAS = cached_url.v;
+    } else {
+      // GXClient, not a bare fetch: GX Core's /exec second hop 404s on ~6% of rapid calls and the
+      // client's retry is the only thing that covers it. This call resolves the Leaderboard URL, so
+      // a silent miss here is what strands us on the hardcoded fallback below.
+      const cfg = (typeof GXClient !== 'undefined')
+        ? await GXClient(GXCORE).jsonp('config', { key: 'lbGoals' })
+        : await (await fetch(`${GXCORE}?action=config&key=lbGoals`)).json();
+      if (cfg && cfg.ok && cfg.value) {
+        LEADERBOARD_GAS = cfg.value;
+        localStorage.setItem(LB_URL_KEY, JSON.stringify({ v: cfg.value, ts: Date.now() }));
+      }
+    }
+  } catch(e) { /* use hardcoded fallback */ }
+
+  const res  = await fetch(`${LEADERBOARD_GAS}?action=getdailygoals`);
+  const data = await res.json();
+  return data && data.stores ? data : null;
+}
+
+async function loadLeaderboardGoals() {
+  const now      = new Date();
+  const curMonth = MONTHS[now.getMonth()];
+  const curYear  = now.getFullYear();
+
+  // 1. Cache — only if it's for the current month; stale month → re-fetch
+  const cached = readCache('lb_goals');
+  if (lbGoalsIsCurrentMonth(cached, curMonth, curYear)) {
+    lbGoals = cached;
+    lbGoalsSource = 'cache';
+    return;
+  }
+
+  // 2. GX Core published_goals — the sanctioned cross-app route
+  try {
+    const payload = await fetchPublishedGoals(curMonth, curYear);
+    if (payload) {
+      lbGoals = payload;
+      lbGoalsSource = 'core';
+      writeCache('lb_goals', payload); // 30-min TTL (see CACHE_TTL.lb_goals)
       return;
     }
-    const res  = await fetch(`${LEADERBOARD_GAS}?action=getdailygoals`);
-    const data = await res.json();
-    if (data.stores) {
+  } catch (e) {
+    console.warn('[lb-goals] core published_goals failed:', e.message);
+  }
+
+  // 3. Direct Leaderboard fetch — fallback only
+  try {
+    const data = await fetchLeaderboardGoalsDirect();
+    if (data) {
       lbGoals = data;
-      writeCache('lb_goals', data); // 30-min TTL (see CACHE_TTL.lb_goals)
+      lbGoalsSource = 'leaderboard';
+      console.warn('[lb-goals] served by DIRECT Leaderboard fetch (GX Core path unavailable)');
+      writeCache('lb_goals', data);
     }
   } catch (e) {
     console.warn('[lb-goals] fetch failed:', e.message);
   }
+  // 4. Nothing loaded → lbGoals stays null and getGoal()'s budget figures serve.
 }
 
 async function loadPeriodGoals(date) {
@@ -1449,6 +1523,7 @@ function clearAllCache() {
   allDailyData  = {};
   liveData      = {};   // was missing — without it the on-screen figure survived a "clear" (the July 736k trap)
   lbGoals       = null;
+  lbGoalsSource = null;
   periodGoalsCache = {};
   paceFracs        = null;
   invGmData     = null; _invGmLoading = false;
