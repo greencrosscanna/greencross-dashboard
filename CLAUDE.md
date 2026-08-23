@@ -83,6 +83,21 @@ the admit test below passed. Reads unaffected; unauthenticated and forged-token 
 the session gate ABOVE the guard, so a signature failure never reaches the grant lookup. **Roll back in one
 command:** the same `guardmode` call with `mode=log`.
 
+**Now pinned to GXCore v204** (2026-08-22, from v194; commit `a13a5a2`, deployment `AKfycbzju5He…@158`).
+v203 added `publishGoals`/`publishedGoals`; v204 normalised `getStores()` aliases to an array. Neither
+changes behaviour here — this app consumes goals through the **`?action=published_goals` web route**
+(`index.html`), not a library call, and `getStoresMeta_` picks four named fields and never reads `aliases`.
+Verified live: `gxpin` → `gxcore_version 204`, and `authprobe&user=shawn` → `role editor` under v204, so the
+fail-closed guard still admits. That probe is the hand-typed path, not the token-derived one — the standard
+below still applies, and a real Shawn write under v204 is what finally settles it.
+
+**`ATM_MACHINE_MAP` (`dutchie_proxy.gs`) must NOT be switched to `GXCore.resolveStore()`.** core-admin's
+re-pin notes carry a blanket line saying to use `resolveStore()` if you fold store names yourself; it does
+not apply here. That map keys **ATM machine labels**, not stores, and `resolveStore` has no machine concept.
+Sky modelled all 19 labels against the live registry (2026-08-22): the swap would resolve **11 to null** —
+every ATM 2, including `bend 2`, `hillsboro 2`, `commercial lg`, `river lg`, `river sm` — and would merge
+`center st`/`center` and `portland`/`portland rd`. ATM revenue would quietly shrink with no error anywhere.
+
 **Re-confirmed on 2026-08-22 under GXCore v194.** The app was re-pinned v188 → v194 and redeployed;
 Shawn then saved an expense mapping successfully. That matters because `writeGuard_` fails CLOSED — a
 Core-side change that broke `roleForApp` would look exactly like an outage, and the six versions crossed
