@@ -24,6 +24,7 @@
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css">
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-avatar.js"></script>
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-topnav.js"></script>
+<script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-bugreport.js"></script>
 <style>
 :root{
   --bg:var(--gx-bg,#0a0e0d);
@@ -375,9 +376,6 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .store-pill:hover{color:var(--text);border-color:var(--dim)}
 .store-pill.on{color:var(--green);border-color:var(--green);background-color:var(--green-soft)}
 .store-pill-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-.store-pill-pct{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
-.store-pill.on .store-pill-pct{color:inherit;opacity:.72}
-.store-pill-pct.good{color:var(--green)}.store-pill-pct.bad{color:var(--red)}
 /* Loading shimmer. Declared AFTER .on and using background-IMAGE (never the `background`
    shorthand) so a selected store keeps its green wash underneath the sweep instead of having it
    reset. .err is the terminal state and outranks it — a store that failed must not look busy. */
@@ -518,21 +516,31 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 @media not all and (min-width:768px){.bug-fab.visible{display:none!important}}
 .bug-fab:hover{color:var(--text);border-color:var(--border-strong)}
 .bug-fab.visible{display:flex}
-.bug-modal-wrap{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:400;backdrop-filter:blur(2px);align-items:center;justify-content:center}
-.bug-modal-wrap.open{display:flex}
-.bug-modal{background:var(--bg);border:0.5px solid var(--border-strong);border-radius:12px;padding:22px;width:320px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,0.4)}
-.bug-modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
-.bug-modal-title{font-size:13px;font-weight:600;color:var(--text)}
-.bug-modal-close{background:none;border:none;cursor:pointer;color:var(--muted);padding:2px;line-height:0;border-radius:6px}
-.bug-modal-close:hover{color:var(--dim)}
-.bug-field-label{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em;margin:12px 0 4px}
-.bug-select,.bug-textarea,.bug-input{width:100%;font-size:12px;background:var(--card);border:0.5px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;padding:7px 9px;box-sizing:border-box}
-.bug-select:focus,.bug-textarea:focus,.bug-input:focus{outline:none;border-color:var(--green)}
-.bug-textarea{resize:vertical;min-height:72px;margin:0}
-.bug-submit{margin-top:14px;width:100%;background:var(--red);color:#fff;border:none;border-radius:7px;padding:9px;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;transition:opacity 0.15s}
-.bug-submit:hover{opacity:0.85}
-.bug-submit:disabled{opacity:0.45;cursor:not-allowed}
-.bug-status{font-size:11px;color:var(--muted);margin-top:8px;text-align:center;min-height:16px}
+/* The bug FORM is gone from this file — it is gx-bugreport.js + .gx-bug-* in gx-theme now (Inventory
+   and Leaderboard carried their own copies of the same 21 rules).
+
+   .bug-fab and .bug-inline above STAY: they are Sales' own triggers, and their visibility (post-auth,
+   hidden under 768px) is this app's behaviour, not the shared form's.
+
+   The modal rules below ALSO stay, renamed .sx-modal-*. They were written for the bug modal but the
+   Other Revenue / ATM editor reuses every one of them, so deleting them with the bug form silently
+   breaks that editor — which is exactly what the first pass of this migration did. Renaming is the
+   point: a `.bug-*` rule in a file with no bug form reads as dead code, and the next cleanup deletes
+   it for real. */
+.sx-modal-wrap{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:400;backdrop-filter:blur(2px);align-items:center;justify-content:center}
+.sx-modal-wrap.open{display:flex}
+.sx-modal{background:var(--bg);border:0.5px solid var(--border-strong);border-radius:12px;padding:22px;width:320px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,0.4)}
+.sx-modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.sx-modal-title{font-size:13px;font-weight:600;color:var(--text)}
+.sx-modal-close{background:none;border:none;cursor:pointer;color:var(--muted);padding:2px;line-height:0;border-radius:6px}
+.sx-modal-close:hover{color:var(--dim)}
+.sx-field-label{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em;margin:12px 0 4px}
+.sx-input{width:100%;font-size:12px;background:var(--card);border:0.5px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;padding:7px 9px;box-sizing:border-box}
+.sx-input:focus{outline:none;border-color:var(--green)}
+.sx-submit{margin-top:14px;width:100%;background:var(--red);color:#fff;border:none;border-radius:7px;padding:9px;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;transition:opacity 0.15s}
+.sx-submit:hover{opacity:0.85}
+.sx-submit:disabled{opacity:0.45;cursor:not-allowed}
+.sx-status{font-size:11px;color:var(--muted);margin-top:8px;text-align:center;min-height:16px}
 </style>
 <!-- GX dev-guard bootstrap. Canonical source: greencross-gx-theme/gx-dev-boot.html.
      Paste this ONCE in <head>, before the app's own scripts. It replaces the old
@@ -691,43 +699,21 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 <!-- ── Bug report FAB ── -->
 <button class="bug-fab" id="bug-fab" onclick="openBugModal()" title="Report a bug">🐞</button>
 
-<!-- ── Bug report modal ── -->
-<div class="bug-modal-wrap" id="bug-modal-wrap" onclick="if(event.target===this)closeBugModal()">
-  <div class="bug-modal">
-    <div class="bug-modal-head">
-      <span class="bug-modal-title">Report a Bug</span>
-      <button class="bug-modal-close" onclick="closeBugModal()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
-    </div>
-    <div class="bug-field-label">Title <span style="color:var(--red)">*</span></div>
-    <input class="bug-input" id="bug-title" type="text" placeholder="Short description of what went wrong" maxlength="120">
-    <div class="bug-field-label">Details <span style="color:var(--muted);font-weight:400;text-transform:none">(optional)</span></div>
-    <textarea class="bug-textarea" id="bug-desc" placeholder="Steps to reproduce, what you expected vs. what happened…"></textarea>
-    <div class="bug-field-label">Priority</div>
-    <select class="bug-select" id="bug-priority">
-      <option value="low">Low — minor annoyance</option>
-      <option value="medium" selected>Medium — something's wrong</option>
-      <option value="high">High — blocking my work</option>
-    </select>
-    <button class="bug-submit" id="bug-submit" onclick="submitBugReport()">Submit Bug Report</button>
-    <div class="bug-status" id="bug-status"></div>
-  </div>
-</div>
+<!-- Bug report modal: built by gx-bugreport.js (gx-theme). No markup here. -->
 
 <!-- ── Other Revenue edit modal ── -->
-<div class="bug-modal-wrap" id="otherrev-modal-wrap" onclick="if(event.target===this)closeOtherRevModal()">
-  <div class="bug-modal" style="width:280px">
-    <div class="bug-modal-head">
-      <span class="bug-modal-title" id="otherrev-modal-title">Edit ATM Revenue</span>
-      <button class="bug-modal-close" onclick="closeOtherRevModal()">
+<div class="sx-modal-wrap" id="otherrev-modal-wrap" onclick="if(event.target===this)closeOtherRevModal()">
+  <div class="sx-modal" style="width:280px">
+    <div class="sx-modal-head">
+      <span class="sx-modal-title" id="otherrev-modal-title">Edit ATM Revenue</span>
+      <button class="sx-modal-close" onclick="closeOtherRevModal()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
-    <div class="bug-field-label" id="otherrev-modal-label">January total</div>
-    <input class="bug-input" id="otherrev-modal-input" type="number" min="0" step="1" placeholder="0">
-    <button class="bug-submit" id="otherrev-modal-save" onclick="saveOtherRevModal()" style="margin-top:14px">Save</button>
-    <div class="bug-status" id="otherrev-modal-status"></div>
+    <div class="sx-field-label" id="otherrev-modal-label">January total</div>
+    <input class="sx-input" id="otherrev-modal-input" type="number" min="0" step="1" placeholder="0">
+    <button class="sx-submit" id="otherrev-modal-save" onclick="saveOtherRevModal()" style="margin-top:14px">Save</button>
+    <div class="sx-status" id="otherrev-modal-status"></div>
   </div>
 </div>
 
@@ -866,7 +852,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = '2.4';
+const APP_VERSION = '2.5';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -2221,10 +2207,6 @@ function buildDskStores() {
   const allPill = `<button class="store-pill${allSelected ? ' on' : ''}" onclick="dskSelectAllStores()">${allLbl}</button>`;
   const pills = STORES.map(s => {
     const isOn   = allSelected || activeStoreSet.has(s.name);
-    const snet   = getStorePeriodNet ? getStorePeriodNet(s.name) : 0;
-    const sGoal  = getMonthlyGoal ? getMonthlyGoal(s.name, activeMonth, activeYear) : 0;
-    const pctVal = (sGoal > 0 && snet > 0) ? Math.round(snet / sGoal * 100) : null;
-    const pctCls = pctVal === null ? 'muted' : pctVal >= PACE_GREEN ? 'good' : pctVal >= PACE_AMBER ? '' : 'bad';
     // Load state drives the shimmer. 'ok'/'idle' add nothing — only the two states worth showing.
     const st      = (_storeStateMap && _storeStateMap[s.name]) || 'idle';
     const stateCls = st === 'loading' ? ' loading' : st === 'err' ? ' err' : '';
@@ -2232,7 +2214,6 @@ function buildDskStores() {
       title="${st === 'err' ? 'Failed to load' : st === 'loading' ? 'Loading…' : ''}">
       <span class="store-pill-dot" style="background:${s.color}"></span>
       <span class="store-pill-name">${s.display||s.name}</span>
-      ${pctVal !== null ? `<span class="store-pill-pct ${pctCls}">${pctVal}%</span>` : ''}
     </button>`;
   }).join('');
   el.innerHTML = `<div class="store-pills">${allPill}${pills}</div>`;
@@ -4504,52 +4485,33 @@ async function saveOtherRevModal() {
   }
 }
 
-function openBugModal() {
-  document.getElementById('bug-modal-wrap').classList.add('open');
-  document.getElementById('bug-title').value = '';
-  document.getElementById('bug-desc').value = '';
-  document.getElementById('bug-status').textContent = '';
-  document.getElementById('bug-submit').disabled = false;
-  document.getElementById('bug-title').focus();
-}
-function closeBugModal() {
-  document.getElementById('bug-modal-wrap').classList.remove('open');
-}
-async function submitBugReport() {
-  const title    = document.getElementById('bug-title').value.trim();
-  const desc     = document.getElementById('bug-desc').value.trim();
-  const priority = document.getElementById('bug-priority').value;
-  if (!title) {
-    document.getElementById('bug-status').textContent = 'Please enter a title.';
-    document.getElementById('bug-title').focus();
-    return;
-  }
-  const btn = document.getElementById('bug-submit');
-  btn.disabled = true;
-  document.getElementById('bug-status').textContent = 'Sending…';
-  try {
-    const proxyUrl = getProxyUrl();
-    const session  = GC_SALES_AUTH.load();
-    const params   = new URLSearchParams({
-      action: 'reportbug', priority, title, desc,
-      appVer:   APP_VERSION,
-      appTab:   section || '',
-      appStore: '',
-      token:    session?.token || ''
-    });
-    const res  = await fetch(`${proxyUrl}?${params}`);
-    const data = await res.json();
-    if (data.ok) {
-      document.getElementById('bug-status').textContent = 'Reported! Thanks.';
-      setTimeout(closeBugModal, 1400);
-    } else {
-      document.getElementById('bug-status').textContent = data.error || 'Failed — try again.';
-      btn.disabled = false;
-    }
-  } catch(e) {
-    document.getElementById('bug-status').textContent = 'Network error — try again.';
-    btn.disabled = false;
-  }
+/* ── Bug reporter ─────────────────────────────────────────────────────────────────────────────
+   The form is shared (gx-bugreport.js). openBugModal/closeBugModal survive as aliases because two
+   triggers call them: the .bug-fab, and the inline "Report a bug" button rendered into the income
+   last-sync row from a template string — that second one is easy to miss when grepping.
+
+   fab:false — Sales supplies its own button on purpose. It appears only after auth and is hidden
+   under 768px, which is this app's decision; the shared always-on FAB would quietly undo both. */
+function openBugModal()  { if (window.GXBugReport) GXBugReport.open(); }
+function closeBugModal() { if (window.GXBugReport) GXBugReport.close(); }
+
+if (window.GXBugReport) {
+  GXBugReport.init({
+    app: 'sales',
+    action: 'reportbug',          // NOT 'bugreport' — this proxy spells it the other way round
+    fab: false,
+    reporter: function () { try { return (GC_SALES_AUTH.load() || {}).user || ''; } catch (e) { return ''; } },
+    version:  function () { return APP_VERSION; },
+    context:  function () { return { tab: (typeof section !== 'undefined' ? section : '') || '' }; },
+    submit: function (payload) {
+      var session = GC_SALES_AUTH.load() || {};
+      var params  = new URLSearchParams(Object.assign({}, payload, { token: session.token || '' }));
+      return fetch(getProxyUrl() + '?' + params).then(function (r) { return r.json(); });
+      /* Returns the proxy's body as-is. gx-bugreport treats a resolved {ok:false} as failure, which
+         is the bug this app actually shipped once: a rejected ingest reported "Reported! Thanks."
+         and the reports were lost for weeks. Do not "simplify" this to swallow the body. */
+    },
+  });
 }
 
 // ── What's New popup ──────────────────────────────────────────────────────────
