@@ -83,13 +83,33 @@ the admit test below passed. Reads unaffected; unauthenticated and forged-token 
 the session gate ABOVE the guard, so a signature failure never reaches the grant lookup. **Roll back in one
 command:** the same `guardmode` call with `mode=log`.
 
-**Now pinned to GXCore v204** (2026-08-22, from v194; commit `a13a5a2`, deployment `AKfycbzju5He…@158`).
-v203 added `publishGoals`/`publishedGoals`; v204 normalised `getStores()` aliases to an array. Neither
-changes behaviour here — this app consumes goals through the **`?action=published_goals` web route**
-(`index.html`), not a library call, and `getStoresMeta_` picks four named fields and never reads `aliases`.
-Verified live: `gxpin` → `gxcore_version 204`, and `authprobe&user=shawn` → `role editor` under v204, so the
-fail-closed guard still admits. That probe is the hand-typed path, not the token-derived one — the standard
-below still applies, and a real Shawn write under v204 is what finally settles it.
+**Now pinned to GXCore v213** (2026-08-23, from v204; deployment `AKfycbzju5He…@160`). The reason was the
+shared bug reporter: on v204 `gxIngestBug` does **not** self-install the `bug_reports.context` header, so
+every 🐞 filed from Sales silently lost its state snapshot while still returning `ok`. Sales was filing
+half-reports until this landed. Verified live on the deployed `/exec`: `?action=libversion` →
+`{"ok":true,"gxcore":213}`, eight consecutive reads.
+
+**Two cautions attached to that re-pin, both still open:**
+
+- **The admit check was NOT re-run.** Nine Core versions were crossed and `writeGuard_` fails CLOSED, so a
+  Core-side change to `roleForApp` would look exactly like an outage. Under v204 the evidence was
+  `authprobe&user=shawn` → `role editor` (hand-typed path) plus a real Shawn expense-mapping save under
+  v194. Neither has been repeated under v213 — `authprobe` is secret-gated and the secret-bearing curl was
+  blocked by the sandbox during the re-pin. **Run it before trusting writes:** `authprobe&user=shawn`
+  should return `role editor`, and a real non-superadmin save is what actually settles it. Rollback if not:
+  `guardmode&mode=log`.
+- **`gxpin` itself was not read**, only `libversion`. Both call `GXCore.libVersion()`, so the pin is
+  confirmed — but `gxpin` also reports `qb.secret_configured` and `qb.last_source`, and those remain
+  unchecked. A `Forbidden` there is the finding that `GX_DEPLOY_SECRET` is unset or stale, which silently
+  drops `qbReportViaGXCore_` back to the legacy local QuickBooks token.
+
+**`gxengine.sh` targets the WRONG deployment in this repo — do not use it here.** It picks the highest
+`@version` among non-HEAD deployments, and this script has a stray `AKfycbxDmCB_…@159` that outranks the
+one every caller actually uses (`AKfycbzju5He…`, hardcoded as `DEFAULT_PROXY` in `index.html`). Running
+`./gxengine.sh --deploy` would push the code to HEAD and then redeploy the stray, leaving the live `/exec`
+serving the old snapshot while reporting success. Re-pin by hand until that is fixed:
+`clasp push --force` then `clasp update-deployment AKfycbzju5He…`. `gxengine.sh` is synced from gx-theme,
+so the fix belongs to **core-admin**, not here.
 
 **`ATM_MACHINE_MAP` (`dutchie_proxy.gs`) must NOT be switched to `GXCore.resolveStore()`.** core-admin's
 re-pin notes carry a blanket line saying to use `resolveStore()` if you fold store names yourself; it does
