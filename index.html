@@ -803,7 +803,8 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<!-- Chart.js 4.4.1 — vendored on our own Pages (byte-identical to the cdnjs build) so cdnjs is not a render dependency. -->
+<script src="https://greencrosscanna.github.io/greencross-gx-theme/vendor/chartjs@4.4.1/chart.umd.js"></script>
 <!-- Resilient GX Core client (retries the Drive-HTML two-hop failure). Same-origin (org Pages). -->
 <script defer src="https://greencrosscanna.github.io/greencross-gx-theme/gx-client.js"></script>
 <script>
@@ -827,7 +828,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = '2.2';
+const APP_VERSION = '2.3';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
