@@ -327,8 +327,22 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .ic-chart-top-lbl{font-size:11px;font-weight:500;color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
 /* ── Desktop sidebar ────────────────────────────────────────────────────────── */
 .dsk-logo-row{display:none;align-items:center;justify-content:space-between;margin-bottom:14px}
-.dsk-live{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:500;color:var(--green);white-space:nowrap;cursor:pointer}
+/* Live/refresh control. Styled as a pill button so it reads as clickable — the colour is still set
+   from pill() to reflect connection state, so the border/background here are neutral and only the
+   text and dot carry status. */
+.dsk-live{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:500;color:var(--green);
+  white-space:nowrap;cursor:pointer;font-family:inherit;padding:4px 10px;border-radius:999px;
+  border:1px solid transparent;background:transparent;transition:border-color .15s,background-color .15s}
+.dsk-live:hover{border-color:var(--border-strong);background-color:var(--card)}
+.dsk-live:focus-visible{outline:none;border-color:var(--green)}
 .dsk-live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s ease-in-out infinite;flex-shrink:0}
+.dsk-live-icon{flex-shrink:0;opacity:0;transition:opacity .15s}
+.dsk-live:hover .dsk-live-icon{opacity:.75}
+/* Refreshing: icon pinned visible and spinning, pointer events off so a second click cannot
+   re-enter the load. */
+.dsk-live.busy{cursor:default}
+.dsk-live.busy .dsk-live-icon{opacity:1;animation:spin .9s linear infinite}
+@media(prefers-reduced-motion:reduce){.dsk-live.busy .dsk-live-icon{animation:none}}
 .dsk-period{display:none;flex-direction:column;gap:0;margin-bottom:12px;border-top:.5px solid var(--border);padding-top:12px}
 .dsk-period-lbl{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px}
 .dsk-pfield-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
@@ -347,18 +361,41 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .dsk-chip.on{background:var(--green);color:var(--green-ink);border-color:var(--green);font-weight:600}
 .dsk-chip.future{color:#2e3733;border-color:#1c2320;pointer-events:none;cursor:default}
 .dsk-stores{display:none;flex-direction:column;gap:0;border-top:.5px solid var(--border);padding-top:12px}
-.dsk-stores-hdr{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:7px}
-.dsk-stores-lbl{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
-.dsk-stores-count{font-size:11px;color:var(--green);cursor:pointer}
-.dsk-store-rows{display:flex;flex-direction:column;gap:2px}
-.dsk-store-row{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px;background:var(--card);cursor:pointer;border:none;width:100%;font-family:inherit;-webkit-tap-highlight-color:transparent;transition:background .1s}
-.dsk-store-row:hover{background:var(--card-2)}
-.dsk-chk{width:16px;height:16px;border-radius:4px;border:1.5px solid var(--border-strong);flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:background .15s,border-color .15s}
-.dsk-chk.on{background:var(--green);border-color:var(--green)}
-.dsk-chk.on::after{content:'✓';font-size:10px;color:var(--green-ink);font-weight:700;line-height:1}
-.dsk-store-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
-.dsk-store-name{font-size:13px;color:var(--text);flex:1;text-align:left}
-.dsk-store-pct{font-size:12px}
+/* Store PILLS — the same filter-row treatment the Leaderboard uses (.pill there): a horizontal
+   row of rounded toggles instead of the checkbox list this used to be. Two things are deliberately
+   NOT copied from the Leaderboard: selection stays MULTI-select here (these toggle activeStoreSet,
+   they are not radio buttons), and each store keeps its own palette colour in the leading dot —
+   the pill's own on-state is green for every store, because a few of the store colours are too
+   dim to read as 12px text on this background. Colour identity lives in the dot, state in the pill. */
+.store-pills{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.store-pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border-strong);
+  color:var(--dim);background-color:transparent;border-radius:999px;padding:5px 12px;font-size:12px;
+  font-family:inherit;line-height:1.25;cursor:pointer;white-space:nowrap;
+  -webkit-tap-highlight-color:transparent;transition:border-color .15s,color .15s,background-color .15s}
+.store-pill:hover{color:var(--text);border-color:var(--dim)}
+.store-pill.on{color:var(--green);border-color:var(--green);background-color:var(--green-soft)}
+.store-pill-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.store-pill-pct{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.store-pill.on .store-pill-pct{color:inherit;opacity:.72}
+.store-pill-pct.good{color:var(--green)}.store-pill-pct.bad{color:var(--red)}
+/* Loading shimmer. Declared AFTER .on and using background-IMAGE (never the `background`
+   shorthand) so a selected store keeps its green wash underneath the sweep instead of having it
+   reset. .err is the terminal state and outranks it — a store that failed must not look busy. */
+.store-pill.loading{
+  background-image:linear-gradient(90deg,transparent 20%,rgba(230,236,233,.11) 50%,transparent 80%);
+  background-size:200% 100%;animation:storeShimmer 1.15s ease-in-out infinite}
+.store-pill.loading .store-pill-dot{background:var(--amber)!important;animation:pulse 1s ease-in-out infinite}
+.store-pill.err{border-color:rgba(239,68,68,.45);color:var(--red);animation:none;background-image:none}
+.store-pill.err .store-pill-dot{background:var(--red)!important}
+@keyframes storeShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+/* Same sweep for the mobile store chips, which are the "store buttons" on a phone. */
+.store-chip.loading{
+  background-image:linear-gradient(90deg,transparent 20%,rgba(230,236,233,.09) 50%,transparent 80%);
+  background-size:200% 100%;animation:storeShimmer 1.15s ease-in-out infinite}
+@media(prefers-reduced-motion:reduce){
+  .store-pill.loading,.store-chip.loading{animation:none;background-image:none;border-style:dashed}
+  .store-pill.loading .store-pill-dot{animation:none}
+}
 .dsk-gear{display:none;justify-content:flex-end;padding-top:10px;margin-top:auto;border-top:.5px solid var(--border)}
 
 /* Desktop layout — requires BOTH a wide viewport AND a hover-capable pointer (mouse).
@@ -376,12 +413,10 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   .dsk-stores{display:flex!important;flex-direction:row;align-items:center;gap:8px;
     border-top:none;padding-top:0;flex-wrap:wrap;margin-left:auto;}
   .dsk-live{flex-shrink:0;}
-  /* These were built for a 264px COLUMN, where full width and vertical stacking were right. In a
-     horizontal bar they have to size to their content, or one tab eats the whole row and the rest
-     scroll out of sight — which is exactly what happened: four tabs, each 418px wide. */
-  #dsk-stores .dsk-store-rows{flex-direction:row;flex-wrap:wrap;gap:6px;}
-  #dsk-stores .dsk-store-row{width:auto;flex:0 0 auto;}
-  #dsk-stores .dsk-stores-hdr{margin-bottom:0;margin-right:8px;}
+  /* The store list was built for a 264px COLUMN, where full width and vertical stacking were
+     right. It is a pill row now, which already sizes to its content and wraps — so the row/column
+     overrides that used to be needed here are gone with the classes they targeted. */
+  #dsk-stores .store-pill{flex:0 0 auto;}
   #dsk-period .dsk-period-lbl{margin:0 6px 0 0;}
 
   .main-col{min-width:0;padding-bottom:0}
@@ -566,10 +601,13 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
     <button class="gx-topnav-tab" data-s="revenue" id="revenue-nav-btn" style="display:none" onclick="setSection('revenue')">Revenue</button>
   </div>
   <div class="gx-topnav-right">
-    <div class="dsk-live" id="dsk-live-pill" onclick="refreshLiveData()" title="Click to refresh">
+    <!-- A real <button>: this was a bare <div> with an onclick, so it was neither keyboard-reachable
+         nor visibly clickable — it read as a status label, which is why nobody knew it refreshed. -->
+    <button class="dsk-live" id="dsk-live-pill" type="button" onclick="refreshLiveData()" title="Click to refresh">
       <div class="dsk-live-dot" id="dsk-live-dot"></div>
       <span id="dsk-live-txt">Loading…</span>
-    </div>
+      <svg class="dsk-live-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+    </button>
     <span id="salesUserSlot"></span>
     <!-- Kept as a fallback: the gear only shows if the shared user tray could not be painted, so
          Settings is never unreachable because an external script failed to load. -->
@@ -828,7 +866,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = '2.3';
+const APP_VERSION = '2.4';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1360,10 +1398,20 @@ function closeSettings() {
 
 // ── Store status strip ────────────────────────────────────────────────────────
 
+/* Called at every step of a load, so this is what drives the loading shimmer on the store buttons.
+   It must repaint BOTH selectors — the desktop pills AND the mobile chip grid. It used to reach
+   the chip grid only on the path where #store-status-grid exists, and that element is not in the
+   DOM at all, so the mobile chips never repainted mid-load and sat frozen on stale values. */
 function buildStatusGrid(state) {
   _storeStateMap = state;
   const _ssg = document.getElementById('store-status-grid');
-  if (!_ssg) { buildDskStores(); return; }
+  if (!_ssg) {
+    buildDskStores(); buildStoreChipGrid();
+    // The tray builds fresh on open, so it only needs repainting while it is ALREADY open.
+    const _tray = document.getElementById('mob-store-tray');
+    if (_tray && _tray.classList.contains('open')) buildStoreTray();
+    return;
+  }
   _ssg.innerHTML = STORES.map(s => {
     const st  = state[s.name] || 'idle';
     const cls = st === 'ok' ? 'ok' : st === 'loading' ? 'loading' : st === 'err' ? 'err' : '';
@@ -1377,6 +1425,7 @@ function buildStatusGrid(state) {
       <div class="ss-val">${val}</div>
     </div>`;
   }).join('');
+  buildDskStores();
   buildStoreChipGrid();
 }
 
@@ -1545,7 +1594,18 @@ async function refreshDutchieData() {
   await loadAllStores();
 }
 
+// Paints the Live button's in-flight state. Kept separate from pill() because pill() owns the
+// CONNECTION colour and this owns the BUSY affordance; they change on different schedules.
+function setLiveBusy(on) {
+  const el = document.getElementById('dsk-live-pill');
+  if (el) el.classList.toggle('busy', !!on);
+}
+
 function refreshLiveData() {
+  // Bail BEFORE touching the cache if a load is already running. Without this a second click wiped
+  // liveData and cleared the cache, then loadAllStores() hit its own in-flight guard and returned
+  // immediately — leaving the dashboard blank until the first load happened to finish.
+  if (_loadAllStoresInFlight) return;
   // Bust the current month AND whatever month/year is being VIEWED, so Refresh always re-fetches what's on
   // screen — including a past month whose GX Core numbers were corrected (retroactive returns / net-definition
   // re-pull). Historical re-fetch is a cheap GX Core cache read, not live Dutchie.
@@ -1707,6 +1767,7 @@ let _loadAllStoresInFlight = false;
 async function loadAllStores() {
   if (_loadAllStoresInFlight) return;          // prevent double-tap race
   _loadAllStoresInFlight = true;
+  setLiveBusy(true);
   const _scrollY = window.scrollY;            // preserve scroll position across refresh
   const proxyUrl = getProxyUrl();
   document.getElementById('setup-err').style.display = 'none';
@@ -1856,6 +1917,7 @@ async function loadAllStores() {
     document.getElementById('load-btn').disabled = false;
     document.getElementById('load-btn').textContent = 'Load live data';
     _loadAllStoresInFlight = false;
+    setLiveBusy(false);
   }
 }
 
@@ -2152,26 +2214,28 @@ function buildDskStores() {
   const el = document.getElementById('dsk-stores');
   if (!el) return;
   const allSelected = activeStoreSet === null;
-  const count = allSelected ? STORES.length : activeStoreSet.size;
+  const count  = allSelected ? STORES.length : activeStoreSet.size;
+  // The old header carried this count in its own line; as a pill row there is no header, so the
+  // All pill's own label carries it — the information survives the restyle.
   const allLbl = allSelected ? `All ${STORES.length}` : `${count} of ${STORES.length}`;
-  const rows = STORES.map(s => {
+  const allPill = `<button class="store-pill${allSelected ? ' on' : ''}" onclick="dskSelectAllStores()">${allLbl}</button>`;
+  const pills = STORES.map(s => {
     const isOn   = allSelected || activeStoreSet.has(s.name);
     const snet   = getStorePeriodNet ? getStorePeriodNet(s.name) : 0;
     const sGoal  = getMonthlyGoal ? getMonthlyGoal(s.name, activeMonth, activeYear) : 0;
     const pctVal = (sGoal > 0 && snet > 0) ? Math.round(snet / sGoal * 100) : null;
     const pctCls = pctVal === null ? 'muted' : pctVal >= PACE_GREEN ? 'good' : pctVal >= PACE_AMBER ? '' : 'bad';
-    return `<button class="dsk-store-row" onclick="dskToggleStore('${s.name}')">
-      <div class="dsk-chk${isOn?' on':''}"></div>
-      <div class="dsk-store-dot" style="background:${s.color}"></div>
-      <span class="dsk-store-name">${s.display||s.name}</span>
-      ${pctVal !== null ? `<span class="dsk-store-pct ${pctCls}">${pctVal}%</span>` : ''}
+    // Load state drives the shimmer. 'ok'/'idle' add nothing — only the two states worth showing.
+    const st      = (_storeStateMap && _storeStateMap[s.name]) || 'idle';
+    const stateCls = st === 'loading' ? ' loading' : st === 'err' ? ' err' : '';
+    return `<button class="store-pill${isOn ? ' on' : ''}${stateCls}" onclick="dskToggleStore('${s.name}')"
+      title="${st === 'err' ? 'Failed to load' : st === 'loading' ? 'Loading…' : ''}">
+      <span class="store-pill-dot" style="background:${s.color}"></span>
+      <span class="store-pill-name">${s.display||s.name}</span>
+      ${pctVal !== null ? `<span class="store-pill-pct ${pctCls}">${pctVal}%</span>` : ''}
     </button>`;
   }).join('');
-  el.innerHTML = `<div class="dsk-stores-hdr">
-    <span class="dsk-stores-lbl">Stores</span>
-    <span class="dsk-stores-count" onclick="dskSelectAllStores()">${allLbl}</span>
-  </div>
-  <div class="dsk-store-rows">${rows}</div>`;
+  el.innerHTML = `<div class="store-pills">${allPill}${pills}</div>`;
 }
 
 function dskToggleStore(name) {
@@ -2208,9 +2272,11 @@ function buildStoreChipGrid() {
   if (!el) return;
   const allOn   = activeStore === 'All';
   const totalNet = STORES.reduce((a, s) => a + (liveData[s.name]?.netSales || 0), 0);
-  let html = `<div class="store-chip all-chip${allOn ? ' on' : ''}" onclick="setStore('All')">
-    <div class="sch-row"><div class="sch-dot ok"></div><span class="sch-name">All Stores</span></div>
-    <span class="sch-val" style="margin-top:0">${totalNet > 0 ? fmtShort(totalNet) : '—'}</span>
+  // All Stores is still loading while ANY single store is — its total is not final until they land.
+  const anyLoading = STORES.some(s => (_storeStateMap && _storeStateMap[s.name]) === 'loading');
+  let html = `<div class="store-chip all-chip${allOn ? ' on' : ''}${anyLoading ? ' loading' : ''}" onclick="setStore('All')">
+    <div class="sch-row"><div class="sch-dot ${anyLoading ? 'loading' : 'ok'}"></div><span class="sch-name">All Stores</span></div>
+    <span class="sch-val" style="margin-top:0">${anyLoading && totalNet <= 0 ? '…' : totalNet > 0 ? fmtShort(totalNet) : '—'}</span>
   </div>`;
   html += STORES.map(s => {
     const st  = (_storeStateMap && _storeStateMap[s.name]) || 'idle';
@@ -2218,7 +2284,7 @@ function buildStoreChipGrid() {
     const val = liveData[s.name] ? fmtShort(liveData[s.name].netSales)
               : st === 'loading' ? '…' : st === 'err' ? 'Error' : '—';
     const on  = activeStore === s.name;
-    return `<div class="store-chip${on ? ' on' : ''}" onclick="setStore('${s.name}')">
+    return `<div class="store-chip${on ? ' on' : ''}${st === 'loading' ? ' loading' : ''}" onclick="setStore('${s.name}')">
       <div class="sch-row"><div class="sch-dot ${cls}"></div><span class="sch-name">${s.display || s.name}</span></div>
       <span class="sch-val">${val}</span>
     </div>`;
@@ -2424,7 +2490,10 @@ function buildStoreTray() {
     const isOn  = activeStore === r.name;
     const meta  = r.net !== null ? fmtK(r.net) : '';
     const st    = STORE_MAP.get(r.name);
-    const dotCls = st ? (liveData[r.name] ? 'ok' : 'loading') : 'ok';
+    // Read the real load state, not "is there data yet" — a store that ERRORED has no liveData
+    // either, and used to sit here showing a loading dot forever.
+    const lst    = (_storeStateMap && _storeStateMap[r.name]) || 'idle';
+    const dotCls = !st ? 'ok' : lst === 'ok' ? 'ok' : lst === 'err' ? 'err' : lst === 'loading' ? 'loading' : (liveData[r.name] ? 'ok' : '');
     const dotEl  = r.name === 'All' ? '' : `<div class="st-sdot ${dotCls}"></div>`;
     return `<div class="st-row" onclick="storeTraySel('${r.name}')">
       ${dotEl}
