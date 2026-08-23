@@ -94,9 +94,23 @@ below still applies, and a real Shawn write under v204 is what finally settles i
 **`ATM_MACHINE_MAP` (`dutchie_proxy.gs`) must NOT be switched to `GXCore.resolveStore()`.** core-admin's
 re-pin notes carry a blanket line saying to use `resolveStore()` if you fold store names yourself; it does
 not apply here. That map keys **ATM machine labels**, not stores, and `resolveStore` has no machine concept.
-Sky modelled all 19 labels against the live registry (2026-08-22): the swap would resolve **11 to null** —
-every ATM 2, including `bend 2`, `hillsboro 2`, `commercial lg`, `river lg`, `river sm` — and would merge
-`center st`/`center` and `portland`/`portland rd`. ATM revenue would quietly shrink with no error anywhere.
+**Measured by EXECUTION** (2026-08-23) — the real `gxResolveStore_` run against the live `stores` rows,
+not modelled from `?action=stores`. Of the map's **22** labels the swap drops **13 to null**, leaving 9.
+**All 9 ATM 2 labels are among the drops; every survivor is ATM 1**, so Bend, Commercial, Hillsboro and
+River each lose their second machine entirely. ATM revenue would quietly shrink with no error anywhere —
+in a lookup map `null` does not mean "wrong bucket", it means the row **vanishes**.
+
+**There is no merge risk**, contrary to an earlier claim here. The map has 8 collision groups and every
+one collapses to an identical `{store, machine}` — `Commercial`/ATM 2 alone has four labels. Collapsing
+any group loses nothing; all the damage is in the drops.
+
+*Provenance, since this paragraph previously said otherwise: the earlier "19 labels / 11 to null / merges
+`center st`+`center`" figures were **core-admin's**, not Sky's, produced by reading the map through
+`grep -A 20` — which truncated it — and retracted the same day. This app caught the error twice: first by
+parsing the literal, then by refusing to let core-admin's replacement number harden while it was still
+modelled. Modelling undercounts survivors, because `resolveStore` token-folds before matching and strips a
+trailing ` rd`/` st` — so `center st` resolves to `center` even though that store publishes only
+`["Center"]`.*
 
 **Re-confirmed on 2026-08-22 under GXCore v194.** The app was re-pinned v188 → v194 and redeployed;
 Shawn then saved an expense mapping successfully. That matters because `writeGuard_` fails CLOSED — a
