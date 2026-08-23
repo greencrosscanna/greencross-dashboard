@@ -94,7 +94,7 @@ below still applies, and a real Shawn write under v204 is what finally settles i
 **`ATM_MACHINE_MAP` (`dutchie_proxy.gs`) must NOT be switched to `GXCore.resolveStore()`.** core-admin's
 re-pin notes carry a blanket line saying to use `resolveStore()` if you fold store names yourself; it does
 not apply here. That map keys **ATM machine labels**, not stores, and `resolveStore` has no machine concept.
-**Measured by EXECUTION** (2026-08-23) — the real `gxResolveStore_` run against the live `stores` rows,
+**Measured by EXECUTION** (2026-08-22) — the real `gxResolveStore_` run against the live `stores` rows,
 not modelled from `?action=stores`. Of the map's **22** labels the swap drops **13 to null**, leaving 9.
 **All 9 ATM 2 labels are among the drops; every survivor is ATM 1**, so Bend, Commercial, Hillsboro and
 River each lose their second machine entirely. ATM revenue would quietly shrink with no error anywhere —
