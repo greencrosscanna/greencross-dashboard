@@ -853,7 +853,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.500';
+const APP_VERSION = 'v2.501';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -922,6 +922,12 @@ let otherRevData  = null; // { atm: { Jan: 9493, ... }, sublet: { Jan: 0, ... } 
 let revenueDetail = null; // { cfg, atm, sub, year } — full per-machine breakdown
 let periodGoalsCache = {};
 let paceFracs = null; // { storeName: 0-1 frac } from GXCore.expectedSalesFrac — today only
+// The fracs are a snapshot of the SERVER clock at fetch time, so they are stale the moment they land.
+// Memoizing them for the life of the page froze "% of day elapsed" while net sales kept climbing.
+let paceFracsAt = 0;              // Date.now() of the last successful fetch; 0 = never
+let _paceFracsInFlight = false;
+const PACE_FRACS_TTL_MS = 5 * 60 * 1000; // 5 min — well under the 60 s poll, so a poll re-fetches
+function paceFracsStale() { return !paceFracsAt || (Date.now() - paceFracsAt) > PACE_FRACS_TTL_MS; }
 let expSection = 'main';
 let collapsedMapSections = new Set();
 let pendingMappings  = {}; // tracks in-progress changes in the mapping UI
@@ -1150,16 +1156,26 @@ async function loadPeriodGoals(date) {
   } catch(e) { console.warn('[period-goals] fetch failed:', e.message); }
 }
 
-async function loadPaceFracs() {
-  if (paceFracs !== null) return;
+/**
+ * Fetch the GXCore intraday pacing curve. This used to memoize on the first success and never look
+ * again — so a tab left open kept a morning frac while the poll recorded new sales, inflating
+ * Est. end of day (net / frac) without bound and letting the hero print "over pace" next to
+ * "92% of goal". Re-fetch when the snapshot is older than PACE_FRACS_TTL_MS, or on force.
+ */
+async function loadPaceFracs(force) {
+  if (_paceFracsInFlight) return;
+  if (!force && paceFracs !== null && !paceFracsStale()) return;
+  _paceFracsInFlight = true;
   try {
     const res  = await fetch(`${getProxyUrl()}?action=pace&token=${encodeURIComponent(getToken())}`);
     const data = await res.json();
     if (data.ok && data.fracs && Object.keys(data.fracs).length) {
-      paceFracs = data.fracs;
+      paceFracs   = data.fracs;
+      paceFracsAt = Date.now();
       render();
     }
   } catch(e) { console.warn('[pace] fetch failed:', e.message); }
+  finally { _paceFracsInFlight = false; }
 }
 
 let section = 'income';
@@ -1566,6 +1582,7 @@ function clearAllCache() {
   lbGoalsSource = null;
   periodGoalsCache = {};
   paceFracs        = null;
+  paceFracsAt      = 0;
   invGmData     = null; _invGmLoading = false;
   _invalidateDerivedCaches();
   console.log('Cache cleared');
@@ -1607,6 +1624,7 @@ function refreshLiveData() {
   });
   liveData = {};
   _invalidateDerivedCaches();
+  loadPaceFracs(true); // sales and pace have to move together, or the projection drifts
   loadAllStores();
 }
 
@@ -1621,7 +1639,11 @@ function scheduleAutoRefresh() {
   const curMo   = new Date().getMonth() + 1;
   if (activeYear !== curYear || activeMonth !== curMo) return;
   _autoRefreshTimer = setInterval(function() {
-    if (!_loadAllStoresInFlight && !document.hidden && !activeDay) refreshLiveData();
+    // A day view of TODAY is live too. It was excluded here, so the default landing view showed a
+    // "Live" pill while polling nothing — pace only moved when a tab switch happened to refresh it.
+    if (_loadAllStoresInFlight || document.hidden) return;
+    if (activeDay && activeDay !== toDateStr(new Date())) return; // historical days stay static
+    refreshLiveData();
   }, AUTO_REFRESH_MS);
 }
 
@@ -1952,8 +1974,8 @@ function setDay(d) {
     loadPeriodGoals(activeDay);
     const todayStr = toDateStr(new Date());
     if (activeDay === todayStr) {
-      paceFracs = null; // refresh fracs on every day-tap to today (time has moved)
-      loadPaceFracs();
+      paceFracsAt = 0;      // refresh fracs on every day-tap to today (time has moved)
+      loadPaceFracs(true);
     }
   }
 }
@@ -2512,8 +2534,12 @@ function getPacingPct(stores) {
   const daysInMo = activeMonth > 0 ? new Date(yr, activeMonth, 0).getDate() : 365;
   if (activeDay) {
     if (activeDay !== toDateStr(today)) return 100; // past or future day
-    // Use GXCore shaped pacing when available — weighted avg across selected stores
-    if (paceFracs && stores && stores.length) {
+    // Past close the day is DONE. Extrapolating a partial frac after 10 pm is what printed
+    // "+$1,147 over pace" on a day that finished 92% of goal — the projection outran the day.
+    if (today.getHours() + today.getMinutes() / 60 >= THRESHOLDS.STORE_CLOSE_HOUR) return 100;
+    // Use GXCore shaped pacing when available — weighted avg across selected stores.
+    // A stale frac is worse than none: fall through to the live clock ramp rather than freeze.
+    if (paceFracs && !paceFracsStale() && stores && stores.length) {
       const dow = today.getDay();
       const mo  = today.getMonth() + 1;
       let totalW = 0, weightedSum = 0;
