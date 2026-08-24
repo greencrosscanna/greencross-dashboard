@@ -445,6 +445,7 @@ function doGet(e) {
   if (params.action === 'pace')        return getPacingFracs_();
   if (params.action === 'save_expense_mapping') { const g = writeGuard_(auth.user, 'save_expense_mapping'); if (!g.ok) return jsonOut_(g); return saveExpenseMapping_(params); }
   if (params.action === 'expenses')    return getExpenses(params);
+  if (params.action === 'pnl')         return getPnl(params);
   if (params.action === 'qbaccounts')  return getQBAccountNames();
   if (params.action === 'qbmapping')   return getQBMappingSheet();
   if (params.action === 'txfields')    return getTxFields(params);
@@ -1024,10 +1025,11 @@ function walkQBRows_(rows, cols, result, accounts, seenRaws, mapConfig, depth) {
 // numbers are consistent with either path. That is precisely how a missing GX_DEPLOY_SECRET kept the
 // Expenses tab rendering off the legacy local token while the code read as if it were centralized. You
 // cannot retire qbReportLocal_ on "Expenses works" — only on knowing which path served it.
-function qbProfitAndLoss_(start, end) {
+function qbProfitAndLoss_(start, end, by) {
+  by = by || 'Month';
   let why = '';
   try {
-    const r = qbReportViaGXCore_(start, end);
+    const r = qbReportViaGXCore_(start, end, by);
     if (r) return { report: r, source: 'gxcore', fallback_reason: '' };
     // qbReportViaGXCore_ returns null for exactly one reason: no secret configured on this script.
     why = 'GX_DEPLOY_SECRET not set on this script — never reached GX Core';
@@ -1035,17 +1037,18 @@ function qbProfitAndLoss_(start, end) {
     why = e.message;
     Logger.log('QB via GX Core unavailable, falling back to local token: ' + e.message);
   }
-  return { report: qbReportLocal_(start, end), source: 'local', fallback_reason: why };
+  return { report: qbReportLocal_(start, end, by), source: 'local', fallback_reason: why };
 }
 
 // Fetch the P&L through GX Core's centralized, health-instrumented QB connector (secret-gated qb_pnl route).
 // Retries the intermittent Drive-HTML two-hop 404. Returns the raw QB report, or throws.
-function qbReportViaGXCore_(start, end) {
+function qbReportViaGXCore_(start, end, by) {
   const GXCORE_EXEC = 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec';
   const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
   if (!secret) return null;   // no secret configured → skip straight to local
   const url = GXCORE_EXEC + '?action=qb_pnl&secret=' + encodeURIComponent(secret)
-    + '&start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end) + '&by=Month';
+    + '&start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end)
+    + '&by=' + encodeURIComponent(by || 'Month');
   for (let i = 0; i < 5; i++) {
     const resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
     let data = null; try { data = JSON.parse(resp.getContentText()); } catch (e) {}
@@ -1058,7 +1061,7 @@ function qbReportViaGXCore_(start, end) {
 
 // Legacy local path — Sales refreshes its own QB token. Retained as the cutover fallback; remove once GX Core
 // is the proven sole owner (it and Sales must NOT both actively refresh — that's the invalid_grant desync).
-function qbReportLocal_(start, end) {
+function qbReportLocal_(start, end, by) {
   const props   = PropertiesService.getScriptProperties();
   const token   = getQBAccessToken_();
   const realmId = props.getProperty('QB_REALM_ID');
@@ -1066,7 +1069,8 @@ function qbReportLocal_(start, end) {
     ? 'https://sandbox-quickbooks.api.intuit.com'
     : 'https://quickbooks.api.intuit.com';
   const url = qbBase + '/v3/company/' + realmId + '/reports/ProfitAndLoss'
-    + '?start_date=' + start + '&end_date=' + end + '&summarize_column_by=Month';
+    + '?start_date=' + start + '&end_date=' + end
+    + '&summarize_column_by=' + encodeURIComponent(by || 'Month');
   const resp   = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }, muteHttpExceptions: true });
   const report = JSON.parse(resp.getContentText());
   if (report.Fault) throw new Error(JSON.stringify(report.Fault));
@@ -1129,6 +1133,134 @@ function getExpenses(params) {
     output.setContent(JSON.stringify({ error: err.message }));
   }
   return output;
+}
+
+// ── Profit & Loss — the QB report rendered as QB renders it ────────────────────────────────────
+// Deliberately NOT built on getExpenses. That path exists to force QB's chart of accounts through
+// this app's OWN category map (QB_SUMMARY_MAP_ / QB_DETAIL_MAP_ + the user's custom overrides) and
+// to DROP whatever it cannot map — which is the right behavior for a budget tab and the wrong
+// behavior for a financial statement. A P&L that silently omits an unmapped account is not a P&L.
+// So this walks the QB tree structurally instead: every row survives, in QB's own order, with QB's
+// own subtotals, which is also what makes the output line up with the PDF Sky reads in QuickBooks.
+//
+// `by` is validated against an ARRAY with indexOf, not an object looked up by key — this app spent a
+// session removing that idiom, because `MAP[value]` answers for 'constructor' and '__proto__' too.
+const PNL_SUMMARIZE_BY_ = ['Classes', 'Month', 'Total'];
+
+function getPnl(params) {
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+  try {
+    const by = String((params && params.by) || 'Classes');
+    if (PNL_SUMMARIZE_BY_.indexOf(by) === -1) {
+      output.setContent(JSON.stringify({ error: 'bad by (want one of: ' + PNL_SUMMARIZE_BY_.join(', ') + ')' }));
+      return output;
+    }
+
+    const today = new Date();
+    const yr    = today.getFullYear();
+    const start = pnlDate_(params && params.start) || (yr + '-01-01');
+    const end   = pnlDate_(params && params.end)   || (yr + '-' + String(today.getMonth() + 1).padStart(2, '0')
+                                                          + '-' + String(today.getDate()).padStart(2, '0'));
+
+    const cacheKey = 'pnl_' + by + '_' + start + '_' + end + '_v1';
+    if (!params?.nocache) {
+      const cached = cacheGet_(cacheKey);
+      if (cached) { output.setContent(cached); return output; }
+    }
+
+    const qb     = qbProfitAndLoss_(start, end, by);
+    const report = qb.report;
+    if (report.Fault) throw new Error(JSON.stringify(report.Fault));
+
+    // Column 0 is the account-name column and carries no title; the rest are the money columns.
+    const allCols = (report.Columns?.Column || []).map(c => c.ColTitle || '');
+    const columns = allCols.slice(1);
+
+    const rows = [];
+    flattenPnlRows_(report.Rows?.Row || [], columns.length, rows, 0);
+
+    const content = JSON.stringify({
+      columns, rows,
+      start, end,
+      basis:    report.Header?.ReportBasis || '',
+      currency: report.Header?.Currency || 'USD',
+      by,
+      qb_source: qb.source, qb_fallback_reason: qb.fallback_reason
+    });
+    cacheSet_(cacheKey, content, 1800); // 30 min, same as Expenses
+    output.setContent(content);
+  } catch (err) {
+    output.setContent(JSON.stringify({ error: err.message }));
+  }
+  return output;
+}
+
+// Accepts only YYYY-MM-DD and returns it unchanged, else ''. Dates go into a URL that reaches QB, and
+// this app's convention is that dates are TEXT end to end — never parsed into a Date and re-formatted,
+// which is where a sheet/script timezone mismatch shifts them a day.
+function pnlDate_(v) {
+  const s = String(v || '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : '';
+}
+
+// Walk QB's nested report into a FLAT, ordered list — the render order is decided here, once, on the
+// server, so the client never has to re-derive the shape of a financial statement.
+//
+// Each row is { label, depth, kind, group, values[] }:
+//   kind 'header'  — a section's opening line ("Income", "TAXES PAID"); no numbers of its own
+//   kind 'detail'  — an account line
+//   kind 'total'   — a section's own subtotal ("Total Income")
+//   kind 'grand'   — QB's computed lines (Gross Profit, Net Operating Income, Net Income)
+// `group` carries QB's semantic tag (Income / COGS / GrossProfit / Expenses / NetIncome / …) so the
+// client can rule off the statement lines without string-matching English labels.
+function flattenPnlRows_(rows, colCount, out, depth) {
+  const vals = (colData) => {
+    const v = [];
+    for (let i = 0; i < colCount; i++) {
+      const raw = (colData?.[i + 1]?.value || '').replace(/,/g, '');
+      const n   = parseFloat(raw);
+      v.push(isNaN(n) ? null : n);   // null ≠ 0: QB prints blank for "no activity", and the PDF does too
+    }
+    return v;
+  };
+
+  for (const row of (rows || [])) {
+    const group = row.group || '';
+
+    // A section: optional header line, its children, then its own total line.
+    if (row.Rows?.Row || row.Header || row.Summary) {
+      const headLabel = (row.Header?.ColData?.[0]?.value || '').trim();
+      if (headLabel) {
+        out.push({ label: headLabel, depth, kind: 'header', group, values: vals(row.Header.ColData) });
+      }
+
+      if (row.Rows?.Row) {
+        flattenPnlRows_(row.Rows.Row, colCount, out, headLabel ? depth + 1 : depth);
+      }
+
+      const sumLabel = (row.Summary?.ColData?.[0]?.value || '').trim();
+      if (sumLabel) {
+        // QB's standalone computed lines (Gross Profit, Net Income) arrive as a Summary with no
+        // header and no children — they are the statement's rules, not a section's subtotal.
+        const isGrand = !headLabel && !row.Rows?.Row;
+        out.push({
+          label: sumLabel,
+          depth: isGrand ? 0 : depth,
+          kind:  isGrand ? 'grand' : 'total',
+          group, values: vals(row.Summary.ColData)
+        });
+      }
+      continue;
+    }
+
+    // A leaf account line.
+    if (row.ColData) {
+      const label = (row.ColData[0]?.value || '').trim();
+      if (!label) continue;
+      out.push({ label, depth, kind: 'detail', group, values: vals(row.ColData) });
+    }
+  }
 }
 
 // Probes common Dutchie EOD/daily-summary endpoint patterns to find inventory cost

@@ -195,6 +195,79 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .exp-map-btn{font-size:11px;background:none;border:.5px solid var(--border);color:var(--muted);cursor:pointer;padding:3px 8px;border-radius:12px;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
 .exp-map-btn:hover{color:var(--text);border-color:var(--border-strong)}
 .exp-unmap-badge{background:#EF4444;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px}
+/* ── P&L statement — QB-PDF layout on screen, an actual QB-looking sheet on paper ──────────────
+   The numbers are the point here, so the type is tabular-lining: every column of digits has to sit
+   in the same place down the page or a reader cannot compare two rows by eye. The account column is
+   sticky because a class-summarized P&L is 8 money columns wide and scrolls on a phone — a number
+   with its label scrolled off screen is just a number. */
+.pnl-doc{background:var(--card);border:.5px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.pnl-head{padding:16px 16px 12px;text-align:center;border-bottom:.5px solid var(--border)}
+.pnl-co{font-size:14px;font-weight:700;letter-spacing:.02em;color:var(--text)}
+.pnl-title{font-size:17px;font-weight:700;margin-top:2px;color:var(--text)}
+.pnl-range{font-size:11px;color:var(--dim);margin-top:3px}
+.pnl-basis{font-size:10px;color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:.06em}
+.pnl-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.pnl-tbl{border-collapse:collapse;width:100%;min-width:100%;font-size:12px;
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+.pnl-tbl th,.pnl-tbl td{padding:3px 10px;white-space:nowrap}
+.pnl-tbl thead th{position:sticky;top:0;background:var(--card-2);font-size:10px;font-weight:700;
+  letter-spacing:.05em;text-transform:uppercase;color:var(--dim);text-align:right;
+  border-bottom:1px solid var(--border-strong);padding-top:8px;padding-bottom:8px}
+.pnl-tbl thead th.pnl-acct{text-align:left}
+.pnl-acct{position:sticky;left:0;z-index:1;background:var(--card);text-align:left;min-width:190px;max-width:290px;
+  white-space:normal;word-break:break-word;
+  /* The frozen column needs a visible edge, or a half-scrolled money column reads as part of the
+     account name. Shadow only — a border would print as a stray rule on the PDF. */
+  box-shadow:1px 0 0 var(--border)}
+.pnl-tbl thead th.pnl-acct{background:var(--card-2);z-index:2}
+.pnl-num{text-align:right;min-width:96px;color:var(--text)}
+.pnl-num.neg{color:var(--red)}
+.pnl-zero{color:var(--muted)}
+/* Row kinds — these are the QB PDF's own rules, not decoration: a subtotal gets a hairline above it,
+   and the computed statement lines (Gross Profit / Net Income) get the heavier one. */
+.pnl-r-header .pnl-acct{font-weight:700;color:var(--text);padding-top:9px}
+.pnl-r-detail .pnl-acct{color:var(--dim)}
+.pnl-r-total td{font-weight:700;border-top:.5px solid var(--border-strong);padding-top:5px}
+.pnl-r-total .pnl-acct{color:var(--text)}
+.pnl-r-grand td{font-weight:700;border-top:1.5px solid var(--border-strong);
+  border-bottom:.5px solid var(--border-strong);background:var(--card-2);padding-top:7px;padding-bottom:7px}
+.pnl-r-grand .pnl-acct{color:var(--text);letter-spacing:.01em}
+.pnl-r-net td{border-bottom:3px double var(--border-strong)}
+.pnl-tbl tbody tr:hover td:not(.pnl-acct){background:rgba(255,255,255,.03)}
+.pnl-tbl tbody tr:hover .pnl-acct{background:var(--card-2)}
+.pnl-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pnl-seg{display:inline-flex;border:.5px solid var(--border);border-radius:12px;overflow:hidden}
+.pnl-seg button{font-size:11px;background:none;border:none;color:var(--muted);cursor:pointer;padding:4px 11px}
+.pnl-seg button.on{background:var(--green-soft);color:var(--green);font-weight:600}
+.pnl-seg button:not(.on):hover{color:var(--text)}
+.pnl-foot{padding:9px 14px;font-size:10px;color:var(--muted);border-top:.5px solid var(--border);
+  display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+
+/* Print / "Save as PDF" — the whole point of the button. Everything that is dashboard chrome comes
+   off, the sheet goes white, and the statement prints landscape so 8 class columns fit a page. */
+@media print{
+  @page{size:landscape;margin:12mm}
+  body{background:#fff!important}
+  body *{visibility:hidden}
+  #pnl-doc,#pnl-doc *{visibility:visible}
+  #pnl-doc{position:absolute;left:0;top:0;width:100%;border:none;background:#fff;color:#000}
+  #pnl-doc .pnl-head{border-bottom:1px solid #000}
+  #pnl-doc .pnl-co,#pnl-doc .pnl-title{color:#000}
+  #pnl-doc .pnl-range,#pnl-doc .pnl-basis{color:#333}
+  #pnl-doc .pnl-scroll{overflow:visible}
+  #pnl-doc .pnl-tbl{font-size:9pt}
+  #pnl-doc .pnl-tbl thead th{background:#fff;color:#000;border-bottom:1px solid #000;position:static}
+  #pnl-doc .pnl-acct{position:static;background:#fff;color:#000;max-width:none;box-shadow:none}
+  #pnl-doc .pnl-num{color:#000}
+  #pnl-doc .pnl-num.neg{color:#000}
+  #pnl-doc .pnl-zero{color:#666}
+  #pnl-doc .pnl-r-detail .pnl-acct{color:#000}
+  #pnl-doc .pnl-r-total td{border-top:.5pt solid #000}
+  #pnl-doc .pnl-r-grand td{background:#fff;border-top:1pt solid #000;border-bottom:.5pt solid #000}
+  #pnl-doc .pnl-r-net td{border-bottom:2.5pt double #000}
+  #pnl-doc .pnl-noprint{display:none!important}
+  #pnl-doc tr{page-break-inside:avoid}
+}
 .exp-map-row{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:.5px solid var(--border)}
 .exp-map-row:last-child{border-bottom:none}
 .exp-map-qb{font-size:13px;color:#1D9E75;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -576,7 +649,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   // Guarded writes: reportbug, save_expense_mapping, set_otherrev, set_revenue
   window.GX_DEV_READS = [
     'cogs', 'cogs_dutchie', 'config', 'expbudgets', 'expenses', 'getdailygoals', 'goals',
-    'inventory', 'login', 'otherrev', 'pace', 'period_goals', 'ping', 'published_goals',
+    'inventory', 'login', 'otherrev', 'pace', 'period_goals', 'ping', 'pnl', 'published_goals',
     'revenue_detail',
     'stores', 'velocity', 'version_history'
   ];
@@ -853,7 +926,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.501';
+const APP_VERSION = 'v2.502';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -3768,6 +3841,7 @@ async function reloadExpenses() {
 
 function renderExpenses() {
   if (expSection === 'mapping') { renderExpenseMapping(); return; }
+  if (expSection === 'pnl')     { renderPnl();            return; }
 
   if (!expenseData) {
     if (!expensesLoading) {
@@ -3857,9 +3931,12 @@ function renderExpenses() {
 
     <div class="sec-lbl" style="display:flex;align-items:center;justify-content:space-between">
       <span>By category</span>
-      <button class="exp-map-btn" onclick="setExpSection('mapping')">
-        ⚙ Mapping${expenseData.unmappedCount > 0 ? ` <span class="exp-unmap-badge">${expenseData.unmappedCount}</span>` : ''}
-      </button>
+      <span class="pnl-bar">
+        <button class="exp-map-btn" onclick="setExpSection('pnl')">📄 P&amp;L</button>
+        <button class="exp-map-btn" onclick="setExpSection('mapping')">
+          ⚙ Mapping${expenseData.unmappedCount > 0 ? ` <span class="exp-unmap-badge">${expenseData.unmappedCount}</span>` : ''}
+        </button>
+      </span>
     </div>
     <div class="card">
       ${cats.map(c => {
@@ -3938,6 +4015,203 @@ function setExpSection(s) {
   expSection = s;
   renderExpenses();
 }
+
+// ── P&L statement ─────────────────────────────────────────────────────────────────────────────
+// Separate state from expenseData on purpose. The Expenses tab shows THIS APP'S category rollup —
+// QB accounts folded through the mapping sheet, with unmapped ones dropped. The P&L shows what
+// QuickBooks itself would print: every account, QB's order, QB's subtotals. They disagree by design,
+// and the day someone reconciles the two it must be obvious which is which.
+let pnlData    = null;
+let pnlLoading = false;
+let pnlBy      = 'Classes';   // Classes = one column per store, which is how QB has them tagged
+// QB's own PDF omits accounts with no activity in the period; the API returns them regardless, which
+// is how a dozen '(deleted)' rows end up padding the statement. Default to QB's behavior, but keep it
+// a TOGGLE rather than a filter — suppressing rows on a financial statement should be a visible
+// choice, not something the renderer decided quietly. Totals are QB's and never move either way.
+let pnlHideEmpty = true;
+
+async function loadPnl(nocache) {
+  const url = `${getProxyUrl()}?action=pnl&by=${encodeURIComponent(pnlBy)}`
+            + `&token=${encodeURIComponent(getToken())}${nocache ? '&nocache=1' : ''}`;
+  try {
+    const res  = await fetch(url);
+    const data = await res.json();
+    pnlData = data;
+  } catch (e) {
+    console.warn('P&L fetch failed:', e.message);
+    pnlData = { error: e.message };
+  }
+}
+
+function setPnlBy(by) {
+  if (by === pnlBy) return;
+  pnlBy      = by;
+  pnlData    = null;
+  pnlLoading = false;
+  renderPnl();
+}
+
+function togglePnlEmpty() {
+  pnlHideEmpty = !pnlHideEmpty;
+  renderPnl();
+}
+
+function reloadPnl() {
+  pnlData    = null;
+  pnlLoading = false;
+  renderPnl(true);
+}
+
+// A blank cell and a zero are different facts on a statement — QB prints nothing for an account with
+// no activity in that class, and so do we. fmtD would turn both into "$0".
+function fmtPnlCell(v) {
+  if (v === null || v === undefined) return '<span class="pnl-zero">—</span>';
+  if (Math.abs(v) < 0.005)           return '<span class="pnl-zero">0.00</span>';
+  const s = Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return v < 0 ? `(${s})` : s;   // accounting-style negatives, as in the QB PDF
+}
+
+function pnlRangeLabel(d) {
+  const fmt = (iso) => {
+    // Dates stay TEXT the whole way — parsing 'YYYY-MM-DD' with new Date() reads it as UTC and can
+    // render the previous day west of Greenwich, which is exactly the drift this app bans elsewhere.
+    const [y, m, day] = String(iso || '').split('-');
+    if (!y || !m || !day) return iso || '';
+    return `${MONTHS[Number(m) - 1]} ${Number(day)}, ${y}`;
+  };
+  return `${fmt(d.start)} – ${fmt(d.end)}`;
+}
+
+// Drop the rows QB's PDF wouldn't print: detail accounts with no activity anywhere in the period, and
+// then any section left with nothing to show. Two passes, because emptying a subsection can empty its
+// parent — the loop runs until it stops changing rather than assuming one level of nesting.
+function pnlRowIsEmpty(r) {
+  return (r.values || []).every(v => v === null || v === undefined || Math.abs(v) < 0.005);
+}
+
+function pnlDropEmptyRows(rows) {
+  let out = rows.filter(r => r.kind !== 'detail' || !pnlRowIsEmpty(r));
+  // Remove the header and its total TOGETHER, in one pass over adjacent pairs. Dropping them in two
+  // separate filters cannot work: once the header is gone the orphaned total sits next to the
+  // PREVIOUS section's total at the same depth, and is indistinguishable from a legitimate one.
+  for (let pass = 0; pass < 8; pass++) {
+    const drop = new Set();
+    for (let i = 0; i < out.length - 1; i++) {
+      const head = out[i], tot = out[i + 1];
+      // A header whose very next row is its own total has lost every child it had; if that total is
+      // empty too, QB's PDF would print neither line.
+      if (head.kind === 'header' && tot.kind === 'total' &&
+          tot.depth === head.depth && pnlRowIsEmpty(tot)) {
+        drop.add(i); drop.add(i + 1);
+      }
+    }
+    if (!drop.size) return out;                       // stable — nothing left to collapse
+    out = out.filter((_, i) => !drop.has(i));         // re-run: an emptied child can empty its parent
+  }
+  return out;
+}
+
+function renderPnl(nocache) {
+  const host = document.getElementById('main-content');
+
+  if (!pnlData) {
+    if (!pnlLoading) {
+      pnlLoading = true;
+      host.innerHTML = `
+        <div class="sec-lbl" style="display:flex;align-items:center;justify-content:space-between">
+          <span>Profit &amp; Loss</span>
+          <button class="exp-map-btn" onclick="setExpSection('main')">← Back to Expenses</button>
+        </div>
+        <div class="card"><div class="empty-state"><span class="spinner-inline"></span>Loading P&amp;L from QuickBooks…</div></div>`;
+      loadPnl(nocache).finally(() => {
+        pnlLoading = false;
+        if (section === 'expenses' && expSection === 'pnl') renderPnl();
+      });
+    }
+    return;
+  }
+
+  const backBtn = `<button class="exp-map-btn" onclick="setExpSection('main')">← Back to Expenses</button>`;
+
+  if (pnlData.error) {
+    host.innerHTML = `
+      <div class="sec-lbl" style="display:flex;align-items:center;justify-content:space-between">
+        <span>Profit &amp; Loss</span>${backBtn}
+      </div>
+      <div class="card"><div class="empty-state">Couldn't load the P&amp;L — ${escHtml(pnlData.error)}
+        <div style="margin-top:8px"><button class="pill-btn" onclick="reloadPnl()">Try again</button></div>
+      </div></div>`;
+    return;
+  }
+
+  const cols = pnlData.columns || [];
+  const allRows = pnlData.rows || [];
+  const rows = pnlHideEmpty ? pnlDropEmptyRows(allRows) : allRows;
+  const hiddenCount = allRows.length - rows.length;
+
+  const seg = (val, label) =>
+    `<button class="${pnlBy === val ? 'on' : ''}" onclick="setPnlBy('${val}')">${label}</button>`;
+
+  const body = rows.map(r => {
+    const kindCls = `pnl-r-${r.kind}`;
+    // Net Income is the statement's last word — QB double-rules it and nothing else.
+    const netCls  = (r.kind === 'grand' && r.group === 'NetIncome') ? ' pnl-r-net' : '';
+    const indent  = 8 + (r.depth || 0) * 14;
+    // Header rows are labels, not figures; QB leaves their number cells empty and the totals row
+    // below carries the money. Printing a header's ColData here would double-count on the eye.
+    const cells = r.kind === 'header'
+      ? cols.map(() => `<td class="pnl-num"></td>`).join('')
+      : (r.values || []).map(v =>
+          `<td class="pnl-num${(v !== null && v < 0) ? ' neg' : ''}">${fmtPnlCell(v)}</td>`).join('');
+    return `<tr class="${kindCls}${netCls}">
+      <td class="pnl-acct" style="padding-left:${indent}px">${escHtml(r.label)}</td>
+      ${cells}
+    </tr>`;
+  }).join('');
+
+  const srcNote = pnlData.qb_source === 'local'
+    ? `<span title="${escHtml(pnlData.qb_fallback_reason || '')}">source: local token</span>`
+    : `<span>source: GX Core</span>`;
+
+  destroyCharts();
+  host.innerHTML = `
+    <div class="sec-lbl pnl-bar" style="justify-content:space-between">
+      <span class="pnl-bar">
+        Profit &amp; Loss
+        <span class="pnl-seg">${seg('Classes', 'By store')}${seg('Month', 'By month')}${seg('Total', 'Total')}</span>
+      </span>
+      <span class="pnl-bar">
+        <button class="exp-map-btn" onclick="togglePnlEmpty()" title="QuickBooks' PDF omits accounts with no activity">${pnlHideEmpty ? `👁 Show empty${hiddenCount ? ` (${hiddenCount})` : ''}` : '👁 Hide empty'}</button>
+        <button class="exp-map-btn" onclick="printPnl()">🖨 Print / PDF</button>
+        <button class="exp-map-btn" onclick="reloadPnl()">↻ Refresh</button>
+        ${backBtn}
+      </span>
+    </div>
+
+    <div class="pnl-doc" id="pnl-doc">
+      <div class="pnl-head">
+        <div class="pnl-co">Green Cross</div>
+        <div class="pnl-title">Profit and Loss</div>
+        <div class="pnl-range">${escHtml(pnlRangeLabel(pnlData))}</div>
+        <div class="pnl-basis">${escHtml(pnlData.basis || '')} basis${pnlBy === 'Classes' ? ' · by class' : ''}</div>
+      </div>
+      <div class="pnl-scroll">
+        <table class="pnl-tbl">
+          <thead><tr>
+            <th class="pnl-acct"></th>
+            ${cols.map(c => `<th>${escHtml(c)}</th>`).join('')}
+          </tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+      <div class="pnl-foot">
+        <span>${rows.length} lines · ${cols.length} column${cols.length === 1 ? '' : 's'} · ${escHtml(pnlData.currency || 'USD')}${hiddenCount ? ` · ${hiddenCount} inactive account${hiddenCount === 1 ? '' : 's'} hidden` : ''}</span>
+        <span class="pnl-noprint">${srcNote} · loaded ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+      </div>
+    </div>`;
+}
+
+function printPnl() { window.print(); }
 
 function renderExpenseMapping() {
   const accounts = expenseData?.allAccounts || [];
