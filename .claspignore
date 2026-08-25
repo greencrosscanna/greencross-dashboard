@@ -9,4 +9,9 @@ tests/**
 !appsscript.json
 .claude/
 clasp.sh
+# Design handoff folders. Same failure mode as tests/ above: a stray .js in one of these gets pushed
+# as .gs source and can break the whole deploy. Globbed, not named one by one — the period-selector
+# folder was about to ship its support.js on 2026-08-25 because the list only knew the income one.
 design_handoff_income_layout/**
+design_handoff_*/**
+**/*.jsx
