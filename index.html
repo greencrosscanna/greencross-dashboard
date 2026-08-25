@@ -31,6 +31,7 @@
   --bg:var(--gx-bg,#0a0e0d);
   --card:var(--gx-surface,#121715);
   --card-2:var(--gx-surface-2,#161c1a);
+  --card-3:var(--gx-surface-3,#1a221f);
   --border:var(--gx-border,#232a27);
   --border-strong:var(--gx-border-strong,#2e3733);
   --text:var(--gx-text,#e6ece9);
@@ -39,6 +40,10 @@
   --green:var(--gx-green,#4ade80);
   --green-ink:var(--gx-green-ink,#06210f);
   --green-soft:var(--gx-green-soft,rgba(74,222,128,.10));
+  --green-dim:var(--gx-green-dim,#2f8a52);
+  /* Days inside the selected week (or inside the month, when a whole month is selected) in the
+     period calendar. Softer than --green-soft on purpose: it marks a span, not a selection. */
+  --week-tint:rgba(74,222,128,.07);
   --red:var(--gx-red,#ef4444);
   --red-soft:var(--gx-red-soft,rgba(239,68,68,.10));
   --amber:var(--gx-amber,#eab308);
@@ -104,6 +109,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .mbb-filter-row{background:rgba(10,14,13,.97);border-top:.5px solid var(--border);display:flex;gap:7px;padding:8px 12px}
 .mbb-filter{flex:1;height:44px;border-radius:10px;border:.5px solid var(--border-strong);background:var(--card-2);font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px;min-width:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .mbb-period-lbl{font-size:14px;font-weight:600;color:var(--text);white-space:nowrap}
+.mbb-period-lbl2{font-size:12px;color:var(--dim);white-space:nowrap;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}
 .mbb-stores-lbl{font-size:14px;font-weight:500;color:var(--dim);white-space:nowrap}
 .mbb-arrow{font-size:9px;color:var(--muted)}
 .mbb-nav-row{background:rgba(10,14,13,.97);border-top:.5px solid var(--border);display:grid;grid-template-columns:repeat(5,1fr);padding:6px 8px 0;padding-bottom:calc(0px + env(safe-area-inset-bottom));height:calc(68px + env(safe-area-inset-bottom))}
@@ -125,8 +131,43 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .pt-sec-lbl:first-child{margin-top:0}
 .pt-chips{display:flex;flex-wrap:wrap;gap:5px}
 .pt-chip{font-size:12px;font-weight:500;padding:8px 14px;min-height:40px;border-radius:20px;border:0.5px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;white-space:nowrap;display:flex;align-items:center;-webkit-tap-highlight-color:transparent}
-.pt-chip.on{background:var(--green);color:var(--green-ink);border-color:var(--green)}
+.pt-chip.on{background:var(--green);color:var(--green-ink);border-color:var(--green);font-weight:600}
 .pt-chip.future{opacity:0.3;pointer-events:none}
+/* ── Period sheet (mobile) ────────────────────────────────────────────────────
+   Same three-grains-in-one-calendar model as the desktop popover, in the tray this app already
+   has. Deliberately tall (100dvh − 54px) so nothing inside the sheet scrolls: every control is
+   reachable without a scroll gesture that would fight the calendar's touch targets.
+   Design: design_handoff_period_selector/README.md → "Screen 2". */
+#mob-period-tray{max-height:calc(100dvh - 54px)}
+#mob-period-tray-body{padding:14px 16px 22px}
+#mob-period-tray-body .pt-chip{padding:8px 13px;min-height:38px}
+.ptc-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:12px 0 8px}
+.ptc-seg{display:inline-flex;background:#0f1412;border:.5px solid var(--border);border-radius:9px;padding:2px;gap:2px}
+.ptc-seg button{padding:7px 12px;border:none;border-radius:7px;background:transparent;font:700 12px/1 inherit;font-family:inherit;color:var(--muted);cursor:pointer;font-variant-numeric:tabular-nums;-webkit-tap-highlight-color:transparent}
+.ptc-seg button.on{background:var(--card-3);color:var(--text)}
+.ptc-ytd{min-height:36px;padding:0 14px;border-radius:9px;border:.5px solid var(--border);background:transparent;color:var(--dim);font:600 12px/1 inherit;font-family:inherit;cursor:pointer;white-space:nowrap;-webkit-tap-highlight-color:transparent}
+.ptc-ytd.on{border-color:var(--green);background:var(--green-soft);color:var(--green)}
+.ptc-months{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:5px}
+.ptc-mo{min-height:36px;border-radius:8px;border:.5px solid var(--border);background:transparent;color:var(--dim);font:600 12px/1 inherit;font-family:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.ptc-mo.on{background:var(--green);border-color:var(--green);color:var(--green-ink);font-weight:800}
+.ptc-mo.future{color:#26302c;border-color:#1c2320;pointer-events:none}
+.ptc-cal-hdr,.ptc-cal-row{display:grid;grid-template-columns:32px repeat(7,minmax(0,1fr));gap:3px}
+.ptc-cal-hdr{margin:12px 0 4px}
+.ptc-cal-hdr span{font-size:10px;color:var(--muted);font-weight:700;text-align:center}
+.ptc-cal-hdr span:first-child{font-size:9px;letter-spacing:.7px;text-transform:uppercase}
+.ptc-cal{display:flex;flex-direction:column;gap:3px}
+.ptc-wk{height:42px;display:flex;align-items:center;justify-content:center;border-radius:8px;border:.5px solid var(--border);background:#0f1412;font:700 12px/1 inherit;font-family:inherit;font-variant-numeric:tabular-nums;color:var(--muted);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.ptc-wk.has{border-color:var(--green-dim);color:var(--dim)}
+.ptc-wk.on{background:var(--green);border-color:var(--green);color:var(--green-ink)}
+.ptc-day{height:42px;display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px solid transparent;background:transparent;font:500 14px/1 inherit;font-family:inherit;font-variant-numeric:tabular-nums;color:var(--dim);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.ptc-day.out{color:#3a4440}
+.ptc-day.inrange{background:var(--week-tint);color:#cfe8d9}
+.ptc-day.today{border-color:var(--green-dim)}
+.ptc-day.on{background:var(--green);border-color:var(--green);color:var(--green-ink);font-weight:800}
+.ptc-day.future{color:var(--border);pointer-events:none}
+.ptc-cmp{display:flex;align-items:center;gap:8px;margin-top:12px}
+.ptc-cmp .pt-chips{flex:1;min-width:0;flex-wrap:nowrap}
+.ptc-cmp .pt-chip{flex:1;justify-content:center}
 .st-row{display:flex;align-items:center;gap:10px;padding:13px 0;border-bottom:0.5px solid var(--border);cursor:pointer;-webkit-tap-highlight-color:transparent}
 .st-row:last-child{border-bottom:none}
 .st-sdot{width:8px;height:8px;border-radius:50%;background:var(--border-strong);flex-shrink:0}
@@ -296,6 +337,14 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .ic-hero-foot{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .ic-hero-pace{font-size:14px;font-weight:600}
 .ic-hero-lbl2{font-size:12px;color:var(--dim)}
+.ic-hero-cmp{font-size:12px;color:var(--dim)}
+/* Swipe-to-step: dragging the mobile hero moves to the next/previous period of whatever grain is
+   selected, so a phone never needs the sheet to walk a series. pan-y keeps vertical scrolling. */
+#ic-mob-hero{touch-action:pan-y}
+.ic-mob-pnav{display:flex;align-items:center;justify-content:space-between;margin-top:10px}
+.ic-mob-pnav button{display:flex;align-items:center;gap:3px;background:none;border:none;font-family:inherit;font-size:11px;font-weight:600;padding:4px 0;cursor:pointer;color:var(--muted);-webkit-tap-highlight-color:transparent}
+.ic-mob-pnav button.off{color:var(--border);pointer-events:none}
+.ic-mob-pnav button.arm{color:var(--green)}
 /* Mobile breakdown card */
 .ic-mob-bd{background:var(--card);border-radius:10px;padding:6px 12px}
 .ic-bd-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:.5px solid var(--border)}
@@ -345,6 +394,13 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .ic-dsk-bd-nums{text-align:right}
 .ic-dsk-bd-nums .sval{font-size:15px;font-weight:500;color:var(--text);display:block}
 .ic-dsk-bd-nums .sdiff{font-size:11px;display:block}
+/* Compare column — present only while compare is on, so the grid gains a 4th track with it. */
+.ic-dsk-bd-hdr.cmp,.ic-dsk-bd-row.cmp{grid-template-columns:130px 1fr 90px 96px}
+.ic-dsk-bd-hdr.cmp span:last-child{text-align:right}
+.ic-dsk-bd-cmp{text-align:right}
+.ic-dsk-bd-cmp .cpct{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;display:block}
+.ic-dsk-bd-cmp .cval{font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums;display:block}
+.kpi-delta{font-size:12px;margin-top:4px;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
 /* Desktop chart card */
 .ic-chart-card{background:var(--card);border-radius:10px;padding:14px 14px 10px}
 .ic-chart-top{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px}
@@ -367,23 +423,75 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .dsk-live.busy{cursor:default}
 .dsk-live.busy .dsk-live-icon{opacity:1;animation:spin .9s linear infinite}
 @media(prefers-reduced-motion:reduce){.dsk-live.busy .dsk-live-icon{animation:none}}
-.dsk-period{display:none;flex-direction:column;gap:0;margin-bottom:12px;border-top:.5px solid var(--border);padding-top:12px}
-.dsk-period-lbl{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px}
-.dsk-pfield-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
-.dsk-pfield{min-height:44px;border-radius:8px;border:.5px solid var(--border);background:var(--bg);padding:7px 10px;display:flex;flex-direction:column;justify-content:center;cursor:pointer;font-family:inherit;text-align:left;transition:border-color .15s,background .15s;width:100%}
-.dsk-pfield:hover{border-color:var(--border-strong)}
-.dsk-pfield.open{border-color:var(--green);background:rgba(74,222,128,.04)}
-.dsk-pfield-lbl{font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px}
-.dsk-pfield-val{font-size:13px;color:var(--dim)}
-.dsk-pfield.open .dsk-pfield-val{color:var(--text)}
-.dsk-period-panel{background:#0f1413;border:.5px solid var(--border-strong);border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:6px;margin-top:5px}
-.dsk-panel-hdr{display:flex;align-items:center;justify-content:space-between}
-.dsk-panel-lbl{font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
-.dsk-panel-close{background:none;border:none;cursor:pointer;color:var(--muted);padding:0;font-family:inherit;font-size:11px;line-height:1}
-.dsk-panel-chips{display:flex;gap:5px;flex-wrap:wrap}
-.dsk-chip{font-size:11px;padding:5px 9px;border-radius:6px;border:.5px solid var(--border);background:transparent;color:var(--dim);cursor:pointer;font-family:inherit;-webkit-tap-highlight-color:transparent;transition:background .1s}
-.dsk-chip.on{background:var(--green);color:var(--green-ink);border-color:var(--green);font-weight:600}
-.dsk-chip.future{color:#2e3733;border-color:#1c2320;pointer-events:none;cursor:default}
+/* ── Desktop period selector ──────────────────────────────────────────────────
+   ONE control: a trigger pill that reads the resolved range, ‹ › steppers that move by the
+   current grain, and a single popover offering all three grains in one calendar (month name =
+   whole month · Wk cell = that business week · date = single day). Replaces the four dependent
+   Year/Month/Week/Day fields, where Week and Day rendered "—" until the field above was set and
+   nothing on screen ever stated the range being viewed.
+   Design: design_handoff_period_selector/README.md → "Screen 1". Values are the handoff's, put
+   through the app's tokens rather than hardcoded. #0f1412 is a recessed well with no token. */
+.dsk-period{display:none;position:relative;flex-direction:row;align-items:center;gap:8px}
+.dskp-group{display:inline-flex;align-items:stretch;height:34px;border:1px solid var(--border-strong);border-radius:8px;background:var(--bg);overflow:hidden}
+.dskp-step{width:30px;display:flex;align-items:center;justify-content:center;border:none;background:transparent;color:var(--muted);cursor:pointer;font-family:inherit;transition:color .12s,background .12s}
+.dskp-step:hover{color:var(--text);background:var(--card)}
+.dskp-step.prev{border-right:1px solid var(--border)}
+.dskp-step.next{border-left:1px solid var(--border)}
+.dskp-step.off,.dskp-step.off:hover{color:var(--border);background:transparent;cursor:default;pointer-events:none}
+.dskp-trigger{display:flex;align-items:center;gap:9px;padding:0 12px;border:none;background:transparent;cursor:pointer;font-family:inherit;transition:background .12s}
+.dskp-trigger:hover{background:var(--card)}
+.dskp-t1{font-size:13px;font-weight:700;color:var(--text);letter-spacing:.2px;white-space:nowrap}
+.dskp-tsep{color:var(--border-strong)}
+.dskp-t2{font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap}
+.dskp-cmp{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 10px;border-radius:8px;border:1px solid var(--border);background:#0f1412;font-size:11.5px;color:var(--dim);white-space:nowrap}
+.dskp-cmp b{color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-size:9.5px;font-weight:700}
+.dskp-pop{position:absolute;top:calc(100% + 9px);left:0;width:640px;background:var(--card);border:1px solid var(--border-strong);border-radius:12px;box-shadow:0 28px 70px rgba(0,0,0,.55);z-index:80}
+.dskp-pop-body{display:flex;align-items:stretch}
+.dskp-caps{font-size:9.5px;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted);font-weight:700}
+.dskp-rail{width:158px;border-right:1px solid var(--border);padding:12px 10px;display:flex;flex-direction:column;gap:2px}
+.dskp-rail .dskp-caps{padding:0 6px 7px}
+.dskp-preset{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;text-align:left;padding:7px 9px;border-radius:6px;border:1px solid transparent;background:transparent;font:500 12.5px/1.2 inherit;font-family:inherit;color:var(--dim);cursor:pointer;transition:border-color .12s}
+.dskp-preset:hover{border-color:var(--green-dim)}
+.dskp-preset .hint{font-size:10.5px;font-variant-numeric:tabular-nums;color:#3f4a45}
+.dskp-preset.on{background:var(--green-soft);border-color:rgba(74,222,128,.28);color:var(--green);font-weight:700}
+.dskp-preset.on .hint{color:var(--green-dim)}
+.dskp-main{flex:1;padding:12px 14px 14px;min-width:0}
+.dskp-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.dskp-seg{display:inline-flex;background:#0f1412;border:1px solid var(--border);border-radius:7px;padding:2px;gap:2px}
+.dskp-seg button{padding:5px 10px;border:none;border-radius:5px;background:transparent;font:700 11.5px/1 inherit;font-family:inherit;color:var(--muted);cursor:pointer;font-variant-numeric:tabular-nums;white-space:nowrap}
+.dskp-seg button.on{background:var(--card-3);color:var(--text)}
+.dskp-ytd{height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--dim);font:700 11px/1 inherit;font-family:inherit;letter-spacing:.4px;cursor:pointer;white-space:nowrap;transition:border-color .12s}
+.dskp-ytd:hover{border-color:var(--green-dim)}
+.dskp-ytd.on{border-color:var(--green);background:var(--green-soft);color:var(--green)}
+.dskp-months{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px;margin-bottom:12px}
+.dskp-mo{height:28px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--dim);font:600 11px/1 inherit;font-family:inherit;cursor:pointer;transition:border-color .12s}
+.dskp-mo:hover{border-color:var(--green-dim)}
+.dskp-mo.on{background:var(--green);border-color:var(--green);color:var(--green-ink);font-weight:800}
+.dskp-mo.future{color:#26302c;border-color:#1c2320;cursor:default;pointer-events:none}
+.dskp-cal-hdr,.dskp-cal-row{display:grid;grid-template-columns:38px repeat(7,minmax(0,1fr));gap:3px}
+.dskp-cal-hdr{margin-bottom:4px}
+.dskp-cal-hdr span{font-size:9.5px;color:var(--muted);font-weight:700;text-align:center}
+.dskp-cal-hdr span:first-child{font-size:9px;letter-spacing:.7px;text-transform:uppercase}
+.dskp-cal{display:flex;flex-direction:column;gap:3px}
+.dskp-wk{height:32px;display:flex;align-items:center;justify-content:center;border-radius:6px;border:1px solid var(--border);background:#0f1412;font:700 11px/1 inherit;font-family:inherit;font-variant-numeric:tabular-nums;color:var(--muted);cursor:pointer;transition:border-color .12s}
+.dskp-wk:hover{border-color:var(--green-dim)}
+.dskp-wk.has{border-color:var(--green-dim);color:var(--dim)}
+.dskp-wk.on{background:var(--green);border-color:var(--green);color:var(--green-ink)}
+/* WK00 is unrepresentable in activeWeek — see periodStepTarget. Shown, not selectable. */
+.dskp-wk.off,.ptc-wk.off{color:var(--border);border-color:#1c2320;cursor:default;pointer-events:none}
+.dskp-day{height:32px;display:flex;align-items:center;justify-content:center;border-radius:6px;border:1px solid transparent;background:transparent;font:500 12px/1 inherit;font-family:inherit;font-variant-numeric:tabular-nums;color:var(--dim);cursor:pointer;transition:border-color .12s}
+.dskp-day:hover{border-color:var(--green-dim)}
+.dskp-day.out{color:#3a4440}
+.dskp-day.inrange{background:var(--week-tint);color:#cfe8d9}
+.dskp-day.today{border-color:var(--green-dim)}
+.dskp-day.on{background:var(--green);border-color:var(--green);color:var(--green-ink);font-weight:800}
+.dskp-day.future{color:var(--border);cursor:default;pointer-events:none}
+.dskp-hint{font-size:10.5px;color:var(--muted);margin-top:10px;line-height:1.5}
+.dskp-hint b{color:var(--dim);font-weight:500}
+.dskp-foot{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--border);background:#0f1412;border-radius:0 0 12px 12px}
+.dskp-foot .dskp-seg{background:var(--bg)}
+.dskp-foot .dskp-seg button{font-weight:600}
+.dskp-range{margin-left:auto;font-size:11.5px;color:var(--dim);font-variant-numeric:tabular-nums}
 .dsk-stores{display:none;flex-direction:column;gap:0;border-top:.5px solid var(--border);padding-top:12px}
 /* Store PILLS — the same filter-row treatment the Leaderboard uses (.pill there): a horizontal
    row of rounded toggles instead of the checkbox list this used to be. Two things are deliberately
@@ -422,11 +530,14 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
      spans the window while the content below stays centred. */
   .w{max-width:1400px;padding:24px;display:block}
   header.gx-topnav.dsk-chrome{display:flex!important;position:sticky;top:0;z-index:50;}
-  .gx-subnav.dsk-chrome{display:flex!important;gap:18px;align-items:flex-start;flex-wrap:wrap;}
+  /* The period popover is absolutely positioned inside .dsk-period and hangs BELOW this row, so
+     the row has to stack above the content it covers. */
+  .gx-subnav.dsk-chrome{display:flex!important;gap:18px;align-items:center;flex-wrap:wrap;
+    position:relative;z-index:40;}
   /* These two were vertical stacks in a narrow column; in a horizontal row they lay out side by
      side and must not stretch to fill it. */
-  .dsk-period{display:flex!important;flex-direction:row;align-items:center;gap:10px;
-    margin-bottom:0;border-top:none;padding-top:0;flex-wrap:wrap;}
+  .dsk-period{display:flex!important;flex-direction:row;align-items:center;gap:8px;
+    margin-bottom:0;border-top:none;padding-top:0;}
   .dsk-stores{display:flex!important;flex-direction:row;align-items:center;gap:8px;
     border-top:none;padding-top:0;flex-wrap:wrap;margin-left:auto;}
   .dsk-live{flex-shrink:0;}
@@ -434,7 +545,6 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
      right. It is a pill row now, which already sizes to its content and wraps — so the row/column
      overrides that used to be needed here are gone with the classes they targeted. */
   #dsk-stores .store-pill{flex:0 0 auto;}
-  #dsk-period .dsk-period-lbl{margin:0 6px 0 0;}
 
   .main-col{min-width:0;padding-bottom:0}
   .mob-hero{display:none}
@@ -449,6 +559,8 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   .dsk-stores{display:flex}
   .dsk-gear{display:flex}
   /* Income 2.0: flip layouts */
+  /* The compare delta sits inline after the goal on a desktop row, so it gets a divider there. */
+  .ic-hero-cmp{border-left:1px solid var(--border);padding-left:9px}
   .ic-mob{display:none}
   .ic-dsk{display:flex;flex-direction:column;gap:14px}
 }
@@ -746,6 +858,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
     <button class="mbb-filter" id="mbb-period" onclick="openPeriodTray()">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color:var(--muted);flex-shrink:0"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
       <span class="mbb-period-lbl" id="mbb-period-lbl">Period</span>
+      <span class="mbb-period-lbl2" id="mbb-period-lbl2"></span>
       <span class="mbb-arrow">▴</span>
     </button>
     <button class="mbb-filter" id="mbb-stores" onclick="openStoreTray()">
@@ -954,7 +1067,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.512';
+const APP_VERSION = 'v2.513';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1079,6 +1192,7 @@ function getGoal(storeName, month) {
 }
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MONTHS_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 // Sentinel: activeMonth === MONTH_YTD means "full year / YTD" view.
 const MONTH_YTD = 0;
 
@@ -1287,7 +1401,13 @@ let activeWeek  = null;
 let activeDay   = null;
 let activeStore = 'All';
 let activeStoreSet = null; // Set of store names for desktop multi-select; null = all
-let openPeriodField = null; // 'year'|'month'|'week'|'day'|null — open desktop period panel
+let periodPopoverOpen = false; // desktop period popover visibility
+// 'none' | 'prior' | 'yoy'. Drives the sub-nav chip, the hero delta, the KPI sub-lines and the
+// store-breakdown compare column. Persisted: it is a way of reading the page, not a selection.
+let compareMode = (() => {
+  const v = localStorage.getItem('gc_compare_mode');
+  return v === 'prior' || v === 'yoy' ? v : 'none';
+})();
 let isInitialLoad   = true;
 let liveData = {};
 let _storeStateMap = {}; // last known state map — lets backfill refresh the status strip
@@ -1995,6 +2115,7 @@ async function loadAllStores() {
 
   updateCacheStatus();
   render();
+  refreshCompare();               // no-op unless compare is on and its range actually moved
   window.scrollTo(0, _scrollY);  // restore position (no jump on auto-refresh)
   scheduleAutoRefresh();          // restart 60s timer for current month
   backfillDailyHistory(proxyUrl);
@@ -2012,6 +2133,7 @@ async function loadAllStores() {
       render();
       loadPeriodGoals(activeDay);
       loadPaceFracs();
+      refreshCompare();   // this auto-select runs AFTER the refreshCompare above, so redo it
     }
   }
   } finally {
@@ -2040,42 +2162,12 @@ function setSection(s) {
   render();
 }
 
-function setMonth(m) {
-  activeMonth   = m;
-  activeWeek    = null;
-  activeDay     = null;
-  clearAutoRefresh(); // stops timer; scheduleAutoRefresh() in loadAllStores restarts it if current month
-  buildTimeNav();
-  if (Object.keys(liveData).length > 0) loadAllStores();
-}
-
-function setWeek(w) {
-  activeWeek    = (activeWeek === w) ? null : w;
-  activeDay     = null;
-  buildTimeNav();
-  render();
-}
-
-function setDay(d) {
-  activeDay     = (activeDay === d) ? null : d;
-  buildTimeNav();
-  render();
-  if (activeDay) {
-    loadPeriodGoals(activeDay);
-    const todayStr = toDateStr(new Date());
-    if (activeDay === todayStr) {
-      paceFracsAt = 0;      // refresh fracs on every day-tap to today (time has moved)
-      loadPaceFracs(true);
-    }
-  }
-}
-
-function setWeekAll() {
-  activeWeek    = null;
-  activeDay     = null;
-  buildTimeNav();
-  render();
-}
+// setMonth / setWeek / setDay / setWeekAll / setYear used to live here — one setter per field, to
+// match a selector that had one panel per field. periodApply() replaced all five: it takes a WHOLE
+// selection, so a week that crosses a month and a day that crosses a year each land in one call
+// instead of needing the caller to remember to fix the fields above them. Deleted 2026-08-25 once
+// the last caller went with the four-field panel; their behaviour (which changes reload, which
+// only re-render, when pace fracs refresh) is preserved in periodApply.
 
 function setStore(s) {
   activeStore = s;
@@ -2087,25 +2179,20 @@ function setStore(s) {
   activeStoreSet = (s === 'All') ? null : new Set([s]);
   updateMobBottomBar();
   render();
+  refreshCompare();   // the compare period is scoped to the same stores
 }
 
-function setYear(yr) {
-  activeYear    = yr;
-  activeMonth   = yr < new Date().getFullYear() ? MONTH_YTD : new Date().getMonth() + 1;
-  activeWeek    = null;
-  activeDay     = null;
-  buildTimeNav();
-  if (Object.keys(liveData).length > 0 || yr !== new Date().getFullYear()) loadAllStores();
-}
-
-// The desktop period panel and the mobile bottom bar are the two period UIs this app actually has.
+// The desktop period selector and the mobile bottom bar are the two period UIs this app actually has.
 // There used to be a third — a scrollable "time-nav" strip with expandable year/month/week/day
 // groups, plus a four-field mobile period bar — and ~180 lines of it survived the layout change that
 // removed its containers. #time-nav, #period-bar and #period-expanded are in no markup, so every one
 // of those builders bailed on its first line and the whole path was unreachable. Deleted 2026-08-25.
 function buildTimeNav() {
-  buildDskPeriod();      // desktop period panel
+  buildDskPeriod();      // desktop trigger + popover
   updateMobBottomBar();  // mobile bottom bar
+  // The sheet stays up through a month or year tap, so its own contents have to follow the
+  // selection. Rebuilt only while it is actually open.
+  if (document.getElementById('mob-period-tray')?.classList.contains('open')) buildPeriodTray();
 }
 
 // #store-tabs is in no markup, so this only ever forwarded to the desktop pills. Kept as a name
@@ -2116,79 +2203,332 @@ function buildStoreTabs() {
 
 // ── Desktop sidebar builders ──────────────────────────────────────────────────
 
+// ── Period model ──────────────────────────────────────────────────────────────
+// Still ONE period at a time, still year → month → week → day, still WK = ISO week − 1. The four
+// state variables are unchanged; everything the two period UIs show is DERIVED from them — the
+// grain, the resolved range, the trigger labels, which preset is lit, whether ‹ › can move. None
+// of that is stored, so the desktop popover and the mobile sheet cannot disagree.
+//
+// One inherited quirk, kept deliberately: a week number of 0 (possible in the first days of
+// January) reads as falsy, so `activeWeek` truthiness is the week test — the same test
+// getPeriodTotals, getStorePeriodNet and the chart builders already use. Switching this one place
+// to `!== null` would make the selector claim a week grain that the data path would not honour.
+
+function periodGrain() {
+  if (activeDay)  return 'day';
+  if (activeWeek) return 'week';
+  if (activeMonth === MONTH_YTD) return 'ytd';
+  return 'month';
+}
+
+function todayMidnight() { const t = new Date(); t.setHours(0, 0, 0, 0); return t; }
+
+/** The resolved {from, to} Dates for the current selection. The CURRENT month/year ends today,
+ *  not on the last of the month — the range is what is being viewed, not what is scheduled. */
+function periodRange() {
+  const t = todayMidnight();
+  if (activeDay)  { const d = new Date(activeDay + 'T12:00:00'); d.setHours(0,0,0,0); return { from: d, to: d }; }
+  if (activeWeek) { const ds = getDaysOfISOWeek(activeYear, activeWeek); return { from: ds[0], to: ds[6] }; }
+  if (activeMonth === MONTH_YTD) {
+    return { from: new Date(activeYear, 0, 1), to: activeYear < t.getFullYear() ? new Date(activeYear, 11, 31) : t };
+  }
+  const isCur = activeYear === t.getFullYear() && activeMonth === t.getMonth() + 1;
+  return { from: new Date(activeYear, activeMonth - 1, 1), to: isCur ? t : new Date(activeYear, activeMonth, 0) };
+}
+
+function periodSpan(from, to) {
+  const a = MONTHS[from.getMonth()] + ' ' + from.getDate();
+  if (from.getTime() === to.getTime()) return a;
+  const b = from.getMonth() === to.getMonth() ? String(to.getDate()) : MONTHS[to.getMonth()] + ' ' + to.getDate();
+  return a + ' – ' + b;
+}
+
+/** Trigger labels {p1, p2} — primary names the period, secondary states the dates it resolves to,
+ *  so the range being viewed is always readable without opening anything. `short` gives the
+ *  abbreviated month the narrower mobile trigger needs. */
+function periodLabels(short) {
+  const curY = new Date().getFullYear();
+  const g = periodGrain(), r = periodRange();
+  let p1, p2;
+  if (g === 'day') {
+    const d = new Date(activeDay + 'T12:00:00');
+    p1 = d.toLocaleDateString([], { weekday:'short', month:'short', day:'numeric' });
+    p2 = 'WK' + String(activeWeek).padStart(2, '0');
+  } else if (g === 'week') {
+    p1 = 'WK' + String(activeWeek).padStart(2, '0');
+    p2 = periodSpan(r.from, r.to);
+  } else if (g === 'ytd') {
+    p1 = activeYear < curY ? String(activeYear) : 'YTD';
+    p2 = periodSpan(r.from, r.to);
+  } else {
+    p1 = (short ? MONTHS : MONTHS_FULL)[activeMonth - 1];
+    p2 = periodSpan(r.from, r.to);
+  }
+  if (activeYear !== curY && g !== 'ytd') p2 += ', ' + activeYear;
+  return { p1, p2 };
+}
+
+/** Apply a whole selection in one shot. Year or month changing invalidates liveData (it is fetched
+ *  per month), so those reload; week and day only re-render. This is the SINGLE write-point for
+ *  the selection: every path — popover, sheet, steppers, presets, swipe — comes through here. */
+function periodApply(o) {
+  const reload = o.year !== activeYear || o.month !== activeMonth;
+  activeYear  = o.year;
+  activeMonth = o.month;
+  activeWeek  = o.week ?? null;
+  activeDay   = o.day  ?? null;
+  buildTimeNav();
+  if (reload) {
+    clearAutoRefresh(); // loadAllStores restarts it when this lands on the current month
+    if (Object.keys(liveData).length > 0 || o.year !== new Date().getFullYear()) loadAllStores();
+    else render();
+  } else {
+    render();
+  }
+  if (activeDay) {
+    loadPeriodGoals(activeDay);
+    if (activeDay === toDateStr(new Date())) {
+      paceFracsAt = 0;      // time has moved since the last fetch
+      loadPaceFracs(true);
+    }
+  }
+  refreshCompare();
+}
+
+/** Week numbers are year-relative, so a week that crosses a year boundary has to be renumbered.
+ *  The week's 4th day (Thursday) is what decides which month and year the week belongs to. */
+function periodGoWeek(yr, wk) {
+  const mid = getDaysOfISOWeek(yr, wk)[3];
+  periodApply({ year: mid.getFullYear(), month: mid.getMonth() + 1, week: getUserWeek(mid) });
+}
+function periodGoDay(ds) {
+  const d = new Date(ds + 'T12:00:00');
+  periodApply({ year: d.getFullYear(), month: d.getMonth() + 1, week: getUserWeek(d), day: ds });
+}
+function periodSetMonth(m) { periodApply({ year: activeYear, month: m }); }
+function periodSetYear(yr) {
+  periodApply({ year: yr, month: yr < new Date().getFullYear() ? MONTH_YTD : new Date().getMonth() + 1 });
+}
+function periodSetWeek(wk) {
+  // Clicking the week you are already on clears back to the whole month.
+  if (activeWeek === wk && !activeDay) return periodApply({ year: activeYear, month: activeMonth });
+  periodGoWeek(activeYear, wk);
+}
+function periodSetDay(ds) {
+  // Clicking the selected day clears back to its WEEK, not to the month — the week you were
+  // walking is the thing you most likely still want.
+  if (activeDay === ds) return periodApply({ year: activeYear, month: activeMonth, week: activeWeek });
+  periodGoDay(ds);
+}
+
+function periodPresetDefs() {
+  const t = todayMidnight(), curY = t.getFullYear(), curM = t.getMonth() + 1;
+  const wk = getUserWeek(t);
+  const lastWk = getUserWeek(getDaysOfISOWeek(curY, wk - 1)[3]); // renumbers across a year boundary
+  return [
+    ['today',     'Today',        t.toLocaleDateString([], { month:'short', day:'numeric' })],
+    ['yest',      'Yesterday',    ''],
+    ['thisweek',  'This week',    'WK' + String(wk).padStart(2, '0')],
+    ['lastweek',  'Last week',    'WK' + String(lastWk).padStart(2, '0')],
+    ['thismonth', 'This month',   MONTHS[curM - 1]],
+    ['lastmonth', 'Last month',   MONTHS[(curM + 10) % 12]],
+    ['ytd',       'Year to date', String(curY)],
+  ];
+}
+
+function periodApplyPreset(k) {
+  const t = todayMidnight(), y = t.getFullYear();
+  // Presets go through the non-toggling setters: "Today" must SELECT today, never deselect it.
+  if (k === 'today')     return periodGoDay(toDateStr(t));
+  if (k === 'yest')      { const d = new Date(t); d.setDate(d.getDate() - 1); return periodGoDay(toDateStr(d)); }
+  if (k === 'thisweek')  return periodGoWeek(y, getUserWeek(t));
+  if (k === 'lastweek')  return periodGoWeek(y, getUserWeek(t) - 1);
+  if (k === 'thismonth') return periodApply({ year: y, month: t.getMonth() + 1 });
+  if (k === 'lastmonth') { const m = t.getMonth(); return periodApply(m === 0 ? { year: y - 1, month: 12 } : { year: y, month: m }); }
+  if (k === 'ytd')       return periodApply({ year: y, month: MONTH_YTD });
+}
+
+/** Which preset row lights up. DERIVED from the selection, never stored — so a preset lights
+ *  whenever the calendar selection happens to equal it, however you arrived there. */
+function periodActivePreset() {
+  const t = todayMidnight(), curY = t.getFullYear(), curM = t.getMonth() + 1;
+  const g = periodGrain();
+  if (g === 'day') {
+    const y = new Date(t); y.setDate(y.getDate() - 1);
+    return activeDay === toDateStr(t) ? 'today' : activeDay === toDateStr(y) ? 'yest' : '';
+  }
+  if (g === 'week') {
+    if (activeYear !== curY) return '';
+    return activeWeek === getUserWeek(t) ? 'thisweek' : activeWeek === getUserWeek(t) - 1 ? 'lastweek' : '';
+  }
+  if (g === 'ytd') return activeYear === curY ? 'ytd' : '';
+  if (activeYear === curY && activeMonth === curM) return 'thismonth';
+  const lm = curM === 1 ? { y: curY - 1, m: 12 } : { y: curY, m: curM - 1 };
+  return activeYear === lm.y && activeMonth === lm.m ? 'lastmonth' : '';
+}
+
+/** The next/previous period AT THE CURRENT GRAIN — day ±1 day, week ±1 week (crossing months and
+ *  years), month ±1 month (crossing years), YTD ±1 year.
+ *
+ *  ALWAYS names the neighbour, even one that cannot be reached: `allowed` is what greys the ‹ ›
+ *  buttons and the mobile neighbour labels. A greyed "Sep" says why you cannot go there; a blank
+ *  button just looks broken. */
+function periodStepTarget(dir) {
+  const t = todayMidnight(), g = periodGrain();
+  if (g === 'day') {
+    const d = new Date(activeDay + 'T12:00:00'); d.setHours(0,0,0,0); d.setDate(d.getDate() + dir);
+    return { label: MONTHS[d.getMonth()] + ' ' + d.getDate(), allowed: d <= t, apply: () => periodGoDay(toDateStr(d)) };
+  }
+  if (g === 'week') {
+    const ds = getDaysOfISOWeek(activeYear, activeWeek + dir);
+    const wk = getUserWeek(ds[3]);
+    // WK00 (the ISO-week-1 stub at the start of January) is UNREPRESENTABLE: activeWeek's
+    // truthiness is the week test in getPeriodTotals, getStorePeriodNet, computeInvCost and the
+    // chart builders, so a stored 0 would render as the whole month while the trigger claimed a
+    // week. Refusing the step is the honest outcome — silently landing on the month is not.
+    return { label: 'WK' + String(wk).padStart(2, '0'), allowed: ds[0] <= t && wk !== 0,
+             apply: () => periodGoWeek(ds[3].getFullYear(), wk) };
+  }
+  if (g === 'ytd') {
+    const y = activeYear + dir;
+    return { label: String(y), allowed: y <= t.getFullYear(), apply: () => periodApply({ year: y, month: MONTH_YTD }) };
+  }
+  let m = activeMonth + dir, y = activeYear;
+  if (m > 12) { m = 1; y++; }
+  if (m < 1)  { m = 12; y--; }
+  const allowed = !(y > t.getFullYear() || (y === t.getFullYear() && m > t.getMonth() + 1));
+  return { label: MONTHS[m - 1], allowed, apply: () => periodApply({ year: y, month: m }) };
+}
+function periodStep(dir) { const tgt = periodStepTarget(dir); if (tgt.allowed) tgt.apply(); }
+
+function setCompareMode(mode) {
+  compareMode = mode;
+  localStorage.setItem('gc_compare_mode', mode);
+  buildTimeNav();
+  refreshCompare();
+  render();
+}
+
+// ── Desktop period selector ───────────────────────────────────────────────────
+
+const P_ICON_CAL   = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color:var(--muted);flex-shrink:0" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>`;
+const P_ICON_LEFT  = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>`;
+const P_ICON_RIGHT = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>`;
+const P_ICON_DOWN  = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted);margin-left:2px" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>`;
+const P_DOW_HEADS  = ['M','T','W','T','F','S','S'];
+
 function buildDskPeriod() {
   const el = document.getElementById('dsk-period');
   if (!el) return;
-  const curYear = new Date().getFullYear();
-  const curMo   = new Date().getMonth() + 1;
-  const curWeek = getUserWeek(new Date());
-  const isPast  = activeYear < curYear;
-  const _years  = [curYear - 2, curYear - 1, curYear];
-  const monthLbl = activeMonth === 0 ? (isPast ? 'Full Yr' : 'YTD') : MONTHS[activeMonth-1];
-  const weekLbl  = activeWeek ? 'WK' + activeWeek : '—';
-  const dayObj   = activeDay ? new Date(activeDay + 'T12:00:00') : null;
-  const dayLbl   = dayObj ? DAY_LETTERS[dayObj.getDay()] + ' ' + String(dayObj.getDate()).padStart(2,'0') : '—';
-
-  const makeField = (key, label, value) => {
-    const isOpen = openPeriodField === key;
-    return `<button class="dsk-pfield${isOpen?' open':''}" onclick="dskOpenField('${key}')">
-      <span class="dsk-pfield-lbl">${label}</span>
-      <span class="dsk-pfield-val">${value}</span>
-    </button>`;
-  };
-
-  let panelHtml = '';
-  if (openPeriodField === 'year') {
-    const chips = _years.map(yr =>
-      `<button class="dsk-chip${yr===activeYear?' on':''}" onclick="dskSetYear(${yr})">${yr}</button>`
-    ).join('');
-    panelHtml = `<div class="dsk-period-panel"><div class="dsk-panel-hdr"><span class="dsk-panel-lbl">Year</span><button class="dsk-panel-close" onclick="dskOpenField(null)">✕</button></div><div class="dsk-panel-chips">${chips}</div></div>`;
-  } else if (openPeriodField === 'month') {
-    const allLbl = isPast ? 'Full Yr' : 'YTD';
-    const chips = `<button class="dsk-chip${activeMonth===0?' on':''}" onclick="dskSetMonth(0)">${allLbl}</button>` +
-      MONTHS.map((m,i) => {
-        const mo = i+1, future = !isPast && mo > curMo;
-        return `<button class="dsk-chip${mo===activeMonth?' on':''}${future?' future':''}" onclick="dskSetMonth(${mo})">${m}</button>`;
-      }).join('');
-    panelHtml = `<div class="dsk-period-panel"><div class="dsk-panel-hdr"><span class="dsk-panel-lbl">Month</span><button class="dsk-panel-close" onclick="dskOpenField(null)">✕</button></div><div class="dsk-panel-chips">${chips}</div></div>`;
-  } else if (openPeriodField === 'week' && activeMonth > 0) {
-    const weeks = getWeeksInMonth(activeYear, activeMonth);
-    const chips = `<button class="dsk-chip${!activeWeek?' on':''}" onclick="dskSetWeek(null)">All</button>` +
-      weeks.map(w => {
-        const future = activeYear===curYear && (activeMonth>curMo || (activeMonth===curMo && w>curWeek));
-        return `<button class="dsk-chip${w===activeWeek?' on':''}${future?' future':''}" onclick="dskSetWeek(${w})">WK${w}</button>`;
-      }).join('');
-    panelHtml = `<div class="dsk-period-panel"><div class="dsk-panel-hdr"><span class="dsk-panel-lbl">Week</span><button class="dsk-panel-close" onclick="dskOpenField(null)">✕</button></div><div class="dsk-panel-chips">${chips}</div></div>`;
-  } else if (openPeriodField === 'day' && activeWeek) {
-    const today = new Date(); today.setHours(0,0,0,0);
-    const chips = getDaysOfISOWeek(activeYear, activeWeek).map(d => {
-      const ds = d.toISOString().slice(0,10);
-      const lbl = DAY_LETTERS[d.getDay()] + ' ' + d.getDate();
-      const future = d > today;
-      const inMonth = d.getMonth()+1 === activeMonth;
-      return `<button class="dsk-chip${activeDay===ds?' on':''}${future?' future':''}" style="${!inMonth&&!future?'opacity:.35':''}" onclick="dskSetDay('${ds}')">${lbl}</button>`;
-    }).join('');
-    panelHtml = `<div class="dsk-period-panel"><div class="dsk-panel-hdr"><span class="dsk-panel-lbl">Day</span><button class="dsk-panel-close" onclick="dskOpenField(null)">✕</button></div><div class="dsk-panel-chips">${chips}</div></div>`;
-  }
-
-  el.innerHTML = `<div class="dsk-period-lbl">Period</div>
-    <div class="dsk-pfield-grid">
-      ${makeField('year',  'Year',  String(activeYear))}
-      ${makeField('month', 'Month', monthLbl)}
-      ${makeField('week',  'Week',  activeMonth===0 ? '—' : weekLbl)}
-      ${makeField('day',   'Day',   !activeWeek ? '—' : dayLbl)}
-    </div>
-    ${panelHtml}`;
+  const { p1, p2 } = periodLabels();
+  const back = periodStepTarget(-1).allowed, fwd = periodStepTarget(1).allowed;
+  const cmpChip = compareMode === 'prior' ? 'prior period'
+                : compareMode === 'yoy'   ? 'same period ' + (activeYear - 1) : '';
+  el.innerHTML =
+    `<div class="dskp-group">
+      <button class="dskp-step prev${back ? '' : ' off'}" type="button" title="Previous period" aria-label="Previous period" onclick="periodStep(-1)">${P_ICON_LEFT}</button>
+      <button class="dskp-trigger" type="button" aria-expanded="${periodPopoverOpen}" onclick="togglePeriodPopover()">
+        ${P_ICON_CAL}
+        <span class="dskp-t1">${p1}</span><span class="dskp-tsep">·</span><span class="dskp-t2">${p2}</span>
+        ${P_ICON_DOWN}
+      </button>
+      <button class="dskp-step next${fwd ? '' : ' off'}" type="button" title="Next period" aria-label="Next period" onclick="periodStep(1)">${P_ICON_RIGHT}</button>
+    </div>` +
+    (cmpChip ? `<span class="dskp-cmp"><b>vs</b>${cmpChip}</span>` : '') +
+    (periodPopoverOpen ? periodPopoverHtml() : '');
 }
 
-function dskOpenField(field) {
-  openPeriodField = (openPeriodField === field) ? null : field;
+function periodPopoverHtml() {
+  const t = todayMidnight(), curY = t.getFullYear(), curM = t.getMonth() + 1;
+  const isPast = activeYear < curY;
+
+  const active  = periodActivePreset();
+  const presets = periodPresetDefs().map(([k, label, hint]) =>
+    `<button class="dskp-preset${active === k ? ' on' : ''}" type="button" onclick="periodApplyPreset('${k}')">
+      <span>${label}</span><span class="hint">${hint}</span>
+    </button>`).join('');
+
+  const years = [curY - 2, curY - 1, curY].map(y =>
+    `<button type="button" class="${y === activeYear ? 'on' : ''}" onclick="periodSetYear(${y})">${y}</button>`).join('');
+
+  const months = MONTHS.map((m, i) => {
+    const mo = i + 1, future = activeYear === curY && mo > curM;
+    return `<button type="button" class="dskp-mo${activeMonth === mo ? ' on' : ''}${future ? ' future' : ''}"` +
+           `${future ? '' : ` onclick="periodSetMonth(${mo})"`}>${m}</button>`;
+  }).join('');
+
+  // A year-wide selection has no month of its own, so the calendar shows the last month that can
+  // hold data rather than going blank behind it.
+  const calMonth = activeMonth === MONTH_YTD ? (isPast ? 12 : curM) : activeMonth;
+  const monthSel = !activeWeek && !activeDay;
+  const dayWk    = activeDay ? getUserWeek(new Date(activeDay + 'T12:00:00')) : null;
+  const rows = getWeeksInMonth(activeYear, calMonth).map(w => {
+    const wkSel = activeWeek === w && !activeDay;
+    const wkHas = dayWk === w;
+    const days  = getDaysOfISOWeek(activeYear, w).map(d => {
+      const key = toDateStr(d), inM = d.getMonth() + 1 === calMonth, future = d > t;
+      let cls = 'dskp-day';
+      if (future) cls += ' future';
+      else if (!inM) cls += ' out';
+      if (!future && (wkSel || (monthSel && inM))) cls += ' inrange';
+      if (d.getTime() === t.getTime()) cls += ' today';
+      if (activeDay === key) cls += ' on';
+      return `<button type="button" class="${cls}"${future ? '' : ` onclick="periodSetDay('${key}')"`}>${d.getDate()}</button>`;
+    }).join('');
+    return `<div class="dskp-cal-row">
+      <button type="button" class="dskp-wk${w === 0 ? ' off' : wkSel ? ' on' : wkHas ? ' has' : ''}"${w === 0 ? ' title="WK00 cannot be selected — pick its days instead"' : ` onclick="periodSetWeek(${w})"`}>${String(w).padStart(2, '0')}</button>
+      ${days}
+    </div>`;
+  }).join('');
+
+  const cmp = [['none','None'],['prior','Prior period'],['yoy','Same period last year']].map(([k, l]) =>
+    `<button type="button" class="${compareMode === k ? 'on' : ''}" onclick="setCompareMode('${k}')">${l}</button>`).join('');
+
+  const r = periodRange();
+  const dayCount = Math.round((r.to - r.from) / 86400000) + 1;
+  const rangeText =
+    r.from.toLocaleDateString([], { month:'short', day:'numeric' }) + ' – ' +
+    r.to.toLocaleDateString([], { month:'short', day:'numeric', year:'numeric' }) +
+    ' · ' + dayCount + (dayCount === 1 ? ' day' : ' days');
+
+  return `<div class="dskp-pop">
+    <div class="dskp-pop-body">
+      <div class="dskp-rail">
+        <div class="dskp-caps">Jump to</div>
+        ${presets}
+      </div>
+      <div class="dskp-main">
+        <div class="dskp-row">
+          <div class="dskp-seg">${years}</div>
+          <button type="button" class="dskp-ytd${activeMonth === MONTH_YTD ? ' on' : ''}" onclick="periodSetMonth(${MONTH_YTD})">${isPast ? 'Full year' : 'Year to date'}</button>
+        </div>
+        <div class="dskp-months">${months}</div>
+        <div class="dskp-cal-hdr"><span>Wk</span>${P_DOW_HEADS.map(d => `<span>${d}</span>`).join('')}</div>
+        <div class="dskp-cal">${rows}</div>
+        <div class="dskp-hint">Month name picks the whole month · <b>Wk</b> picks that business week · a date picks the single day</div>
+      </div>
+    </div>
+    <div class="dskp-foot">
+      <span class="dskp-caps">Compare</span>
+      <div class="dskp-seg">${cmp}</div>
+      <span class="dskp-range">${rangeText}</span>
+    </div>
+  </div>`;
+}
+
+function togglePeriodPopover() {
+  periodPopoverOpen = !periodPopoverOpen;
   buildDskPeriod();
 }
-function dskSetYear(yr)  { setYear(yr);      openPeriodField = null; buildDskPeriod(); }
-function dskSetMonth(m)  { setMonth(m);      openPeriodField = null; buildDskPeriod(); }
-function dskSetWeek(w)   { if (w===null) setWeekAll(); else setWeek(w); openPeriodField = null; buildDskPeriod(); }
-function dskSetDay(ds)   { setDay(ds);       openPeriodField = null; buildDskPeriod(); }
+
+// Bound ONCE, at parse time. The popover markup is rebuilt on every selection, so binding this
+// per-render would leak one listener per click. mousedown (not click) so the popover is gone
+// before whatever is underneath receives the press.
+document.addEventListener('mousedown', e => {
+  if (!periodPopoverOpen) return;
+  const host = document.getElementById('dsk-period');
+  if (host && !host.contains(e.target)) { periodPopoverOpen = false; buildDskPeriod(); }
+});
 
 function buildDskStores() {
   const el = document.getElementById('dsk-stores');
@@ -2241,6 +2581,7 @@ function pnlToggleCorporate() {
   syncActiveStoreMirror();
   buildDskStores();
   render();
+  refreshCompare();   // the compare period is scoped to the same stores
 }
 
 // Click semantics, corrected 2026-08-24 (Sky): from "all", clicking one pill ISOLATES it. It used
@@ -2289,6 +2630,7 @@ function dskToggleStore(name) {
   syncActiveStoreMirror();
   buildDskStores();
   render();
+  refreshCompare();   // the compare period is scoped to the same stores
 }
 
 function dskSelectAllStores() {
@@ -2296,6 +2638,7 @@ function dskSelectAllStores() {
   syncActiveStoreMirror();
   buildDskStores();
   render();
+  refreshCompare();   // the compare period is scoped to the same stores
 }
 
 // activeStore (single) and activeStoreSet (multi) are two views of one selection, and the mobile
@@ -2332,21 +2675,15 @@ function updateMobHero() {
   dot.className = 'mh-dot ' + (Object.keys(liveData).length > 0 ? 'ok' : 'loading');
 }
 
-function getMobPeriodLabel() {
-  const FULL_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  if (activeDay) {
-    const d = new Date(activeDay + 'T12:00:00');
-    return d.toLocaleDateString([], { weekday:'short', month:'short', day:'numeric' });
-  }
-  if (activeWeek) return 'Week ' + activeWeek + ' · ' + activeYear;
-  if (activeMonth === MONTH_YTD) return activeYear < new Date().getFullYear() ? String(activeYear) : 'Year to Date';
-  return FULL_MONTHS[activeMonth - 1] + ' ' + activeYear;
-}
-
 function updateMobBottomBar() {
   const periodLbl = document.getElementById('mbb-period-lbl');
+  const periodLbl2 = document.getElementById('mbb-period-lbl2');
   const storesLbl = document.getElementById('mbb-stores-lbl');
-  if (periodLbl) periodLbl.textContent = getMobPeriodLabel();
+  // Same labels as the desktop trigger — the range is readable from the bottom bar without
+  // opening the sheet. `short` because 390pt has no room for "September".
+  const { p1, p2 } = periodLabels(true);
+  if (periodLbl)  periodLbl.textContent  = p1;
+  if (periodLbl2) periodLbl2.textContent = p2;
   if (storesLbl) {
     // Describe the SET — with a multi-selection active, "All stores" is simply false.
     const n = activeStoreSet === null ? STORES.length : activeStoreSet.size;
@@ -2374,56 +2711,75 @@ function closePeriodTray() {
   document.getElementById('mob-overlay').classList.remove('open');
   document.getElementById('mob-period-tray').classList.remove('open');
 }
+// The same three-grains-in-one-calendar model as the desktop popover, in the tray this app already
+// has. Section order is deliberate: quick jumps first, because they are the most taps.
 function buildPeriodTray() {
   const body = document.getElementById('mob-period-tray-body');
   if (!body) return;
-  const curYear  = new Date().getFullYear();
-  const curMo    = new Date().getMonth() + 1;
-  const curWeek  = getUserWeek(new Date());
-  const today    = new Date(); today.setHours(0, 0, 0, 0);
-  const isPast   = activeYear < curYear;
-  const _years   = [curYear - 2, curYear - 1, curYear];
-  const yearChips = _years.map(yr =>
-    `<button class="pt-chip${yr === activeYear ? ' on' : ''}" onclick="ptSetYear(${yr})">${yr}</button>`
-  ).join('');
-  const allLbl = isPast ? 'Full Year' : 'YTD';
-  const moChips = `<button class="pt-chip${activeMonth === 0 ? ' on' : ''}" onclick="ptSetMonth(0)">${allLbl}</button>` +
-    MONTHS.map((m, i) => {
-      const mo = i + 1, future = !isPast && mo > curMo;
-      return `<button class="pt-chip${mo === activeMonth ? ' on' : ''}${future ? ' future' : ''}" onclick="ptSetMonth(${mo})">${m}</button>`;
+  const t = todayMidnight(), curY = t.getFullYear(), curM = t.getMonth() + 1;
+  const isPast = activeYear < curY;
+
+  const active  = periodActivePreset();
+  const presets = periodPresetDefs().map(([k, label]) =>
+    `<button class="pt-chip${active === k ? ' on' : ''}" onclick="ptPreset('${k}')">${label}</button>`).join('');
+
+  const years = [curY - 2, curY - 1, curY].map(y =>
+    `<button type="button" class="${y === activeYear ? 'on' : ''}" onclick="ptSetYear(${y})">${y}</button>`).join('');
+
+  const months = MONTHS.map((m, i) => {
+    const mo = i + 1, future = activeYear === curY && mo > curM;
+    return `<button type="button" class="ptc-mo${activeMonth === mo ? ' on' : ''}${future ? ' future' : ''}"` +
+           `${future ? '' : ` onclick="ptSetMonth(${mo})"`}>${m}</button>`;
+  }).join('');
+
+  const calMonth = activeMonth === MONTH_YTD ? (isPast ? 12 : curM) : activeMonth;
+  const monthSel = !activeWeek && !activeDay;
+  const dayWk    = activeDay ? getUserWeek(new Date(activeDay + 'T12:00:00')) : null;
+  const rows = getWeeksInMonth(activeYear, calMonth).map(w => {
+    const wkSel = activeWeek === w && !activeDay;
+    const wkHas = dayWk === w;
+    const days  = getDaysOfISOWeek(activeYear, w).map(d => {
+      const key = toDateStr(d), inM = d.getMonth() + 1 === calMonth, future = d > t;
+      let cls = 'ptc-day';
+      if (future) cls += ' future';
+      else if (!inM) cls += ' out';
+      if (!future && (wkSel || (monthSel && inM))) cls += ' inrange';
+      if (d.getTime() === t.getTime()) cls += ' today';
+      if (activeDay === key) cls += ' on';
+      return `<button type="button" class="${cls}"${future ? '' : ` onclick="ptSetDay('${key}')"`}>${d.getDate()}</button>`;
     }).join('');
-  let wkSection = '';
-  if (activeMonth > 0) {
-    const weeks = getWeeksInMonth(activeYear, activeMonth);
-    const wkChips = `<button class="pt-chip${!activeWeek ? ' on' : ''}" onclick="ptSetWeek(null)">All weeks</button>` +
-      weeks.map(w => {
-        const future = activeYear === curYear && (activeMonth > curMo || (activeMonth === curMo && w > curWeek));
-        return `<button class="pt-chip${w === activeWeek ? ' on' : ''}${future ? ' future' : ''}" onclick="ptSetWeek(${w})">WK${w}</button>`;
-      }).join('');
-    wkSection = `<div class="pt-sec-lbl">Week</div><div class="pt-chips">${wkChips}</div>`;
-    if (activeWeek) {
-      const dayChips = getDaysOfISOWeek(activeYear, activeWeek).map(d => {
-        const ds  = d.toISOString().slice(0, 10);
-        const lbl = DAY_LETTERS[d.getDay()] + ' ' + d.getDate();
-        const future = d > today;
-        const inMonth = d.getMonth() + 1 === activeMonth;
-        return `<button class="pt-chip${activeDay === ds ? ' on' : ''}${future ? ' future' : ''}" style="${!inMonth && !future ? 'opacity:0.3' : ''}" onclick="ptSetDay('${ds}')">${lbl}</button>`;
-      }).join('');
-      wkSection += `<div class="pt-sec-lbl">Day</div><div class="pt-chips">${dayChips}</div>`;
-    }
-  }
+    return `<div class="ptc-cal-row">
+      <button type="button" class="ptc-wk${w === 0 ? ' off' : wkSel ? ' on' : wkHas ? ' has' : ''}"${w === 0 ? '' : ` onclick="ptSetWeek(${w})"`}>${String(w).padStart(2, '0')}</button>
+      ${days}
+    </div>`;
+  }).join('');
+
+  const cmp = [['none','None'],['prior','Prior period'],['yoy','Last year']].map(([k, l]) =>
+    `<button class="pt-chip${compareMode === k ? ' on' : ''}" onclick="setCompareMode('${k}')">${l}</button>`).join('');
+
   body.innerHTML =
-    `<div class="pt-sec-lbl">Year</div><div class="pt-chips">${yearChips}</div>` +
-    `<div class="pt-sec-lbl">Month</div><div class="pt-chips">${moChips}</div>` +
-    wkSection;
+    `<div class="pt-chips">${presets}</div>
+     <div class="ptc-bar">
+       <div class="ptc-seg">${years}</div>
+       <button type="button" class="ptc-ytd${activeMonth === MONTH_YTD ? ' on' : ''}" onclick="ptSetYtd()">${isPast ? 'Full year' : 'Year to date'}</button>
+     </div>
+     <div class="ptc-months">${months}</div>
+     <div class="ptc-cal-hdr"><span>Wk</span>${P_DOW_HEADS.map(d => `<span>${d}</span>`).join('')}</div>
+     <div class="ptc-cal">${rows}</div>
+     <div class="ptc-cmp">
+       <span class="pt-sec-lbl" style="margin:0">Compare</span>
+       <div class="pt-chips">${cmp}</div>
+     </div>`;
 }
-function ptSetYear(yr)   { setYear(yr);      buildPeriodTray(); updateMobBottomBar(); }
-function ptSetMonth(m)   { setMonth(m);      buildPeriodTray(); updateMobBottomBar(); }
-function ptSetWeek(w)    {
-  if (w === null) { setWeekAll(); } else { setWeek(w); }
-  buildPeriodTray(); updateMobBottomBar();
-}
-function ptSetDay(ds)    { setDay(ds);       buildPeriodTray(); updateMobBottomBar(); }
+
+// Sheet dismissal: a month or a year is usually a STEP toward a week or a day, so those keep the
+// sheet up. A week, a day or a preset is a terminal choice, so those close it.
+function ptPreset(k)   { periodApplyPreset(k); closePeriodTray(); }
+function ptSetYear(yr) { periodSetYear(yr); }
+function ptSetYtd()    { periodSetMonth(MONTH_YTD); }
+function ptSetMonth(m) { periodSetMonth(m); }
+function ptSetWeek(w)  { periodSetWeek(w);  closePeriodTray(); }
+function ptSetDay(ds)  { periodSetDay(ds);  closePeriodTray(); }
 
 // Store tray
 function openStoreTray() {
@@ -2612,9 +2968,183 @@ function getStorePeriodNet(s) {
   return n;
 }
 
+/** Dutchie COGS for the current period, from the SAME field the compare fetch returns. The KPI
+ *  cards display gross profit from invGmData; this exists only so the compare DELTA has the same
+ *  source on both sides — a percentage computed across two different cost sources is noise. */
+function getPeriodCost(stores) {
+  if (!activeWeek && !activeDay) return stores.reduce((a, s) => a + (liveData[s]?.cost || 0), 0);
+  const dates = activeDay ? [activeDay] : getDaysOfISOWeek(activeYear, activeWeek).map(toDateStr);
+  let c = 0;
+  for (const s of stores) {
+    const liveDateMap = liveDateMaps[s] || {};
+    for (const ds of dates) {
+      const d = liveDateMap[ds] || allDailyData[s]?.[ds];
+      if (d && typeof d === 'object') c += d.cogs || 0;
+    }
+  }
+  return c;
+}
+
+// ── Compare ───────────────────────────────────────────────────────────────────
+// "vs prior period" / "vs same period last year". The current period's numbers come from liveData
+// and allDailyData, which are fetched PER MONTH of the ACTIVE year — so a compare range is almost
+// never already in memory, and last year is never fetched at all. It gets its own fetch, per
+// store, chunked by calendar month because Dutchie silently returns 0 for long ranges (the same
+// reason loadAllStores walks YTD month by month).
+//
+// The comparison basis is DUTCHIE net on both sides, deliberately not the hero's net. The hero
+// adds ATM/sublet from otherRevData, which is keyed by month NAME with no year — there is no
+// last-year value to put on the other side, so counting it on one side only would skew every
+// delta by the size of the ATM take.
+
+let compareTotals  = null;  // { net, gross, orders, disc, cost, byStore:{name:net} } | null
+let compareLoading = false; // true while the compare fetch is out — cells read "—" rather than lying
+let _compareKey    = null;  // range+stores signature of what compareTotals holds
+let _compareLoad   = null;  // in-flight signature, so a re-render cannot refire the same fetch
+
+function compareOn() { return compareMode !== 'none'; }
+
+function _addDays(d, n) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() + n); return x; }
+/** Shift back n years, clamping the day into the target month (Feb 29 → Feb 28). */
+function _shiftYears(d, n) {
+  const y = d.getFullYear() - n, m = d.getMonth();
+  return new Date(y, m, Math.min(d.getDate(), new Date(y, m + 1, 0).getDate()));
+}
+function _shiftMonths(d, n) {
+  const b = new Date(d.getFullYear(), d.getMonth() - n, 1);
+  return new Date(b.getFullYear(), b.getMonth(), Math.min(d.getDate(), new Date(b.getFullYear(), b.getMonth() + 1, 0).getDate()));
+}
+
+/** The {from, to} the current selection is measured against. Always the SAME NUMBER OF DAYS as the
+ *  current range — a part-month (Aug 1–25) compares against Jul 1–25, not against all of July,
+ *  because a 25-day span against a 31-day one is not a comparison. */
+function compareRange() {
+  if (!compareOn()) return null;
+  const r = periodRange(), g = periodGrain();
+  if (compareMode === 'yoy') {
+    // Weeks shift by 52 weeks, not by a calendar year, so Mon–Sun still lines up with Mon–Sun.
+    if (g === 'week') return { from: _addDays(r.from, -364), to: _addDays(r.to, -364) };
+    return { from: _shiftYears(r.from, 1), to: _shiftYears(r.to, 1) };
+  }
+  if (g === 'day')  { const d = _addDays(r.to, -1); return { from: d, to: d }; }
+  if (g === 'week') return { from: _addDays(r.from, -7), to: _addDays(r.to, -7) };
+  if (g === 'ytd')  return { from: _shiftYears(r.from, 1), to: _shiftYears(r.to, 1) };
+  return { from: _shiftMonths(r.from, 1), to: _shiftMonths(r.to, 1) };
+}
+
+/** Split a range into per-calendar-month pieces, flagging the ones that are a WHOLE month — those
+ *  are byte-for-byte what monthRange() asks for, so the normal sales cache can answer them. */
+function _monthChunks(range) {
+  const out = [];
+  let cur = new Date(range.from.getFullYear(), range.from.getMonth(), range.from.getDate());
+  while (cur <= range.to) {
+    const mLast = new Date(cur.getFullYear(), cur.getMonth() + 1, 0);
+    const to    = mLast < range.to ? mLast : range.to;
+    out.push({
+      from: toDateStr(cur), to: toDateStr(to),
+      year: cur.getFullYear(), month: cur.getMonth() + 1,
+      whole: cur.getDate() === 1 && to.getTime() === mLast.getTime(),
+    });
+    cur = _addDays(to, 1);
+  }
+  return out;
+}
+
+async function _fetchCompareStore(proxyUrl, store, chunks) {
+  const acc = { netSales: 0, grossSales: 0, orders: 0, discounts: 0, cost: 0 };
+  for (const c of chunks) {
+    // Read the sales cache for whole months, but never write it — these ranges are only
+    // incidentally the same shape, and a compare fetch has no business seeding the main data path.
+    let d = c.whole ? readSalesCache(store, c.year, c.month) : null;
+    if (!d) {
+      const url = `${proxyUrl}?store=${encodeURIComponent(store)}&from=${encodeURIComponent(c.from)}&to=${encodeURIComponent(c.to)}&token=${encodeURIComponent(getToken())}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      d = await res.json();
+      if (d.error) throw new Error(d.error);
+    }
+    acc.netSales   += d.netSales   || 0;
+    acc.grossSales += d.grossSales || 0;
+    acc.orders     += d.orders     || 0;
+    acc.discounts  += d.discounts  || 0;
+    acc.cost       += d.cost       || 0;
+  }
+  return acc;
+}
+
+/** Called after every selection change and every compare-mode change. Cheap when nothing moved:
+ *  the signature covers the range AND the store set, so it refires only when one of them does. */
+async function refreshCompare() {
+  const range = compareRange();
+  if (!range) { compareTotals = null; _compareKey = null; _compareLoad = null; compareLoading = false; return; }
+  const stores = getActiveStores();
+  const key = toDateStr(range.from) + '|' + toDateStr(range.to) + '|' + stores.join(',');
+  if (_compareKey === key || _compareLoad === key) return;
+
+  const proxyUrl = getProxyUrl();
+  if (!proxyUrl) return;
+  _compareLoad   = key;
+  _compareKey    = null;
+  compareTotals  = null;
+  compareLoading = true;
+  render();
+
+  const chunks = _monthChunks(range);
+  try {
+    const per = await Promise.all(stores.map(s => _fetchCompareStore(proxyUrl, s, chunks)));
+    if (_compareLoad !== key) return; // a newer selection overtook this one
+    const totals = { net: 0, gross: 0, orders: 0, disc: 0, cost: 0, byStore: {} };
+    stores.forEach((s, i) => {
+      const d = per[i];
+      totals.net    += d.netSales   || 0;
+      totals.gross  += d.grossSales || 0;
+      totals.orders += d.orders     || 0;
+      totals.disc   += d.discounts  || 0;
+      totals.cost   += d.cost       || 0;
+      totals.byStore[s] = d.netSales || 0;
+    });
+    compareTotals = totals;
+    _compareKey   = key;
+  } catch (e) {
+    console.warn('Compare fetch failed:', e.message);
+    compareTotals = null;
+    _compareKey   = null;
+  } finally {
+    if (_compareLoad === key) { _compareLoad = null; compareLoading = false; render(); }
+  }
+}
+
+/** Short form for a delta's tail: "prior" or "Aug ’25". */
+function compareLabel() {
+  if (compareMode !== 'yoy') return 'prior';
+  const yy = '’' + String(activeYear - 1).slice(2);
+  return periodGrain() === 'month' ? MONTHS[activeMonth - 1] + ' ' + yy : yy;
+}
+/** Column-header form: "PRIOR" or "2025". */
+function compareShort() { return compareMode === 'yoy' ? String(activeYear - 1) : 'prior'; }
+
+/** A signed percentage against the compare period, or null when there is nothing to compare to.
+ *  A zero base is null, not Infinity — "up ∞%" from nothing is not a fact worth printing. */
+function compareDelta(cur, base) {
+  if (cur == null || base == null || !isFinite(cur) || !isFinite(base) || base === 0) return null;
+  const pct = (cur - base) / base * 100;
+  return { pct, txt: (pct >= 0 ? '+' : '−') + Math.abs(pct).toFixed(1) + '%', cls: pct >= 0 ? 'good' : 'bad' };
+}
+
+/** The KPI sub-line under a compare: the delta, or "—" while the fetch is out, or the card's own
+ *  fallback text when compare is off. */
+function compareSub(cur, base, fallbackHtml) {
+  if (!compareOn()) return fallbackHtml;
+  if (compareLoading || !compareTotals) return `<div class="ic-kpi-sub muted">—</div>`;
+  const d = compareDelta(cur, base);
+  if (!d) return `<div class="ic-kpi-sub muted">no ${compareLabel()} data</div>`;
+  return `<div class="ic-kpi-sub kpi-delta ${d.cls}">${d.txt} vs ${compareLabel()}</div>`;
+}
+
 // ─── Income sub-builders ──────────────────────────────────────────────────────
 
-function _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under) {
+function _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, opts) {
+  const o = opts || {};
   const today       = new Date();
   const daysInMo    = activeMonth > 0 ? new Date(activeYear, activeMonth, 0).getDate() : 365;
   const dayOfMonth  = today.getDate();
@@ -2650,7 +3180,9 @@ function _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, und
     <div class="ic-hero-foot">
       <span class="ic-hero-pace ${paceCls}">${paceLabel}</span>
       <span class="ic-hero-lbl2">${goalPctLbl}</span>
-    </div>` : ''}`;
+      ${o.cmpHtml || ''}
+    </div>` : (o.cmpHtml ? `<div class="ic-hero-foot" style="margin-top:10px">${o.cmpHtml}</div>` : '')}
+    ${o.pnav || ''}`;
 }
 
 function _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores) {
@@ -2698,70 +3230,142 @@ function _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores) {
     ${!isClosed && remaining > 0 ? `<div class="ic-proj-row"><span class="ic-proj-rlbl">Needed to goal</span><span class="ic-proj-rval ${needed > dailyRate ? 'bad' : 'good'}">${fmtD(needed)}/day</span></div>` : ''}`;
 }
 
-function _incomeKpiMobHtml(net, gross, orders, disc, cost, aov) {
+// While compare is on, every card's muted sub-line is REPLACED by its signed delta. `dnet`/`dcost`
+// are the Dutchie-only net and COGS — the compare fetch returns exactly those, so both sides of a
+// delta come from one source even where the displayed value does not (see getPeriodCost).
+function _incomeKpiMobHtml(net, gross, orders, disc, cost, aov, dnet, dcost) {
   const gp     = cost > 0 ? net - cost : null;
   const margin = gp !== null && net > 0 ? Math.round(gp / net * 1000) / 10 : null;
   const gpVal  = gp !== null ? fmtK(gp) : !invGmData ? '<span class="val-skel"></span>' : '—';
   const mgSub  = margin !== null ? margin.toFixed(1) + '% margin' : !invGmData ? '<span class="val-skel" style="width:58px;height:11px"></span>' : '';
+  const c = compareTotals;
   return `
     <div class="ic-kpi" id="ic-mob-kpi-gp">
       <div class="ic-kpi-lbl">Gross profit</div>
       <div class="ic-kpi-val">${gpVal}</div>
-      <div class="ic-kpi-sub muted">${mgSub}</div>
+      ${compareSub(dnet - dcost, c && (c.net - c.cost), `<div class="ic-kpi-sub muted">${mgSub}</div>`)}
     </div>
     <div class="ic-kpi" id="ic-mob-kpi-txns">
       <div class="ic-kpi-lbl">Transactions</div>
       <div class="ic-kpi-val">${orders.toLocaleString()}</div>
-      <div class="ic-kpi-sub muted">AOV ${fmtAov(aov)}</div>
+      ${compareSub(orders, c && c.orders, `<div class="ic-kpi-sub muted">AOV ${fmtAov(aov)}</div>`)}
     </div>
     <div class="ic-kpi" id="ic-mob-kpi-disc">
       <div class="ic-kpi-lbl">Discounts</div>
       <div class="ic-kpi-val">${fmtK(disc)}</div>
-      <div class="ic-kpi-sub ${net>0&&disc/net>THRESHOLDS.DISCOUNT_FLAG_PCT?'bad':'good'}">${pct(disc,net)} of sales</div>
+      ${compareSub(disc, c && c.disc, `<div class="ic-kpi-sub ${net>0&&disc/net>THRESHOLDS.DISCOUNT_FLAG_PCT?'bad':'good'}">${pct(disc,net)} of sales</div>`)}
     </div>
     <div class="ic-kpi" id="ic-mob-kpi-gross">
       <div class="ic-kpi-lbl">Gross sales</div>
       <div class="ic-kpi-val">${fmtK(gross)}</div>
-      <div class="ic-kpi-sub muted">before discounts</div>
+      ${compareSub(gross, c && c.gross, `<div class="ic-kpi-sub muted">before discounts</div>`)}
     </div>`;
 }
 
-function _incomeKpiDskHtml(net, gross, orders, disc, cost, aov) {
+function _incomeKpiDskHtml(net, gross, orders, disc, cost, aov, dnet, dcost) {
   const gp     = cost > 0 ? net - cost : null;
   const margin = gp !== null && net > 0 ? Math.round(gp / net * 1000) / 10 : null;
   const gpVal  = gp !== null ? fmtK(gp) : !invGmData ? '<span class="val-skel"></span>' : '—';
   const mgVal  = margin !== null ? margin.toFixed(1) + '%' : !invGmData ? '<span class="val-skel" style="width:52px"></span>' : '—';
+  const c = compareTotals;
   return `
     <div class="ic-kpi" id="ic-dsk-kpi-gp">
       <div class="ic-kpi-lbl">Gross profit</div>
       <div class="ic-kpi-val">${gpVal}</div>
-      <div class="ic-kpi-sub muted">${gp !== null ? 'COGS ' + fmtK(cost) : ''}</div>
+      ${compareSub(dnet - dcost, c && (c.net - c.cost), `<div class="ic-kpi-sub muted">${gp !== null ? 'COGS ' + fmtK(cost) : ''}</div>`)}
     </div>
     <div class="ic-kpi" id="ic-dsk-kpi-margin">
       <div class="ic-kpi-lbl">Margin</div>
       <div class="ic-kpi-val">${mgVal}</div>
-      ${margin !== null ? `<div class="ic-kpi-sub ${margin>=35?'good':margin>=25?'muted':'bad'}">of net sales</div>` : ''}
+      ${compareSub(dnet > 0 ? (dnet - dcost) / dnet : null, c && c.net > 0 ? (c.net - c.cost) / c.net : null,
+        margin !== null ? `<div class="ic-kpi-sub ${margin>=35?'good':margin>=25?'muted':'bad'}">of net sales</div>` : '')}
     </div>
     <div class="ic-kpi" id="ic-dsk-kpi-txns">
       <div class="ic-kpi-lbl">Transactions</div>
       <div class="ic-kpi-val">${orders.toLocaleString()}</div>
+      ${compareSub(orders, c && c.orders, '')}
     </div>
     <div class="ic-kpi" id="ic-dsk-kpi-aov">
       <div class="ic-kpi-lbl">AOV</div>
       <div class="ic-kpi-val">${fmtAov(aov)}</div>
-      <div class="ic-kpi-sub muted">avg order value</div>
+      ${compareSub(orders > 0 ? dnet / orders : null, c && c.orders > 0 ? c.net / c.orders : null, `<div class="ic-kpi-sub muted">avg order value</div>`)}
     </div>
     <div class="ic-kpi" id="ic-dsk-kpi-disc">
       <div class="ic-kpi-lbl">Discounts</div>
       <div class="ic-kpi-val">${fmtK(disc)}</div>
-      <div class="ic-kpi-sub ${net>0&&disc/net>THRESHOLDS.DISCOUNT_FLAG_PCT?'bad':'good'}">${pct(disc,net)} of sales</div>
+      ${compareSub(disc, c && c.disc, `<div class="ic-kpi-sub ${net>0&&disc/net>THRESHOLDS.DISCOUNT_FLAG_PCT?'bad':'good'}">${pct(disc,net)} of sales</div>`)}
     </div>
     <div class="ic-kpi" id="ic-dsk-kpi-gross">
       <div class="ic-kpi-lbl">Gross sales</div>
       <div class="ic-kpi-val">${fmtK(gross)}</div>
-      <div class="ic-kpi-sub muted">before discounts</div>
+      ${compareSub(gross, c && c.gross, `<div class="ic-kpi-sub muted">before discounts</div>`)}
     </div>`;
 }
+
+// ── Swipe-to-step (mobile) ────────────────────────────────────────────────────
+// Dragging the mobile hero moves to the next/previous period of whatever grain is selected, so a
+// phone never has to open the sheet just to walk a series. The neighbour labels under the hero are
+// both the discoverability cue and the tap fallback for anyone who never tries the gesture.
+//
+// Bound once at parse time and delegated off #ic-mob-hero, because that element is re-created on
+// every full income mount — per-render binding would leak a listener set per view change.
+
+const P_SWIPE_COMMIT = 56;   // px of travel that counts as a step
+const P_SWIPE_TRAVEL = 0.6;  // the card follows the finger at 60%, so the drag reads as a nudge
+const P_SWIPE_DAMP   = 0.25; // rubber-band, not travel, when the neighbour is in the future
+let _pDrag = null;           // { x, y, dx } while a drag is live
+
+function _incomePeriodNavHtml() {
+  const prev = periodStepTarget(-1), next = periodStepTarget(1);
+  return `<div class="ic-mob-pnav" id="ic-mob-pnav">
+    <button type="button" class="${prev.allowed ? '' : 'off'}" onclick="periodStep(-1)">${P_ICON_LEFT}${prev.label}</button>
+    <button type="button" class="${next.allowed ? '' : 'off'}" onclick="periodStep(1)">${next.label}${P_ICON_RIGHT}</button>
+  </div>`;
+}
+
+// Painted straight onto the node rather than through render() — a re-render per pointermove would
+// rebuild the whole income view sixty times a second.
+function _pDragPaint(dx, animate) {
+  const el = document.getElementById('ic-mob-hero');
+  if (!el) return;
+  el.style.transition = animate ? 'transform .22s cubic-bezier(.4,0,.2,1),opacity .22s cubic-bezier(.4,0,.2,1)' : 'none';
+  el.style.transform  = `translateX(${dx * P_SWIPE_TRAVEL}px)`;
+  el.style.opacity    = String(1 - Math.min(.35, Math.abs(dx) / 260));
+  const nav = document.getElementById('ic-mob-pnav');
+  if (nav) {
+    const btns = nav.querySelectorAll('button');
+    if (btns[0]) btns[0].classList.toggle('arm', dx > 24);
+    if (btns[1]) btns[1].classList.toggle('arm', dx < -24);
+  }
+}
+
+function _pDragEnd() {
+  if (!_pDrag) return;
+  const dx = _pDrag.dx;
+  _pDrag = null;
+  _pDragPaint(0, true);
+  if (Math.abs(dx) > P_SWIPE_COMMIT) {
+    // A no-op on iOS Safari — there is no web haptics API on iPhone, so this is silent on the
+    // target device. Kept because it does fire on Android.
+    if (navigator.vibrate) navigator.vibrate(8);
+    periodStep(dx < 0 ? 1 : -1);
+  }
+}
+
+document.addEventListener('pointerdown', e => {
+  if (!e.target.closest || !e.target.closest('#ic-mob-hero')) return;
+  _pDrag = { x: e.clientX, y: e.clientY, dx: 0 };
+});
+document.addEventListener('pointermove', e => {
+  if (!_pDrag) return;
+  const dx = e.clientX - _pDrag.x, dy = e.clientY - _pDrag.y;
+  // Vertical wins: a page scroll must never be swallowed by the stepper.
+  if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 12) { _pDrag = null; return _pDragPaint(0, true); }
+  _pDrag.dx = dx * (periodStepTarget(dx < 0 ? 1 : -1).allowed ? 1 : P_SWIPE_DAMP);
+  _pDragPaint(_pDrag.dx, false);
+});
+document.addEventListener('pointerup', _pDragEnd);
+document.addEventListener('pointercancel', _pDragEnd);
 
 let _storeBarsAnimated = false;
 function animateStorePacingBars(animate) {
@@ -2829,11 +3433,23 @@ function _incomeBreakdownMobHtml(stores, storeNets, isClosed, pacingPct, yr, day
 
 function _incomeBreakdownDskHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo) {
   const rows = _storeBreakdownRows(stores, storeNets, isClosed, pacingPct, yr, daysInMo);
-  return `<div class="ic-dsk-bd-hdr">
-      <span>Store</span><span>Sales</span><span>${isClosed?'Goal':'vs Pace'}</span>
+  // The compare column exists only while compare is on, so the grid gains a 4th track with it.
+  const cmp = compareOn() ? ' cmp' : '';
+  const cmpCell = (s, snet) => {
+    if (!cmp) return '';
+    if (compareLoading || !compareTotals) return `<div class="ic-dsk-bd-cmp"><span class="cpct muted">—</span></div>`;
+    const base = compareTotals.byStore[s];
+    const d = compareDelta(snet, base);
+    return `<div class="ic-dsk-bd-cmp">
+      <span class="cpct ${d ? d.cls : 'muted'}">${d ? d.txt : '—'}</span>
+      <span class="cval">${base != null ? fmtK(base) : ''}</span>
+    </div>`;
+  };
+  return `<div class="ic-dsk-bd-hdr${cmp}">
+      <span>Store</span><span>Sales</span><span>${isClosed?'Goal':'vs Pace'}</span>${cmp ? `<span>vs ${compareShort()}</span>` : ''}
     </div>
     ${rows.map(({s, st, col, snet, sPeriodGoal, sGoalPct, sFillCls, sFillStyle, sBarW, sPacePos, diff}) =>
-      `<div class="ic-dsk-bd-row">
+      `<div class="ic-dsk-bd-row${cmp}">
         <div class="ic-dsk-bd-store">
           <div class="swatch" style="background:${col};flex-shrink:0"></div>
           <span>${st?.display||s}</span>
@@ -2849,6 +3465,7 @@ function _incomeBreakdownDskHtml(stores, storeNets, isClosed, pacingPct, yr, day
           <span class="sval">${fmtK(snet)}</span>
           ${sPeriodGoal > 0 ? `<span class="sdiff ${diff>=0?'good':'bad'}">${diff>=0?'+':''}${fmtK(diff)}</span>` : ''}
         </div>
+        ${cmpCell(s, snet)}
       </div>`
     ).join('')}`
   ;
@@ -2967,6 +3584,26 @@ function renderIncome() {
   const viewType  = activeDay ? 'day' : activeWeek ? 'week' : 'month';
   const otherHtml = _incomeOtherRevHtml();
   const chartLbl  = _incomeChartLabel();
+
+  // ── Compare ─────────────────────────────────────────────────────────────────
+  // Dutchie net on both sides — see the note above compareRange() for why the hero's own `net`
+  // (which folds in ATM/sublet) is not the basis.
+  const dcost = getPeriodCost(stores);
+  let cmpHtml = '';
+  if (compareOn()) {
+    const divider = periodGoal > 0 ? ' ic-hero-cmp' : ' ic-hero-lbl2';
+    if (compareLoading || !compareTotals) {
+      cmpHtml = `<span class="${divider.trim()}">Loading vs ${compareLabel()}…</span>`;
+    } else {
+      const d = compareDelta(dutchieNet, compareTotals.net);
+      cmpHtml = d
+        ? `<span class="${divider.trim()}"><span class="${d.cls}" style="font-weight:600">${d.txt}</span> vs ${compareLabel()}</span>`
+        : `<span class="${divider.trim()}">no ${compareLabel()} data</span>`;
+    }
+  }
+  // Mobile-only: the neighbour periods, doubling as the discoverability cue for swipe-to-step and
+  // as its tap fallback.
+  const pnav = _incomePeriodNavHtml();
   const topHtml   = _incomeTopProductsHtml(topProds);
   const syncTime  = `Updated ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
 
@@ -2980,13 +3617,13 @@ function renderIncome() {
       <!-- Mobile layout -->
       <div class="ic-mob">
         <div class="ic-hero-card" id="ic-mob-hero">
-          ${_incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under)}
+          ${_incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml, pnav })}
         </div>
         <div class="ic-mob-bd" id="ic-mob-bd">
           ${_incomeBreakdownMobHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo)}
         </div>
         <div class="ic-kpis" id="ic-mob-kpis">
-          ${_incomeKpiMobHtml(net, gross, orders, disc, cost, aov)}
+          ${_incomeKpiMobHtml(net, gross, orders, disc, cost, aov, dutchieNet, dcost)}
         </div>
         <div id="income-other-rev">${otherHtml}</div>
         <div id="income-chart-section">
@@ -3003,14 +3640,14 @@ function renderIncome() {
       <div class="ic-dsk">
         <div class="ic-hero-row">
           <div class="ic-hero-card ic-dsk-hero" id="ic-dsk-hero">
-            ${_incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under)}
+            ${_incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml })}
           </div>
           <div class="ic-proj-card" id="ic-dsk-proj">
             ${_incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores)}
           </div>
         </div>
         <div class="ic-dsk-kpis" id="ic-dsk-kpis">
-          ${_incomeKpiDskHtml(net, gross, orders, disc, cost, aov)}
+          ${_incomeKpiDskHtml(net, gross, orders, disc, cost, aov, dutchieNet, dcost)}
         </div>
         <div class="ic-lower">
           <div class="card" id="ic-dsk-bd">
@@ -3038,11 +3675,11 @@ function renderIncome() {
     const patchEl = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
     const patchTxt = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
 
-    patchEl('ic-mob-hero',   _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under));
-    patchEl('ic-dsk-hero',   _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under));
+    patchEl('ic-mob-hero',   _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml, pnav }));
+    patchEl('ic-dsk-hero',   _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml }));
     patchEl('ic-dsk-proj',   _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores));
-    patchEl('ic-mob-kpis',   _incomeKpiMobHtml(net, gross, orders, disc, cost, aov));
-    patchEl('ic-dsk-kpis',   _incomeKpiDskHtml(net, gross, orders, disc, cost, aov));
+    patchEl('ic-mob-kpis',   _incomeKpiMobHtml(net, gross, orders, disc, cost, aov, dutchieNet, dcost));
+    patchEl('ic-dsk-kpis',   _incomeKpiDskHtml(net, gross, orders, disc, cost, aov, dutchieNet, dcost));
     patchEl('ic-mob-bd',     _incomeBreakdownMobHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo));
     patchEl('ic-dsk-bd',     `<div class="sec-lbl" style="margin-bottom:8px">Store breakdown</div>${_incomeBreakdownDskHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo)}`);
     patchEl('income-other-rev', otherHtml);

@@ -326,7 +326,7 @@ SELECTED = STORE_NAMES.slice();
 // convention) and every failure looks like a UI quirk rather than an error.
 const pillCtx = { console, STORES, activeStoreSet: null, activeStore: 'All',
                   pnlShowCorporate: true, section: 'pnl',
-                  buildDskStores() {}, render() {}, syncActiveStoreMirror() {} };
+                  buildDskStores() {}, render() {}, syncActiveStoreMirror() {}, refreshCompare() {} };
 vm.createContext(pillCtx);
 vm.runInContext([
   grab(HTML, 'pnlResetToAll_',        'index.html'),
