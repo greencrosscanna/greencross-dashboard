@@ -675,6 +675,14 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .recon-cfg-row{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;color:var(--dim)}
 .recon-cfg-row select{font-family:inherit;font-size:11px;background:var(--card);border:0.5px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px}
 
+/* Anything hidden by a view preference leaves a one-line trace with a way back. Hidden must never
+   read as absent — especially for unattributed deposits, which are real money. */
+.recon-hidden-note{margin-top:10px;font-size:11px;line-height:1.6;color:var(--muted);display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
+.recon-hidden-note strong{color:var(--dim);font-weight:600}
+.recon-linkish{background:none;border:none;padding:0;font:inherit;font-size:11px;color:var(--green);cursor:pointer;text-decoration:underline}
+.recon-linkish:hover{opacity:.8}
+.recon-unatt-hd{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+
 .recon-unatt{margin-top:12px;border-left:3px solid var(--amber)}
 .recon-unatt-hd{font-size:13px;font-weight:600;color:var(--text)}
 .recon-unatt-note{font-size:11px;line-height:1.5;color:var(--muted);margin:5px 0 9px}
@@ -997,7 +1005,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.507';
+const APP_VERSION = 'v2.508';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -4196,6 +4204,18 @@ let reconData    = null;   // { deposits:{store:[…]}, unattributed, config, st
 let reconLoading = false;
 let reconShowHistory = false;
 
+// Show only the week you are actually about to reconcile, rather than every week in the period.
+// A month view is 6 stores x ~4 weeks = ~24 cards, and in steady state exactly six of them are the
+// work — one per store. Off by default; the toggle brings the rest back, and anything hidden is
+// COUNTED in the summary so it is never silently gone.
+let reconAllWeeks = localStorage.getItem('gc_recon_all_weeks') === '1';
+
+// Deposits carrying a QuickBooks class that maps to no store (CORPORATE refunds, and the like).
+// They are real money and this tab exists partly to stop money vanishing off a reconciliation
+// screen — so "ignore" hides the itemised card but never the FACT: a one-line count stays, and one
+// click brings the detail back. Defaults to ignoring, which is what Sky asked for.
+let reconIgnoreUnatt = localStorage.getItem('gc_recon_ignore_unatt') !== '0';
+
 const RECON_DOW_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
 // Dates are TEXT end to end, and this arithmetic stays in UTC so the browser's timezone can never
@@ -4345,6 +4365,18 @@ function toggleReconHistory() {
   renderReconcile();
 }
 
+function toggleReconAllWeeks() {
+  reconAllWeeks = !reconAllWeeks;
+  localStorage.setItem('gc_recon_all_weeks', reconAllWeeks ? '1' : '0');
+  renderReconcile();
+}
+
+function toggleReconUnatt() {
+  reconIgnoreUnatt = !reconIgnoreUnatt;
+  localStorage.setItem('gc_recon_ignore_unatt', reconIgnoreUnatt ? '1' : '0');
+  renderReconcile();
+}
+
 // ── Reconcile: writes ─────────────────────────────────────────────────────────────────────────
 // Every write goes through the proxy's fail-closed guard, so an un-granted user is refused at the
 // server and the UI just reports it. gx-dev.js blocks these outright until writes are armed.
@@ -4467,8 +4499,33 @@ function renderReconcile(nocache) {
   open.sort((a, b) => a.win.start.localeCompare(b.win.start) || a.store.localeCompare(b.store));
   done.sort((a, b) => b.win.start.localeCompare(a.win.start) || a.store.localeCompare(b.store));
 
-  const readyCount = open.filter(r => r.ties).length;
-  const offCount   = open.filter(r => r.reconcilable && !r.ties).length;
+  // ── What actually gets shown ────────────────────────────────────────────────────────────────
+  // Default is the week you are about to reconcile, and nothing else.
+  //
+  // An INCOMPLETE week — one missing a day of sales — is dropped rather than drawn. It cannot be
+  // reconciled, it offers no verdict, and there is always at least one: the week in progress right
+  // now. Drawing six permanent non-answers above the real work is what made the month view unusable.
+  // They are still COUNTED, so "hidden" never means "unknown".
+  //
+  // Then only the LATEST complete week per store survives. Deposits lag about a week, so that is
+  // precisely the one whose money has just landed. Any older week still unreconciled is counted too
+  // and reachable through the toggle — being behind must never be invisible.
+  const incompleteCount = open.filter(r => r.missing.length).length;
+
+  let shown = open;
+  let earlierCount = 0;
+  if (!reconAllWeeks) {
+    const complete = open.filter(r => !r.missing.length);
+    const latestFor = {};
+    for (const r of complete) {
+      if (!latestFor[r.store] || r.win.start > latestFor[r.store]) latestFor[r.store] = r.win.start;
+    }
+    shown = complete.filter(r => r.win.start === latestFor[r.store]);
+    earlierCount = complete.length - shown.length;
+  }
+
+  const readyCount = shown.filter(r => r.ties).length;
+  const offCount   = shown.filter(r => r.reconcilable && !r.ties).length;
 
   const unatt = reconData.unattributed || [];
 
@@ -4479,28 +4536,50 @@ function renderReconcile(nocache) {
       <div class="recon-tally">
         <span class="recon-chip recon-chip-ok">${readyCount} tie exactly</span>
         <span class="recon-chip recon-chip-off">${offCount} with a variance</span>
-        <span class="recon-chip">${open.length - readyCount - offCount} awaiting deposit</span>
+        <span class="recon-chip">${shown.length - readyCount - offCount} awaiting deposit</span>
       </div>
       <div class="recon-actions">
         <button class="pill-btn" onclick="reloadRecon()">Refresh</button>
+        <button class="pill-btn${reconAllWeeks ? ' on' : ''}" onclick="toggleReconAllWeeks()">
+          ${reconAllWeeks ? 'This week only' : 'All weeks in period'}
+        </button>
         <button class="pill-btn${reconShowHistory ? ' on' : ''}" onclick="toggleReconHistory()">
           ${reconShowHistory ? 'Hide' : 'Show'} reconciled (${done.length})
         </button>
       </div>
     </div>
 
-    ${unatt.length ? `
-    <div class="card recon-unatt">
-      <div class="recon-unatt-hd">${unatt.length} deposit${unatt.length === 1 ? '' : 's'} not attributed to a store</div>
-      <div class="recon-unatt-note">These carry a QuickBooks class that maps to no store. They are listed rather than dropped — money that disappears from a reconciliation screen is the failure this tab exists to prevent.</div>
-      ${unatt.map(d => `<div class="recon-unatt-row"><span>${escHtml(d.date)}</span><span>${escHtml(d.class || '(no class)')}</span><span>${reconFmtMoney(d.amount)}</span></div>`).join('')}
-    </div>` : ''}
+    ${!reconAllWeeks && (earlierCount || incompleteCount) ? `
+      <div class="recon-hidden-note">
+        Showing the latest complete week per store.
+        ${earlierCount ? `<strong>${earlierCount} earlier week${earlierCount === 1 ? '' : 's'} still unreconciled.</strong>` : ''}
+        ${incompleteCount ? `${incompleteCount} week${incompleteCount === 1 ? '' : 's'} hidden for incomplete sales data.` : ''}
+        <button class="recon-linkish" onclick="toggleReconAllWeeks()">Show all</button>
+      </div>` : ''}
+
+    ${unatt.length ? (reconIgnoreUnatt ? `
+      <div class="recon-hidden-note">
+        Ignoring ${unatt.length} deposit${unatt.length === 1 ? '' : 's'} not attributed to a store
+        (${reconFmtMoney(unatt.reduce((a, d) => a + d.amount, 0))}).
+        <button class="recon-linkish" onclick="toggleReconUnatt()">Show</button>
+      </div>` : `
+      <div class="card recon-unatt">
+        <div class="recon-unatt-hd">
+          ${unatt.length} deposit${unatt.length === 1 ? '' : 's'} not attributed to a store
+          <button class="recon-linkish" onclick="toggleReconUnatt()">Ignore these</button>
+        </div>
+        <div class="recon-unatt-note">These carry a QuickBooks class that maps to no store. They are listed rather than dropped — money that disappears from a reconciliation screen is the failure this tab exists to prevent.</div>
+        ${unatt.map(d => `<div class="recon-unatt-row"><span>${escHtml(d.date)}</span><span>${escHtml(d.class || '(no class)')}</span><span>${reconFmtMoney(d.amount)}</span></div>`).join('')}
+      </div>`) : ''}
 
     ${renderReconConfig(stores)}
 
     <div class="recon-grid">
-      ${open.length ? open.map(renderReconCard).join('')
-                    : `<div class="card"><div class="empty-state">Nothing open in this period.</div></div>`}
+      ${shown.length ? shown.map(renderReconCard).join('')
+                     : `<div class="card"><div class="empty-state">${
+                         open.length ? 'No complete week to reconcile yet — every open week is still missing sales data.'
+                                     : 'Nothing open in this period.'
+                       }</div></div>`}
     </div>
 
     ${reconShowHistory ? `
