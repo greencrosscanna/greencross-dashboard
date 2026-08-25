@@ -533,6 +533,17 @@ function doGet(e) {
     }
   }
 
+  // Runs the REAL period-goal path in the live runtime with no session, the same trick and the same
+  // reason as pnlprobe/reconprobe: getPeriodGoalsForDate_ sits behind the login gate, so after a
+  // GXCore re-pin the only way to prove the PINNED library resolves a date to the right pay period
+  // is to open a browser and log in — and a check that inconvenient is a check nobody runs after a
+  // deploy. Secret-gated, read-only, returns exactly what the app would render.
+  if (params.action === 'goalprobe') {
+    const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
+    if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
+    return getPeriodGoalsForDate_(params.date);
+  }
+
   if (params.action === 'ping') {
     const pAuth = requireAuth_(params);
     if (!pAuth.ok) return jsonOut_({ ok: false, error: pAuth.error });
