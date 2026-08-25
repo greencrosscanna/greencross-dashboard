@@ -468,6 +468,45 @@ function doGet(e) {
     }
   }
 
+  // Runs the REAL deposits path in the live Apps Script runtime with no session, the same trick and
+  // the same reason as pnlprobe: getDeposits sits behind the login gate, so without this the only
+  // way to know whether it works in production is to open a browser and log in — and a check that
+  // inconvenient is a check nobody runs after a deploy. Secret-gated, read-only, returns a SHAPE
+  // summary rather than the money.
+  if (params.action === 'reconprobe') {
+    const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
+    if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
+    try {
+      const out  = getDeposits({ start: params.start, end: params.end, nocache: '1' });
+      const data = JSON.parse(out.getContent());
+      if (data.ok === false) return jsonOut_({ ok: false, stage: 'getDeposits', error: data.error });
+      const byStore = data.deposits || {};
+      const rows = Object.keys(byStore).map(function (k) {
+        const list = byStore[k];
+        return {
+          store: k, deposits: list.length,
+          // The count that was 5x wrong before the lines were collapsed. If a deposit ever comes
+          // back as one row per QB line again, this is where it shows.
+          max_lines_folded: list.reduce(function (m, r) { return Math.max(m, r.lines || 0); }, 0),
+          total: Math.round(list.reduce(function (a, r) { return a + r.amount; }, 0) * 100) / 100,
+          first: list.length ? list[0].date : null,
+          last:  list.length ? list[list.length - 1].date : null
+        };
+      }).sort(function (a, b) { return a.store < b.store ? -1 : 1; });
+      return jsonOut_({
+        ok: true, ran_in: 'apps script runtime', start: data.start, end: data.end,
+        stores: rows,
+        store_deposits: rows.reduce(function (a, r) { return a + r.deposits; }, 0),
+        unattributed: (data.unattributed || []).map(function (u) {
+          return { date: u.date, class: u.class, amount: u.amount, memo: u.memo };
+        }),
+        week_starts: data.config
+      });
+    } catch (e) {
+      return jsonOut_({ ok: false, stage: 'probe', error: e.message });
+    }
+  }
+
   if (params.action === 'ping') {
     const pAuth = requireAuth_(params);
     if (!pAuth.ok) return jsonOut_({ ok: false, error: pAuth.error });
