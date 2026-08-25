@@ -493,9 +493,35 @@ function doGet(e) {
           last:  list.length ? list[list.length - 1].date : null
         };
       }).sort(function (a, b) { return a.store < b.store ? -1 : 1; });
+      // The SALES half, sampled in the same breath. The expected figure on every card is
+      // Net Sales + TAX, and per-day tax was only added to the daily records for this feature — it
+      // used to be summed into the store-month total and dropped from the rows. That change touches
+      // the SHARED aggregation path every tab reads, so it is worth proving in production rather
+      // than inferring from a green test. Reports the shape, not the money.
+      let sales = null;
+      if (params.store && storeKey_(params.store)) {
+        const sr = JSON.parse(getStoreSales_(params.store, data.start, data.end).getContent());
+        const daily = sr.daily || [];
+        const withTax = daily.filter(function (d) { return typeof d.tax === 'number'; });
+        sales = {
+          store: params.store, days: daily.length,
+          days_carrying_tax: withTax.length,
+          // If this is false the Reconcile tab silently understates every week by the tax.
+          every_day_carries_tax: daily.length > 0 && withTax.length === daily.length,
+          // The per-day tax must add up to the store-month total the response already reported.
+          daily_tax_sum: Math.round(daily.reduce(function (a, d) { return a + (d.tax || 0); }, 0) * 100) / 100,
+          reported_tax: sr.tax,
+          daily_net_sum: Math.round(daily.reduce(function (a, d) { return a + (d.netSales || 0); }, 0) * 100) / 100,
+          // What a Reconcile card would show as Expected for this window: Net Sales + Tax.
+          expected: Math.round(daily.reduce(function (a, d) { return a + (d.netSales || 0) + (d.tax || 0); }, 0) * 100) / 100,
+          sample: daily.length ? daily[0] : null
+        };
+        sales.tax_ties_out = Math.abs(sales.daily_tax_sum - (sr.tax || 0)) < 0.02;
+      }
+
       return jsonOut_({
         ok: true, ran_in: 'apps script runtime', start: data.start, end: data.end,
-        stores: rows,
+        stores: rows, sales: sales,
         store_deposits: rows.reduce(function (a, r) { return a + r.deposits; }, 0),
         unattributed: (data.unattributed || []).map(function (u) {
           return { date: u.date, class: u.class, amount: u.amount, memo: u.memo };
