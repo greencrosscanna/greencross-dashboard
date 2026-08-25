@@ -91,13 +91,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .section-tabs{display:flex;gap:2px;margin-bottom:12px;background:var(--bg);border:0.5px solid var(--border);border-radius:10px;padding:2px}
 .stab{flex:1;font-size:12px;font-weight:500;padding:9px 4px;border-radius:8px;border:none;background:transparent;color:var(--muted);cursor:pointer;text-align:center;-webkit-tap-highlight-color:transparent}
 .stab.on{background:var(--card);color:var(--text)}
-/* Time-nav and store-scroll — desktop only; mobile uses .period-bar and .store-chip-grid */
-.time-nav{display:none}
-.time-nav::-webkit-scrollbar{display:none}
-.tnav-group{display:flex;gap:4px;flex-shrink:0}
-.tnav-sep{color:var(--border-strong);font-size:12px;padding:0 3px;flex-shrink:0;user-select:none;line-height:1}
-.mtab{font-size:11px;padding:4px 10px;border-radius:20px;border:0.5px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;white-space:nowrap;flex-shrink:0}
-.mtab.on{background:var(--green);color:var(--green-ink);border-color:var(--green);font-weight:500}
+/* store-scroll — desktop only; mobile uses .store-chip-grid */
 .store-scroll{display:none}
 .store-scroll::-webkit-scrollbar{display:none}
 .store-btn{font-size:11px;padding:4px 12px;border-radius:20px;border:0.5px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;white-space:nowrap;flex-shrink:0}
@@ -113,16 +107,6 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .sch-dot.ok{background:var(--green)}.sch-dot.err{background:var(--red)}.sch-dot.loading{background:var(--amber);animation:pulse 1s ease-in-out infinite}
 .sch-name{font-size:11px;color:var(--dim)}
 .sch-val{font-size:12px;font-weight:500;color:var(--text);margin-top:2px}
-/* Mobile period bar (4 labeled fields; replaces scrollable time-nav on mobile) */
-.period-bar{display:flex;gap:4px}
-.period-field{flex:1;min-height:44px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:0.5px solid var(--border);border-radius:8px;background:var(--bg);cursor:pointer;padding:4px;transition:border-color 0.15s,background 0.15s;-webkit-tap-highlight-color:transparent}
-.period-field.on{border-color:var(--green);background:rgba(74,222,128,.06)}
-.period-field.dim{opacity:0.38;pointer-events:none}
-.pf-label{font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em}
-.pf-value{font-size:13px;font-weight:500;color:var(--text);margin-top:1px}
-.period-expanded{display:flex;gap:4px;overflow-x:auto;padding-bottom:2px;margin-top:8px}
-.period-expanded:empty{display:none}
-.period-expanded::-webkit-scrollbar{display:none}
 /* Mobile sticky header + period bar wrapper */
 .mob-sticky{position:sticky;top:0;z-index:100;background:rgba(10,14,13,.96);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);margin:-16px -16px 12px;padding:8px 16px 10px;border-bottom:0.5px solid var(--border)}
 .mob-sticky .logo-row{padding-top:0;margin-bottom:8px}
@@ -504,7 +488,6 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   .ic-mob{display:none}
   .ic-dsk{display:flex;flex-direction:column;gap:14px}
 }
-.mtab.future{opacity:0.25;cursor:default;pointer-events:none}
 
 /* ── Settings drawer ── */
 .gear-btn{background:none;border:none;cursor:pointer;color:var(--muted);padding:4px;border-radius:6px;line-height:0;transition:color 0.15s}
@@ -1007,7 +990,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.510';
+const APP_VERSION = 'v2.511';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1342,7 +1325,6 @@ let activeStore = 'All';
 let activeStoreSet = null; // Set of store names for desktop multi-select; null = all
 let openPeriodField = null; // 'year'|'month'|'week'|'day'|null — open desktop period panel
 let isInitialLoad   = true;
-let expandedGroup   = null; // 'year' | 'month' | 'week' | 'day' | null
 let liveData = {};
 let _storeStateMap = {}; // last known state map — lets backfill refresh the status strip
 let charts = {};
@@ -2092,7 +2074,6 @@ async function loadAllStores() {
 function setSection(s) {
   if (s !== 'expenses') expSection = 'main';
   section       = s;
-  expandedGroup = null;
   document.querySelectorAll('.stab').forEach(t => t.classList.toggle('on', t.textContent.toLowerCase() === s));
   // Desktop tabs use the shared active class, not this app's old .on pill.
   document.querySelectorAll('#dsk-nav .gx-topnav-tab').forEach(t => t.classList.toggle('is-active', t.dataset.s === s));
@@ -2110,7 +2091,6 @@ function setMonth(m) {
   activeMonth   = m;
   activeWeek    = null;
   activeDay     = null;
-  expandedGroup = null;
   clearAutoRefresh(); // stops timer; scheduleAutoRefresh() in loadAllStores restarts it if current month
   buildTimeNav();
   if (Object.keys(liveData).length > 0) loadAllStores();
@@ -2119,14 +2099,12 @@ function setMonth(m) {
 function setWeek(w) {
   activeWeek    = (activeWeek === w) ? null : w;
   activeDay     = null;
-  expandedGroup = null;
   buildTimeNav();
   render();
 }
 
 function setDay(d) {
   activeDay     = (activeDay === d) ? null : d;
-  expandedGroup = null;
   buildTimeNav();
   render();
   if (activeDay) {
@@ -2142,27 +2120,6 @@ function setDay(d) {
 function setWeekAll() {
   activeWeek    = null;
   activeDay     = null;
-  expandedGroup = null;
-  buildTimeNav();
-  render();
-}
-
-function toggleExpand(group) {
-  expandedGroup = expandedGroup === group ? null : group;
-  buildTimeNav();
-}
-
-function navToMonth() {
-  activeWeek    = null;
-  activeDay     = null;
-  expandedGroup = expandedGroup === 'month' ? null : 'month';
-  buildTimeNav();
-  render();
-}
-
-function navToWeek() {
-  activeDay     = null;
-  expandedGroup = expandedGroup === 'week' ? null : 'week';
   buildTimeNav();
   render();
 }
@@ -2192,108 +2149,18 @@ function setYear(yr) {
   activeMonth   = yr < new Date().getFullYear() ? MONTH_YTD : new Date().getMonth() + 1;
   activeWeek    = null;
   activeDay     = null;
-  expandedGroup = null;
   buildTimeNav();
   if (Object.keys(liveData).length > 0 || yr !== new Date().getFullYear()) loadAllStores();
 }
 
+// The desktop period panel and the mobile bottom bar are the two period UIs this app actually has.
+// There used to be a third — a scrollable "time-nav" strip with expandable year/month/week/day
+// groups, plus a four-field mobile period bar — and ~180 lines of it survived the layout change that
+// removed its containers. #time-nav, #period-bar and #period-expanded are in no markup, so every one
+// of those builders bailed on its first line and the whole path was unreachable. Deleted 2026-08-25.
 function buildTimeNav() {
-  buildDskPeriod(); // keep desktop period panel in sync
-  const _tnav = document.getElementById('time-nav');
-  if (!_tnav) { buildPeriodBar(); updateMobBottomBar(); return; }
-  const curYear = new Date().getFullYear();
-  const curMo   = new Date().getMonth() + 1;
-  const curWeek = getUserWeek(new Date());
-  const today   = new Date(); today.setHours(0, 0, 0, 0);
-  const isPast  = activeYear < curYear;
-  const sep     = '<span class="tnav-sep">·</span>';
-  const parts   = [];
-
-  // Helper: render a single collapsed pill for a group
-  function collapsedPill(group, label, isOn) {
-    return `<button class="mtab${isOn ? ' on' : ''}" onclick="toggleExpand('${group}')">${label}</button>`;
-  }
-
-  // ── Year — always shows current year + 2 prior, auto-advances each Jan 1 ──
-  const _curYr  = new Date().getFullYear();
-  const _years  = [_curYr - 2, _curYr - 1, _curYr];
-  if (expandedGroup === 'year') {
-    parts.push(`<span class="tnav-group">${_years.map(yr =>
-      `<button class="mtab${yr===activeYear?' on':''}" data-y="${yr}" onclick="setYear(${yr})">${yr}</button>`
-    ).join('')}</span>`);
-  } else {
-    parts.push(collapsedPill('year', activeYear, true));
-  }
-
-  if (section === 'inventory') {
-    _tnav.innerHTML = parts.join('');
-    buildPeriodBar();
-    return;
-  }
-
-  // ── Month ──
-  const monthLbl = activeMonth === 0 ? (isPast ? 'Full Yr' : 'All') : MONTHS[activeMonth-1];
-  parts.push(sep);
-  if (expandedGroup === 'month') {
-    const allLbl = isPast ? 'Full Yr' : 'All';
-    parts.push(`<span class="tnav-group">` +
-      `<button class="mtab${activeMonth===0?' on':''}" data-m="0" onclick="setMonth(0)">${allLbl}</button>` +
-      MONTHS.map((m,i) => {
-        const mo = i+1, future = !isPast && mo > curMo;
-        return `<button class="mtab${mo===activeMonth?' on':''}${future?' future':''}" data-m="${mo}" onclick="setMonth(${mo})">${m}</button>`;
-      }).join('') + `</span>`);
-  } else {
-    parts.push(`<button class="mtab on" onclick="navToMonth()">${monthLbl}</button>`);
-  }
-
-  if (activeMonth === MONTH_YTD) {
-    _tnav.innerHTML = parts.join('');
-    buildPeriodBar();
-    return;
-  }
-
-  // ── Week ──
-  const weekLbl = activeWeek ? 'WK'+activeWeek : 'All';
-  parts.push(sep);
-  if (expandedGroup === 'week') {
-    parts.push(`<span class="tnav-group">` +
-      `<button class="mtab${!activeWeek?' on':''}" onclick="setWeekAll()">All</button>` +
-      getWeeksInMonth(activeYear, activeMonth).map(w => {
-        const future = activeYear===curYear && (activeMonth>curMo || (activeMonth===curMo && w>curWeek));
-        return `<button class="mtab${w===activeWeek?' on':''}${future?' future':''}" data-w="${w}" onclick="setWeek(${w})">WK${w}</button>`;
-      }).join('') + `</span>`);
-  } else {
-    parts.push(`<button class="mtab${activeWeek ? ' on' : ''}" onclick="navToWeek()">${weekLbl}</button>`);
-  }
-
-  if (!activeWeek) {
-    _tnav.innerHTML = parts.join('');
-    buildPeriodBar();
-    return;
-  }
-
-  // ── Day ──
-  const dayObj  = activeDay ? new Date(activeDay+'T12:00:00') : null;
-  const dayLbl  = dayObj ? DAY_LETTERS[dayObj.getDay()] + String(dayObj.getDate()).padStart(2,'0') : '—';
-  parts.push(sep);
-  if (expandedGroup === 'day') {
-    parts.push(`<span class="tnav-group">` +
-      getDaysOfISOWeek(activeYear, activeWeek).map(d => {
-        const ds  = d.toISOString().slice(0,10);
-        const lbl = DAY_LETTERS[d.getDay()] + String(d.getDate()).padStart(2,'0');
-        const inMonth = d.getMonth()+1 === activeMonth;
-        const future  = d > today;
-        const cls   = `mtab dtab${activeDay===ds?' on':''}${future?' future':''}`;
-        const style = !inMonth && !future ? 'opacity:0.3' : '';
-        return `<button class="${cls}" data-d="${ds}" style="${style}" onclick="setDay('${ds}')">${lbl}</button>`;
-      }).join('') + `</span>`);
-  } else {
-    parts.push(collapsedPill('day', dayLbl, !!activeDay));
-  }
-
-  _tnav.innerHTML = parts.join('');
-  buildPeriodBar();
-  updateMobBottomBar();
+  buildDskPeriod();      // desktop period panel
+  updateMobBottomBar();  // mobile bottom bar
 }
 
 function buildStoreTabs() {
@@ -2535,82 +2402,6 @@ function buildStoreChipGrid() {
       <span class="sch-val">${val}</span>
     </div>`;
   }).join('');
-  el.innerHTML = html;
-}
-
-function buildPeriodBar() {
-  const bar = document.getElementById('period-bar');
-  if (!bar) return;
-  const curYear  = new Date().getFullYear();
-  const isPast   = activeYear < curYear;
-  const monthLbl = activeMonth === 0 ? (isPast ? 'Full Yr' : 'All') : MONTHS[activeMonth - 1];
-  const weekLbl  = activeWeek ? 'WK' + activeWeek : 'All';
-  const dayObj   = activeDay ? new Date(activeDay + 'T12:00:00') : null;
-  const dayLbl   = dayObj ? DAY_LETTERS[dayObj.getDay()] + String(dayObj.getDate()).padStart(2, '0') : '—';
-  const isInv    = section === 'inventory';
-  const moDim    = isInv;
-  const wkDim    = isInv || activeMonth === 0;
-  const dyDim    = wkDim || !activeWeek;
-  const fields   = [
-    { key: 'year',  label: 'Year',  value: String(activeYear), dim: false },
-    { key: 'month', label: 'Month', value: monthLbl,            dim: moDim },
-    { key: 'week',  label: 'Week',  value: weekLbl,             dim: wkDim },
-    { key: 'day',   label: 'Day',   value: dayLbl,              dim: dyDim },
-  ];
-  bar.innerHTML = fields.map(f =>
-    `<div class="period-field${expandedGroup === f.key ? ' on' : ''}${f.dim ? ' dim' : ''}"
-          ${f.dim ? '' : `onclick="navPeriodField('${f.key}')"`}>
-      <span class="pf-label">${f.label}</span>
-      <span class="pf-value">${f.value}</span>
-    </div>`
-  ).join('');
-  buildPeriodExpanded();
-}
-
-function navPeriodField(key) {
-  expandedGroup = expandedGroup === key ? null : key;
-  buildPeriodBar();
-}
-
-function buildPeriodExpanded() {
-  const el = document.getElementById('period-expanded');
-  if (!el) return;
-  if (!expandedGroup) { el.innerHTML = ''; return; }
-  const curYear = new Date().getFullYear();
-  const curMo   = new Date().getMonth() + 1;
-  const curWeek = getUserWeek(new Date());
-  const today   = new Date(); today.setHours(0, 0, 0, 0);
-  const isPast  = activeYear < curYear;
-  const _years  = [curYear - 2, curYear - 1, curYear];
-  let html = '';
-  if (expandedGroup === 'year') {
-    html = _years.map(yr =>
-      `<button class="mtab${yr === activeYear ? ' on' : ''}" onclick="setYear(${yr})">${yr}</button>`
-    ).join('');
-  } else if (expandedGroup === 'month') {
-    const allLbl = isPast ? 'Full Yr' : 'All';
-    html = `<button class="mtab${activeMonth === 0 ? ' on' : ''}" onclick="setMonth(0)">${allLbl}</button>` +
-      MONTHS.map((m, i) => {
-        const mo = i + 1, future = !isPast && mo > curMo;
-        return `<button class="mtab${mo === activeMonth ? ' on' : ''}${future ? ' future' : ''}" onclick="setMonth(${mo})">${m}</button>`;
-      }).join('');
-  } else if (expandedGroup === 'week') {
-    html = `<button class="mtab${!activeWeek ? ' on' : ''}" onclick="setWeekAll()">All</button>` +
-      getWeeksInMonth(activeYear, activeMonth).map(w => {
-        const future = activeYear === curYear && (activeMonth > curMo || (activeMonth === curMo && w > curWeek));
-        return `<button class="mtab${w === activeWeek ? ' on' : ''}${future ? ' future' : ''}" onclick="setWeek(${w})">WK${w}</button>`;
-      }).join('');
-  } else if (expandedGroup === 'day') {
-    html = getDaysOfISOWeek(activeYear, activeWeek).map(d => {
-      const ds  = d.toISOString().slice(0, 10);
-      const lbl = DAY_LETTERS[d.getDay()] + String(d.getDate()).padStart(2, '0');
-      const inMonth = d.getMonth() + 1 === activeMonth;
-      const future  = d > today;
-      const cls   = `mtab dtab${activeDay === ds ? ' on' : ''}${future ? ' future' : ''}`;
-      const style = !inMonth && !future ? 'opacity:0.3' : '';
-      return `<button class="${cls}" style="${style}" onclick="setDay('${ds}')">${lbl}</button>`;
-    }).join('');
-  }
   el.innerHTML = html;
 }
 
@@ -5493,7 +5284,6 @@ function startSalesHeartbeat() {
 buildTimeNav();
 buildStoreTabs();
 buildStatusGrid({});
-buildPeriodBar();
 buildStoreChipGrid();
 updateMobBottomBar();
 document.getElementById('proxy-url').value = DEFAULT_PROXY;
