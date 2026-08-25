@@ -41,6 +41,9 @@
   --green-ink:var(--gx-green-ink,#06210f);
   --green-soft:var(--gx-green-soft,rgba(74,222,128,.10));
   --green-dim:var(--gx-green-dim,#2f8a52);
+  /* --green at 10% over --bg, FLATTENED to a solid: the bottom bar is translucent, so an
+     rgba fill there would pick up whatever content scrolled behind it. */
+  --green-screen:#112318;
   /* Days inside the selected week (or inside the month, when a whole month is selected) in the
      period calendar. Softer than --green-soft on purpose: it marks a span, not a selection. */
   --week-tint:rgba(74,222,128,.07);
@@ -53,7 +56,7 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html{background:var(--bg)}
 body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif);background:var(--bg);color:var(--text);min-height:100vh;min-height:100dvh;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
-.w{padding:16px;max-width:480px;margin:0 auto}
+.w{padding:10px 14px 16px;max-width:480px;margin:0 auto}
 .logo-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding-top:8px}
 .logo-text{font-size:17px;font-weight:500;color:var(--text)}
 .logo-sub{font-size:11px;color:var(--muted)}
@@ -96,7 +99,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 /* The nav and its sub-row are DESKTOP-ONLY, the same gate the sidebar had: mobile keeps its own
    bottom bar and trays, which are a different design and are deliberately untouched. */
 .dsk-chrome{display:none}
-.main-col{padding-bottom:140px}
+.main-col{padding-bottom:calc(140px + env(safe-area-inset-bottom))}
 /* Mobile hero */
 .mob-hero{padding:18px 0 14px}
 .mh-label{font-size:11px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;display:flex;align-items:center;gap:5px;line-height:1}
@@ -107,7 +110,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 /* Pinned bottom navigation bar — two-row design */
 .mob-bottom-bar{position:fixed;bottom:0;left:0;right:0;z-index:200;display:flex;flex-direction:column}
 .mbb-filter-row{background:rgba(10,14,13,.97);border-top:.5px solid var(--border);display:flex;gap:7px;padding:8px 12px}
-.mbb-filter{flex:1;height:44px;border-radius:10px;border:.5px solid var(--border-strong);background:var(--card-2);font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px;min-width:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.mbb-filter{flex:1;height:44px;border-radius:10px;border:.5px solid rgba(74,222,128,.22);background:var(--green-screen);font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px;min-width:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .mbb-period-lbl{font-size:14px;font-weight:600;color:var(--text);white-space:nowrap}
 .mbb-period-lbl2{font-size:12px;color:var(--dim);white-space:nowrap;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}
 .mbb-stores-lbl{font-size:14px;font-weight:500;color:var(--dim);white-space:nowrap}
@@ -324,7 +327,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 
 /* ── Income 2.0 layout ─────────────────────────────────────────────────────── */
 /* Mobile (ic-mob): shown by default; Desktop (ic-dsk): hidden until @media     */
-.ic-mob{display:flex;flex-direction:column;gap:14px;margin-bottom:10px}
+.ic-mob{display:flex;flex-direction:column;gap:10px;margin-bottom:10px}
 .ic-dsk{display:none}
 /* Hero card */
 .ic-hero-card{background:var(--card);border-radius:12px;padding:16px}
@@ -360,6 +363,8 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 /* Mobile KPI grid */
 .ic-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
 .ic-kpi{background:var(--card);border-radius:10px;padding:15px 16px}
+/* Tighter on a phone, where the four cards have to clear the bottom bar. */
+.ic-mob .ic-kpi{padding:12px 14px}
 .ic-kpi-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
 .ic-kpi-val{font-size:25px;font-weight:500;color:var(--text);line-height:1.05}
 .ic-kpi-sub{font-size:12px;margin-top:4px}
@@ -1067,7 +1072,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.513';
+const APP_VERSION = 'v2.514';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -3619,11 +3624,15 @@ function renderIncome() {
         <div class="ic-hero-card" id="ic-mob-hero">
           ${_incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml, pnav })}
         </div>
-        <div class="ic-mob-bd" id="ic-mob-bd">
-          ${_incomeBreakdownMobHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo)}
-        </div>
+        <!-- KPIs sit ABOVE the store breakdown, per the handoff's mobile screen. The other order
+             pushed all four cards under the bottom bar on a notched phone: hero + six breakdown
+             rows is 476pt before the grid starts, and the usable band between the status bar and
+             the filter row is 594pt. -->
         <div class="ic-kpis" id="ic-mob-kpis">
           ${_incomeKpiMobHtml(net, gross, orders, disc, cost, aov, dutchieNet, dcost)}
+        </div>
+        <div class="ic-mob-bd" id="ic-mob-bd">
+          ${_incomeBreakdownMobHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo)}
         </div>
         <div id="income-other-rev">${otherHtml}</div>
         <div id="income-chart-section">
