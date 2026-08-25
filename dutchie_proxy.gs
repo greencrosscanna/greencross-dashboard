@@ -504,6 +504,11 @@ function doGet(e) {
   if (params.action === 'itemstest')     return getItemsTest(params);
   if (params.action === 'txdetail')      return getTxDetail(params);
   if (params.action === 'reportbug')     return reportBug_(params, auth.user);
+  if (params.action === 'deposits')      return getDeposits(params);
+  if (params.action === 'recon_config')  return getReconConfig(params);
+  if (params.action === 'set_recon_config') { const g = writeGuard_(auth.user, 'set_recon_config'); if (!g.ok) return jsonOut_(g); return setReconConfig_(params); }
+  if (params.action === 'set_recon')        { const g = writeGuard_(auth.user, 'set_recon');        if (!g.ok) return jsonOut_(g); return setRecon_(params, auth.user); }
+  if (params.action === 'set_recon_assign') { const g = writeGuard_(auth.user, 'set_recon_assign'); if (!g.ok) return jsonOut_(g); return setReconAssign_(params); }
 
   const store = params.store;
   const from  = params.from;
@@ -581,6 +586,10 @@ function getStoreSales_(store, from, to) {
           orders:     rOrd,
           discounts:  Math.round(rDisc * 100) / 100,
           cogs:       Math.round(rCogs * 100) / 100,
+          // Per-day tax exists only because the Reconcile tab needs it: a bank deposit is
+          // Net Sales + Tax for the days it covers, so a day-level total without tax cannot be
+          // compared to one. It was summed into the store-month total already and dropped here.
+          tax:        Math.round(rTax  * 100) / 100,
         };
         const wk = getISOWeek(new Date(r.date + 'T12:00:00')) - 1;
         weeklyMap['WK' + wk] = (weeklyMap['WK' + wk] || 0) + rNet;
@@ -592,7 +601,7 @@ function getStoreSales_(store, from, to) {
       disc += liveResult.discounts; cogs += liveResult.cost;
       tx   += liveResult.tax;       ord  += liveResult.orders;
       for (const d of (liveResult.daily || [])) {
-        dailyMap[d.date] = { netSales: d.netSales, grossSales: d.grossSales, orders: d.orders, discounts: d.discounts, cogs: d.cogs || 0 };
+        dailyMap[d.date] = { netSales: d.netSales, grossSales: d.grossSales, orders: d.orders, discounts: d.discounts, cogs: d.cogs || 0, tax: d.tax || 0 };
         const wk = getISOWeek(new Date(d.date + 'T12:00:00')) - 1;
         weeklyMap['WK' + wk] = (weeklyMap['WK' + wk] || 0) + d.netSales;
       }
@@ -616,7 +625,7 @@ function getStoreSales_(store, from, to) {
       topProducts: liveResult ? (liveResult.topProducts || []) : [],
       daily: Object.entries(dailyMap)
         .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([date, d]) => ({ date, netSales: d.netSales, grossSales: d.grossSales, orders: d.orders, discounts: d.discounts, cogs: d.cogs || 0 })),
+        .map(([date, d]) => ({ date, netSales: d.netSales, grossSales: d.grossSales, orders: d.orders, discounts: d.discounts, cogs: d.cogs || 0, tax: d.tax || 0 })),
       cacheRows:  cacheRows.length,
       liveOrders: liveResult ? liveResult.orders : 0,
     });
@@ -685,11 +694,12 @@ function dutchieTodayFetch_(store, todayPT, toISO) {
 
     const dateStr = (tx.transactionDateLocalTime || tx.transactionDate || '').slice(0, 10);
     if (dateStr) {
-      if (!dailyMap[dateStr]) dailyMap[dateStr] = { netSales: 0, grossSales: 0, orders: 0, discounts: 0, cogs: 0 };
+      if (!dailyMap[dateStr]) dailyMap[dateStr] = { netSales: 0, grossSales: 0, orders: 0, discounts: 0, cogs: 0, tax: 0 };
       dailyMap[dateStr].netSales   += net;
       dailyMap[dateStr].grossSales += net + disc;
       dailyMap[dateStr].orders     += 1;
       dailyMap[dateStr].discounts  += disc;
+      dailyMap[dateStr].tax        += txTax;   // Reconcile compares deposits to Net Sales + Tax
       // accumulate per-tx cost into the date bucket
       const txItems = tx.items || tx.lineItems || tx.orderItems || [];
       for (const item of txItems) {
@@ -724,6 +734,7 @@ function dutchieTodayFetch_(store, todayPT, toISO) {
         orders:     d.orders,
         discounts:  Math.round(d.discounts  * 100) / 100,
         cogs:       Math.round((d.cogs || 0) * 100) / 100,
+        tax:        Math.round((d.tax  || 0) * 100) / 100,
       })),
   };
 }
@@ -1041,6 +1052,283 @@ function qbReportViaGXCore_(start, end, by) {
     Utilities.sleep(500);   // transient Drive-HTML miss → retry
   }
   throw new Error('qb_pnl unreachable after retries');
+}
+
+
+// ── Weekly deposit reconciliation ─────────────────────────────────────────────────────────────
+//
+// Shawn banks each store's week as one or more deposits; Sky checks that the deposit equals that
+// store's Net Sales + Tax for the days it covers. Three things make this NOT a calendar-week sum:
+//
+//   1. The week does not start on Monday, and it differs BY STORE — some run Tue→Mon, some Wed→Tue,
+//      because that is when the deposits happen. The boundary is CONFIGURED (see RECON_CFG_PROP),
+//      not hardcoded, so a store whose deposit day moves is a settings change, not a deploy.
+//   2. One week can have SEVERAL deposits — Commercial is routinely split 3 days + 4 days.
+//   3. A deposit that spans month end gets split in two so the income lands in the right month.
+//
+// So the unit is a WEEK WINDOW per store, holding N deposits, and it balances when the deposits sum
+// to the sales sum. Never assume one deposit per week.
+
+const GXCORE_EXEC_ = 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec';
+
+// Reads real bank deposits out of QuickBooks THROUGH GX Core. Sales holds no QB token — the local
+// path was deleted 2026-08-24 and must not come back — so this fails CLOSED exactly like
+// qbReportViaGXCore_ does: a broken Reconcile tab is the intended failure, and it is strictly better
+// than a tab that quietly shows sales with no deposits and reads as "nothing has been banked".
+function qbDepositsViaGXCore_(start, end) {
+  const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
+  if (!secret) throw new Error('GX_DEPLOY_SECRET not set on this script — cannot reach GX Core');
+  const url = GXCORE_EXEC_ + '?action=qb_deposits&secret=' + encodeURIComponent(secret)
+    + '&start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end);
+  for (let i = 0; i < 5; i++) {
+    const resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    let data = null; try { data = JSON.parse(resp.getContentText()); } catch (e) {}
+    if (data && data.ok === true && Array.isArray(data.deposits)) return data.deposits;
+    if (data && data.ok === false) throw new Error(data.error || 'qb_deposits error');
+    Utilities.sleep(500);   // transient Drive-HTML miss → retry, same as the P&L bridge
+  }
+  throw new Error('qb_deposits unreachable after retries');
+}
+
+// Dates are TEXT end to end. Accepts only YYYY-MM-DD, else ''. Same rule and same reason as
+// pnlDate_: parsing to a Date and reformatting is where a timezone mismatch shifts a day.
+function reconDate_(v) {
+  const t = String(v || '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : '';
+}
+
+// Adds n days to a YYYY-MM-DD string WITHOUT going through the script timezone. Date.UTC keeps the
+// arithmetic in UTC and the result is sliced straight back to text, so no local offset can touch it.
+function reconAddDays_(dateStr, n) {
+  const p = dateStr.split('-').map(Number);
+  const d = new Date(Date.UTC(p[0], p[1] - 1, p[2]));
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// Day of week for a YYYY-MM-DD, 0=Sun..6=Sat, in UTC for the same reason as above.
+function reconDow_(dateStr) {
+  const p = dateStr.split('-').map(Number);
+  return new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay();
+}
+
+const RECON_CFG_PROP_   = 'RECON_CONFIG_V1';
+const RECON_STATE_PROP_ = 'RECON_STATE_V1';
+
+// Week-start weekday per store, 0=Sun..6=Sat. MEASURED, not assumed: read off Shawn's own deposit
+// slips ("08.17.26 Deposits.xlsx", one tab per store, each stating its DEPOSIT DATE and the SALES
+// DATE range that deposit covers). Bend and Hillsboro bank Tue→Mon on the Tuesday; the four Salem
+// stores bank Wed→Tue on the Wednesday. Sky confirmed the pattern is the same every week.
+//
+// Still overridable per store from the tab — a deposit day that moves should be a dropdown, not a
+// deploy — but the shipped defaults are now the real ones rather than a placeholder.
+const RECON_WEEK_START_BY_STORE_ = {
+  'Bend':        2,   // CENTURY   — Tue→Mon, deposited Tue
+  'Hillsboro':   2,   // HILLSBORO — Tue→Mon, deposited Tue
+  'Center':      3,   // CENTER    — Wed→Tue, deposited Wed
+  'Commercial':  3,   // COMMERCIAL, the "South" tab — Wed→Tue, routinely split Wed-Sat + Sun-Tue
+  'Portland Rd': 3,   // PORTLAND  — Wed→Tue, deposited Wed
+  'River':       3,   // RIVER     — Wed→Tue, deposited Wed
+};
+const RECON_DEFAULT_WEEK_START_ = 3;   // a store not named above; Salem's pattern is the majority
+
+function getReconConfig_() {
+  let cfg = {};
+  try { cfg = JSON.parse(PropertiesService.getScriptProperties().getProperty(RECON_CFG_PROP_) || '{}'); }
+  catch (e) { cfg = {}; }
+  const out = {};
+  for (const name of Object.keys(STORE_KEYS)) {
+    const v = Number(cfg[name]);
+    if (Number.isInteger(v) && v >= 0 && v <= 6) { out[name] = v; continue; }
+    out[name] = hasOwn_(RECON_WEEK_START_BY_STORE_, name)
+      ? RECON_WEEK_START_BY_STORE_[name] : RECON_DEFAULT_WEEK_START_;
+  }
+  return out;
+}
+
+function getReconState_() {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty(RECON_STATE_PROP_) || '{}'); }
+  catch (e) { return {}; }
+}
+
+// GET action=recon_config — the per-store week-start map, always complete for all six stores.
+function getReconConfig(params) {
+  return jsonOut_({ ok: true, config: getReconConfig_(), default_week_start: RECON_DEFAULT_WEEK_START_ });
+}
+
+// Write one store's week-start weekday. Validated against the canonical store list and an integer
+// 0..6 — never used as an object key lookup on unvalidated input.
+function setReconConfig_(params) {
+  const store = String(params.store || '');
+  const dow   = Number(params.week_start);
+  // storeKey_ is the repo's own guard: an INHERITED name ('constructor', 'toString') resolves to
+  // null instead of sailing through a bare truthiness check on STORE_KEYS[store].
+  if (!storeKey_(store)) return jsonOut_({ ok: false, error: 'unknown store' });
+  if (!Number.isInteger(dow) || dow < 0 || dow > 6) return jsonOut_({ ok: false, error: 'week_start must be an integer 0..6' });
+  try {
+    const cfg = getReconConfig_();
+    cfg[store] = dow;
+    PropertiesService.getScriptProperties().setProperty(RECON_CFG_PROP_, JSON.stringify(cfg));
+    return jsonOut_({ ok: true, config: cfg });
+  } catch (e) {
+    return jsonOut_({ ok: false, error: e.message });
+  }
+}
+
+// Mark one store-week reconciled, or un-mark it. The key is store + window-start, which is stable
+// even when the store's week-start setting changes later — a week already reconciled keeps the
+// window it was reconciled under, recorded ON the record rather than re-derived from current config.
+function setRecon_(params, user) {
+  const store = String(params.store || '');
+  const start = reconDate_(params.start);
+  const end   = reconDate_(params.end);
+  const on    = String(params.reconciled) !== 'false';
+  if (!storeKey_(store)) return jsonOut_({ ok: false, error: 'unknown store' });
+  if (!start || !end) return jsonOut_({ ok: false, error: 'start and end must be YYYY-MM-DD' });
+  if (end < start)    return jsonOut_({ ok: false, error: 'end is before start' });
+  try {
+    const state = getReconState_();
+    const key   = store + '|' + start;
+    if (on) {
+      state[key] = {
+        store: store, start: start, end: end,
+        expected: Math.round(Number(params.expected || 0) * 100) / 100,
+        deposited: Math.round(Number(params.deposited || 0) * 100) / 100,
+        by: String(user || ''), at: new Date().toISOString(),
+      };
+    } else {
+      delete state[key];
+    }
+    PropertiesService.getScriptProperties().setProperty(RECON_STATE_PROP_, JSON.stringify(state));
+    return jsonOut_({ ok: true, state: state });
+  } catch (e) {
+    return jsonOut_({ ok: false, error: e.message });
+  }
+}
+
+const RECON_ASSIGN_PROP_ = 'RECON_ASSIGN_V1';
+
+function getReconAssign_() {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty(RECON_ASSIGN_PROP_) || '{}'); }
+  catch (e) { return {}; }
+}
+
+// Pin one deposit to a specific week window, overriding the default date rule.
+//
+// The default rule (see reconWindowForDeposit in index.html) says a deposit belongs to the most
+// recent week that had already ENDED when it was made. That is right for an ordinary week and wrong
+// for the two cases Sky called out: a deposit split across month end has its second half dated in
+// the next month, and a week banked late drifts into the following window. Rather than guess harder,
+// the guess is overridable and the override is what gets stored.
+//
+// An empty window clears the override and returns the deposit to the default rule.
+function setReconAssign_(params) {
+  const id     = String(params.deposit_id || '');
+  const window = params.window ? reconDate_(params.window) : '';
+  if (!id) return jsonOut_({ ok: false, error: 'deposit_id is required' });
+  if (params.window && !window) return jsonOut_({ ok: false, error: 'window must be YYYY-MM-DD' });
+  try {
+    const a = getReconAssign_();
+    if (window) a[id] = window; else delete a[id];
+    PropertiesService.getScriptProperties().setProperty(RECON_ASSIGN_PROP_, JSON.stringify(a));
+    return jsonOut_({ ok: true, assign: a });
+  } catch (e) {
+    return jsonOut_({ ok: false, error: e.message });
+  }
+}
+
+// GET action=deposits — real QB deposits for a range, plus the reconciled-week history and the
+// week-start config, so the tab can paint in one round trip.
+//
+// Deposits are attributed to a store by QB CLASS, using the SAME explicit map the P&L already uses.
+// The class string is compared verbatim: no folding, no trailing-token stripping. A deposit whose
+// class matches no store is NOT silently dropped — it comes back under `unattributed`, because in a
+// lookup a miss is not a wrong bucket, it is a row that vanishes, and money that vanishes from a
+// reconciliation screen is the exact failure this tab exists to prevent.
+const RECON_STORE_BY_CLASS_ = {
+  'CENTURY DR':    'Bend',
+  'CENTER ST':     'Center',
+  'COMMERCIAL ST': 'Commercial',
+  'BASELINE ST':   'Hillsboro',
+  'PORTLAND RD':   'Portland Rd',
+  'RIVER RD':      'River',
+};
+
+function getDeposits(params) {
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+  try {
+    const start = reconDate_(params && params.start);
+    const end   = reconDate_(params && params.end);
+    if (!start || !end) throw new Error('start and end are required, as YYYY-MM-DD');
+    if (end < start)    throw new Error('end is before start');
+
+    const cacheKey = 'deposits_' + start + '_' + end + '_v1';
+    if (!params?.nocache) {
+      const cached = cacheGet_(cacheKey);
+      if (cached) { output.setContent(cached); return output; }
+    }
+
+    const raw   = qbDepositsViaGXCore_(start, end);
+    const byStore = {};
+    const unattributed = [];
+    for (const dep of raw) {
+      const date = reconDate_(dep && dep.date);
+      if (!date) continue;
+      const lines = Array.isArray(dep.lines) && dep.lines.length
+        ? dep.lines
+        : [{ class: '', amount: Number(dep.total || 0), memo: '' }];
+      // COLLAPSE THE LINES BY CLASS FIRST. A real store deposit arrives as FIVE lines all carrying
+      // the same class — "Sales 3% Tax", "Sales 17% Tax", "Med Sales", "Rec Sales", "Non MJ Sales" —
+      // because that is how the revenue is broken out in QuickBooks. Measured on the live route over
+      // 2026-08-01..08-25: 20 of 22 deposits are 5 lines, and NOT ONE spans more than one class.
+      //
+      // Pushing a record per LINE turned one trip to the bank into five rows under that store. The
+      // week TOTAL still reconciled, because amounts sum either way — but the card listed five
+      // deposits and any count was 5x out, and "Commercial banked ten times this week" reads as
+      // broken faster than a wrong total would.
+      //
+      // Grouped by class rather than assumed one-per-deposit: a deposit CAN carry several stores.
+      // That did not occur in the sample, so it is handled but not treated as the common case.
+      const byClass = {};
+      const order   = [];
+      for (const ln of lines) {
+        const cls = String(ln.class || '');
+        if (!hasOwn_(byClass, cls)) { byClass[cls] = { amount: 0, memos: [] }; order.push(cls); }
+        byClass[cls].amount += Number(ln.amount || 0);
+        const memo = String(ln.memo || '').trim();
+        if (memo) byClass[cls].memos.push(memo);
+      }
+      for (const cls of order) {
+        const g = byClass[cls];
+        // Own property only — an inherited key like 'constructor' must not resolve to a store.
+        const store  = hasOwn_(RECON_STORE_BY_CLASS_, cls) ? RECON_STORE_BY_CLASS_[cls] : null;
+        const rec = {
+          id: String(dep.id || ''), date: date,
+          amount: Math.round(g.amount * 100) / 100,
+          class: cls, account: String(dep.account || ''),
+          // The per-line memos are the tax/med/rec breakdown. Kept, not folded away — GX Core
+          // deliberately did not collapse them upstream, and they are the obvious next thing to
+          // want on this tab.
+          memo: g.memos.join(' · '), lines: g.memos.length,
+        };
+        if (store) { (byStore[store] = byStore[store] || []).push(rec); }
+        else       { unattributed.push(rec); }
+      }
+    }
+    for (const k of Object.keys(byStore)) byStore[k].sort((a, b) => a.date.localeCompare(b.date));
+
+    const content = JSON.stringify({
+      ok: true, start: start, end: end,
+      deposits: byStore, unattributed: unattributed,
+      config: getReconConfig_(), state: getReconState_(), assign: getReconAssign_(),
+    });
+    cacheSet_(cacheKey, content, 900);   // 15 min — deposits land during the day
+    output.setContent(content);
+  } catch (err) {
+    output.setContent(JSON.stringify({ ok: false, error: err.message }));
+  }
+  return output;
 }
 
 
