@@ -710,11 +710,12 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   // localhost, until writes are armed (banner button / ?arm=1 / GXDev.arm()). Inert in production.
   // This app has no single api chokepoint, so gx-dev.js guards at the fetch layer -- requests
   // carrying an action are checked, action-less requests (local assets) pass through untouched.
-  // Guarded writes: reportbug, save_expense_mapping, set_otherrev, set_revenue
+  // Guarded writes: reportbug, save_expense_mapping, set_otherrev, set_revenue,
+  //                 set_recon, set_recon_assign, set_recon_config
   window.GX_DEV_READS = [
-    'cogs', 'cogs_dutchie', 'config', 'expbudgets', 'expenses', 'getdailygoals', 'goals',
+    'cogs', 'cogs_dutchie', 'config', 'deposits', 'expbudgets', 'expenses', 'getdailygoals', 'goals',
     'inventory', 'login', 'otherrev', 'pace', 'period_goals', 'ping', 'pnl', 'published_goals',
-    'revenue_detail',
+    'recon_config', 'revenue_detail',
     'stores', 'velocity', 'version_history'
   ];
 </script>
@@ -4437,7 +4438,7 @@ function renderReconcile(nocache) {
     host.innerHTML = `
       <div class="sec-lbl">Deposit reconciliation</div>
       <div class="card"><div class="empty-state">Couldn't load deposits — ${escHtml(reconData.error || 'unknown error')}
-        <div style="margin-top:6px;opacity:.7;font-size:12px">Deposits come from QuickBooks through GX Core. If this says the route is missing, GX Core hasn't shipped <code>qb_deposits</code> yet.</div>
+        <div style="margin-top:6px;opacity:.7;font-size:12px">Deposits come from QuickBooks through GX Core's <code>qb_deposits</code> (live since v216). A <code>[GXDev] BLOCKED</code> message above is the LOCAL dev guard, not the backend — that means an action is missing from <code>GX_DEV_READS</code> in this page's head.</div>
         <div style="margin-top:8px"><button class="pill-btn" onclick="reloadRecon()">Try again</button></div>
       </div></div>`;
     return;
