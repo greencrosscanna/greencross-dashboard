@@ -55,6 +55,10 @@ const ok = (msg, cond) => { if (cond) { pass++; console.log('  ok   ' + msg); }
 
 const ctx = { console };
 vm.createContext(ctx);
+const FALLBACK_SRC = /const RECON_WEEK_START_FALLBACK = Object\.freeze\(\{[\s\S]*?\}\);/.exec(HTML);
+if (!FALLBACK_SRC) { console.log('RECON_WEEK_START_FALLBACK is gone from index.html');
+                     console.log('\n0 passed, 1 failed'); process.exit(1); }
+vm.runInContext(FALLBACK_SRC[0], ctx);
 for (const fn of ['reconAddDays', 'reconDow', 'reconWindowStart', 'reconWindows',
                   'reconWeekStartFor', 'reconWindowForDeposit', 'reconExpectedFor',
                   'reconStateKey', 'reconIsDone', 'reconBuildRow']) {
@@ -91,10 +95,39 @@ ok('windows cross a month end intact',  C.reconAddDays('2026-08-30', 3) === '202
 ok('windows cross a year end intact',   C.reconAddDays('2026-12-30', 3) === '2027-01-02');
 ok('a 7-day window ends 6 days later',  C.reconAddDays('2026-08-18', 6) === '2026-08-24');
 
-// An unconfigured store must fall back to the documented default, not to undefined.
-ok('an unconfigured store defaults to Tuesday', C.reconWeekStartFor('Hillsboro') === 2);
+// ── The shipped defaults must match Shawn's actual slips ──────────────────────────────────────
+// Read off "08.17.26 Deposits.xlsx": one tab per store, each naming its DEPOSIT DATE and the SALES
+// DATE range it covers. Bend/Hillsboro bank Tue->Mon on the Tuesday; the four Salem stores bank
+// Wed->Tue on the Wednesday. Sky confirmed the pattern repeats every week. Getting one of these
+// wrong shifts a whole store's week by a day, silently, against every deposit it ever makes.
+reconData = { config: {} };
+const SLIP_WEEK_START = { 'Bend': 2, 'Hillsboro': 2, 'Center': 3, 'Commercial': 3, 'Portland Rd': 3, 'River': 3 };
+for (const [store, ws] of Object.entries(SLIP_WEEK_START)) {
+  ok(`${store} defaults to ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][ws]}, per the slip`,
+     C.reconWeekStartFor(store) === ws);
+}
+
+// The slips again, as end-to-end cases: the sales range printed on each slip must be exactly the
+// window this code derives from that store's deposit date.
+const SLIPS = [
+  { store: 'Bend',        deposited: '2026-08-18', from: '2026-08-11', to: '2026-08-17' },
+  { store: 'Hillsboro',   deposited: '2026-08-18', from: '2026-08-11', to: '2026-08-17' },
+  { store: 'Center',      deposited: '2026-08-19', from: '2026-08-12', to: '2026-08-18' },
+  { store: 'River',       deposited: '2026-08-19', from: '2026-08-12', to: '2026-08-18' },
+  { store: 'Commercial',  deposited: '2026-08-19', from: '2026-08-12', to: '2026-08-18' },
+  { store: 'Portland Rd', deposited: '2026-08-19', from: '2026-08-12', to: '2026-08-18' },
+];
+for (const sl of SLIPS) {
+  const win = C.reconWindowForDeposit(sl.store, { id: 'x', date: sl.deposited });
+  ok(`${sl.store}: a deposit on ${sl.deposited} pays for ${sl.from}..${sl.to}`,
+     win === sl.from && C.reconAddDays(win, 6) === sl.to);
+}
+
+// A junk or unknown value must fall back, never leak through as a week start.
 ok('a junk config value does not leak through', (reconData = { config: { River: 99 } },
-   C.reconWeekStartFor('River') === 2));
+   C.reconWeekStartFor('River') === 3));
+ok('an unknown store still gets a usable default',
+   Number.isInteger(C.reconWeekStartFor('Nowhere')));
 
 // ── Window enumeration over a period ──────────────────────────────────────────────────────────
 // A period rarely starts on a store's week-start day. The window straddling the boundary is mostly
@@ -147,8 +180,9 @@ ok('a missing day is reported, not silently skipped', exp.missing.length === 1
 // implementation reports "over by a day's takings" and sends someone hunting.
 reconData.deposits = { Commercial: [{ id: 'd1', date: '2026-08-25', amount: 8400 }] };
 let row = C.reconBuildRow('Commercial', week);
-ok('an incomplete week is not called matched', row.matched === false);
-ok('an incomplete week names the missing day', row.missing.length === 1);
+ok('an incomplete week does not tie',           row.ties === false);
+ok('an incomplete week cannot be reconciled',   row.reconcilable === false);
+ok('an incomplete week names the missing day',  row.missing.length === 1);
 
 // ── Split deposits: several in one week must SUM, not last-one-wins ────────────────────────────
 allDailyData.Commercial['2026-08-20'] = { netSales: 1000, tax: 200 };
@@ -159,19 +193,40 @@ reconData.deposits = { Commercial: [
 reconData.assign = { d2: '2026-08-18' };            // both halves pay for the same week
 row = C.reconBuildRow('Commercial', week);
 ok('two deposits in one week are summed',   row.deposited === 8400);
-ok('a split week reconciles when it ties',  row.matched === true && row.diff === 0);
+ok('a split week ties when it adds up',     row.ties === true && row.diff === 0);
 ok('both deposits are listed on the card',  row.deps.length === 2);
 
 // And when it does NOT tie, the shortfall is reported with its sign intact.
 reconData.deposits.Commercial[1].amount = 4700;
 row = C.reconBuildRow('Commercial', week);
-ok('a short week is not matched',           row.matched === false);
+ok('a short week does not tie',             row.ties === false);
 ok('a short week reports a negative diff',  row.diff === -100);
 
-// A week with sales and no deposit at all is "awaiting", never a match.
+// ── A variance must NOT block reconciling ─────────────────────────────────────────────────────
+// The whole point, measured on Shawn's 08.17.26 slips: five of six stores carried a variance in a
+// perfectly normal week (1.90, -0.33, -24.77, -0.42, 0.01) and only Bend came out exactly zero. The
+// -24.77 is annotated "$25 Gift Cert" — explained, not an error. Gating the Reconcile button on an
+// exact tie would have blocked five stores every week and made the tab unusable.
+ok('a week with a variance is still reconcilable', row.reconcilable === true);
+for (const v of [1.90, -0.33, -24.77, -0.42, 0.01]) {
+  reconData.deposits.Commercial = [{ id: 'v1', date: '2026-08-25', amount: 8400 + v }];
+  reconData.assign = {};
+  const r = C.reconBuildRow('Commercial', week);
+  ok(`a real-world variance of ${v} reconciles, and is reported`,
+     r.reconcilable === true && r.ties === false && Math.abs(r.diff - v) < 0.005);
+}
+
+// Only an exact tie counts as a tie — the cent is not rounded away.
+reconData.deposits.Commercial = [{ id: 'v2', date: '2026-08-25', amount: 8400 }];
+ok('an exact match ties', C.reconBuildRow('Commercial', week).ties === true);
+reconData.deposits.Commercial = [{ id: 'v3', date: '2026-08-25', amount: 8400.01 }];
+ok('one cent out does not tie', C.reconBuildRow('Commercial', week).ties === false);
+
+// A week with sales and no deposit at all is "awaiting" — never a tie, and not reconcilable.
 reconData.deposits = { Commercial: [] };
 row = C.reconBuildRow('Commercial', week);
-ok('no deposit is never a match',           row.matched === false && row.deposited === 0);
+ok('no deposit is never a tie',             row.ties === false && row.deposited === 0);
+ok('no deposit is not reconcilable',        row.reconcilable === false);
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

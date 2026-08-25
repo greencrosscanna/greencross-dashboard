@@ -624,8 +624,10 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 
 .recon-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-top:12px}
 .recon-card{border-left:3px solid var(--border);display:flex;flex-direction:column;gap:8px}
-.recon-matched{border-left-color:var(--green)}
-.recon-off{border-left-color:var(--red)}
+.recon-ties{border-left-color:var(--green)}
+/* Amber, not red: a variance is the normal state of a real week (five of six stores had one on the
+   08.17.26 slips) and is a figure to read, not a failure to clear. Red here would cry wolf weekly. */
+.recon-variance{border-left-color:var(--amber)}
 .recon-awaiting{border-left-color:var(--amber)}
 .recon-incomplete{border-left-color:var(--border-strong)}
 .recon-done{border-left-color:var(--green);opacity:.72}
@@ -633,8 +635,8 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .recon-hd{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
 .recon-store{font-size:14px;font-weight:600;color:var(--text)}
 .recon-state{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
-.recon-matched .recon-state{color:var(--green)}
-.recon-off .recon-state{color:var(--red)}
+.recon-ties .recon-state{color:var(--green)}
+.recon-variance .recon-state{color:var(--amber)}
 .recon-window{font-size:11px;color:var(--muted)}
 .recon-ws{opacity:.65}
 
@@ -642,7 +644,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .recon-figs>div{display:flex;flex-direction:column;gap:2px}
 .recon-figs span{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 .recon-figs strong{font-size:15px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
-.recon-diff{font-size:12px;font-weight:600;color:var(--red)}
+.recon-diff{font-size:12px;font-weight:600;color:var(--amber)}
 .recon-missing{font-size:11px;line-height:1.45;color:var(--muted);background:var(--card);border-radius:6px;padding:7px 9px}
 
 .recon-deps{display:flex;flex-direction:column;gap:4px;border-top:0.5px solid var(--border);padding-top:7px}
@@ -4225,9 +4227,19 @@ function reconWindows(store, from, to) {
   return out;
 }
 
+// MEASURED from Shawn's deposit slips ("08.17.26 Deposits.xlsx"), not assumed: Bend and Hillsboro
+// bank Tue→Mon on the Tuesday; the four Salem stores bank Wed→Tue on the Wednesday. Mirrors
+// RECON_WEEK_START_BY_STORE_ in dutchie_proxy.gs, which is authoritative — this is the fallback for
+// before the config lands, and the two must not drift.
+const RECON_WEEK_START_FALLBACK = Object.freeze({
+  'Bend': 2, 'Hillsboro': 2,
+  'Center': 3, 'Commercial': 3, 'Portland Rd': 3, 'River': 3,
+});
 function reconWeekStartFor(store) {
   const v = Number((reconData && reconData.config || {})[store]);
-  return (Number.isInteger(v) && v >= 0 && v <= 6) ? v : 2;   // Tuesday, same default as the backend
+  if (Number.isInteger(v) && v >= 0 && v <= 6) return v;
+  return Object.prototype.hasOwnProperty.call(RECON_WEEK_START_FALLBACK, store)
+    ? RECON_WEEK_START_FALLBACK[store] : 3;
 }
 
 // Which week does a deposit pay for? DEFAULT RULE: the most recent window that had already ENDED
@@ -4272,10 +4284,19 @@ function reconBuildRow(store, win) {
     .filter(d => reconWindowForDeposit(store, d) === win.start);
   const deposited = Math.round(deps.reduce((a, d) => a + (d.amount || 0), 0) * 100) / 100;
   const diff = Math.round((deposited - exp.total) * 100) / 100;
-  // A cent of rounding is not a discrepancy. Anything above it is, and gets investigated.
-  const matched = deps.length > 0 && Math.abs(diff) < 0.01;
+  const ties = deps.length > 0 && Math.abs(diff) < 0.005;
+  // A week is reconcilable once it is COMPLETE and something has been banked — NOT only when it ties
+  // to the cent. Measured on a real week (Shawn's 08.17.26 slips): five of the six stores carried a
+  // variance — 1.90, -0.33, -24.77, -0.42, 0.01 — and only Bend came out exactly zero. The -24.77
+  // is annotated "$25 Gift Cert" on the slip, so it is explained, not an error. Gating the button on
+  // an exact tie would have blocked five stores every week and made the tab unusable.
+  //
+  // So the variance is REPORTED and the judgement stays Sky's, exactly as it is on his sheet, which
+  // prints a VARIANCE column and leaves him to read it. Reconciling a week that does not tie takes
+  // a confirmation naming the amount, so accepting a variance is deliberate rather than a slip.
+  const reconcilable = deps.length > 0 && exp.missing.length === 0;
   return { store, win, expected: exp.total, missing: exp.missing, deps, deposited, diff,
-           matched, done: reconIsDone(store, win) };
+           ties, reconcilable, done: reconIsDone(store, win) };
 }
 
 // ── Reconcile: data loading ───────────────────────────────────────────────────────────────────
@@ -4343,10 +4364,17 @@ async function reconcileWeek(store, start) {
   // Guard in the UI as well as the copy: reconciling a week whose sales are incomplete records a
   // tick against a number that is still moving.
   if (row.missing.length) { alert('That week is missing sales data for ' + row.missing.join(', ') + ' — load the period first.'); return; }
+  if (!row.deps.length)   { alert('Nothing has been banked against that week yet.'); return; }
+  // Accepting a variance is allowed — most real weeks have one — but it has to be deliberate, so the
+  // confirmation names the amount rather than letting it through on a click.
+  if (!row.ties && !confirm(
+        `This week is ${row.diff > 0 ? 'over' : 'short'} by ${reconFmtMoney(Math.abs(row.diff))}.\n\n`
+        + `Expected ${reconFmtMoney(row.expected)}, deposited ${reconFmtMoney(row.deposited)}.\n\n`
+        + `Reconcile it anyway?`)) return;
   try {
     const d = await reconPost('set_recon', {
       store, start: win.start, end: win.end,
-      expected: row.expected, deposited: row.deposited, reconciled: 'true',
+      expected: row.expected, deposited: row.deposited, variance: row.diff, reconciled: 'true',
     });
     reconData.state = d.state;
     renderReconcile();
@@ -4430,8 +4458,8 @@ function renderReconcile(nocache) {
   open.sort((a, b) => a.win.start.localeCompare(b.win.start) || a.store.localeCompare(b.store));
   done.sort((a, b) => b.win.start.localeCompare(a.win.start) || a.store.localeCompare(b.store));
 
-  const readyCount = open.filter(r => r.matched && !r.missing.length).length;
-  const offCount   = open.filter(r => r.deps.length && !r.matched).length;
+  const readyCount = open.filter(r => r.ties).length;
+  const offCount   = open.filter(r => r.reconcilable && !r.ties).length;
 
   const unatt = reconData.unattributed || [];
 
@@ -4440,8 +4468,8 @@ function renderReconcile(nocache) {
 
     <div class="card recon-summary">
       <div class="recon-tally">
-        <span class="recon-chip recon-chip-ok">${readyCount} matched</span>
-        <span class="recon-chip recon-chip-off">${offCount} off</span>
+        <span class="recon-chip recon-chip-ok">${readyCount} tie exactly</span>
+        <span class="recon-chip recon-chip-off">${offCount} with a variance</span>
         <span class="recon-chip">${open.length - readyCount - offCount} awaiting deposit</span>
       </div>
       <div class="recon-actions">
@@ -4507,15 +4535,16 @@ function renderReconConfig(stores) {
 function renderReconCard(row) {
   const disp = (STORE_MAP.get(row.store) || {}).display || row.store;
   const ws   = reconWeekStartFor(row.store);
-  const state = row.missing.length ? 'incomplete'
-              : row.done           ? 'done'
-              : !row.deps.length   ? 'awaiting'
-              : row.matched        ? 'matched' : 'off';
+  const state = row.done           ? 'done'
+              : row.missing.length   ? 'incomplete'
+              : !row.deps.length     ? 'awaiting'
+              : row.ties             ? 'ties' : 'variance';
 
   const label = { incomplete: 'Incomplete', done: 'Reconciled', awaiting: 'Awaiting deposit',
-                  matched: 'Matches', off: 'Off' }[state];
+                  ties: 'Ties exactly', variance: 'Variance' }[state];
 
-  const diffLine = row.deps.length && !row.matched
+  // The variance is a figure to read, not an error to clear. A normal week has one on most stores.
+  const diffLine = row.deps.length && !row.ties
     ? `<div class="recon-diff">${row.diff > 0 ? 'Over' : 'Short'} by ${reconFmtMoney(Math.abs(row.diff))}</div>`
     : '';
 
@@ -4554,7 +4583,7 @@ function renderReconCard(row) {
         ${row.done
           ? `<button class="pill-btn" onclick="unreconcileWeek('${escHtml(row.store)}','${row.win.start}')">Reopen</button>
              <span class="recon-by">${escHtml(reconDoneBy(row))}</span>`
-          : `<button class="pill-btn recon-go" ${row.matched && !row.missing.length ? '' : 'disabled'}
+          : `<button class="pill-btn recon-go" ${row.reconcilable ? '' : 'disabled'}
                onclick="reconcileWeek('${escHtml(row.store)}','${row.win.start}')">Reconcile</button>`}
       </div>
     </div>`;

@@ -1115,11 +1115,22 @@ function reconDow_(dateStr) {
 const RECON_CFG_PROP_   = 'RECON_CONFIG_V1';
 const RECON_STATE_PROP_ = 'RECON_STATE_V1';
 
-// Week-start weekday per store, 0=Sun..6=Sat. Defaults to 2 (Tuesday) for every store — a DEFAULT,
-// not a claim about what Shawn actually does. The real mapping was not in the reconciliation sheet
-// and has to be set on the tab; until it is, every store shows Tue→Mon and the numbers are honest
-// about which window they summed.
-const RECON_DEFAULT_WEEK_START_ = 2;
+// Week-start weekday per store, 0=Sun..6=Sat. MEASURED, not assumed: read off Shawn's own deposit
+// slips ("08.17.26 Deposits.xlsx", one tab per store, each stating its DEPOSIT DATE and the SALES
+// DATE range that deposit covers). Bend and Hillsboro bank Tue→Mon on the Tuesday; the four Salem
+// stores bank Wed→Tue on the Wednesday. Sky confirmed the pattern is the same every week.
+//
+// Still overridable per store from the tab — a deposit day that moves should be a dropdown, not a
+// deploy — but the shipped defaults are now the real ones rather than a placeholder.
+const RECON_WEEK_START_BY_STORE_ = {
+  'Bend':        2,   // CENTURY   — Tue→Mon, deposited Tue
+  'Hillsboro':   2,   // HILLSBORO — Tue→Mon, deposited Tue
+  'Center':      3,   // CENTER    — Wed→Tue, deposited Wed
+  'Commercial':  3,   // COMMERCIAL, the "South" tab — Wed→Tue, routinely split Wed-Sat + Sun-Tue
+  'Portland Rd': 3,   // PORTLAND  — Wed→Tue, deposited Wed
+  'River':       3,   // RIVER     — Wed→Tue, deposited Wed
+};
+const RECON_DEFAULT_WEEK_START_ = 3;   // a store not named above; Salem's pattern is the majority
 
 function getReconConfig_() {
   let cfg = {};
@@ -1128,7 +1139,9 @@ function getReconConfig_() {
   const out = {};
   for (const name of Object.keys(STORE_KEYS)) {
     const v = Number(cfg[name]);
-    out[name] = (Number.isInteger(v) && v >= 0 && v <= 6) ? v : RECON_DEFAULT_WEEK_START_;
+    if (Number.isInteger(v) && v >= 0 && v <= 6) { out[name] = v; continue; }
+    out[name] = hasOwn_(RECON_WEEK_START_BY_STORE_, name)
+      ? RECON_WEEK_START_BY_STORE_[name] : RECON_DEFAULT_WEEK_START_;
   }
   return out;
 }
