@@ -1072,7 +1072,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.514';
+const APP_VERSION = 'v2.515';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1400,7 +1400,6 @@ async function loadPaceFracs(force) {
 
 let section = 'income';
 let activeYear    = new Date().getFullYear();
-let activeRevYear = new Date().getFullYear();
 let activeMonth = new Date().getMonth() + 1;
 let activeWeek  = null;
 let activeDay   = null;
@@ -2158,7 +2157,7 @@ function setSection(s) {
   // Desktop tabs use the shared active class, not this app's old .on pill.
   document.querySelectorAll('#dsk-nav .gx-topnav-tab').forEach(t => t.classList.toggle('is-active', t.dataset.s === s));
   buildTimeNav();
-  if (s === 'revenue' && !revenueDetail) loadRevenueDetail();
+  if (s === 'revenue' && revDetailStale_()) loadRevenueDetail();
   // "No stores, Corporate only" is meaningful on the P&L and nowhere else — every other tab would
   // read an empty set as "fetch nothing" and render a blank dashboard. Restore all on the way out.
   if (s !== 'pnl' && activeStoreSet !== null && activeStoreSet.size === 0) pnlResetToAll_();
@@ -4012,40 +4011,84 @@ async function loadOtherRevenue() {
   }
 }
 
+/** The year the Revenue tab shows. It is the SHARED selection's year — deliberately not a private
+ *  one. This tab used to keep its own `activeRevYear`, set only by its two year buttons, while
+ *  taking its MONTH from the shared `activeMonth`. Stepping the period control ‹ from Jan 2026
+ *  landed on Dec 2025: the month moved, the private year did not, so the tab rendered December of
+ *  the 2026 dataset — empty, which is the reported "Dec 2025 shows no value". The blank was the
+ *  visible half. The other half was silent: openRevModal was handed that mismatched pair (month
+ *  from the selection, year from the loaded payload), so a save while the header read Dec 2025
+ *  wrote to rev_atm_2026/Dec. One selection, one year, and the pair can no longer disagree. */
+function revYear() { return activeYear || new Date().getFullYear(); }
+
+/** Which month of `revYear()` the tab renders. A year-wide selection (MONTH_YTD) has no month of
+ *  its own, so fall back the same way the period popover's calendar does — the last month that can
+ *  hold data — rather than always to today's month, which for a past year names an arbitrary one. */
+function revMonthNum() {
+  if (activeMonth > 0) return activeMonth;
+  const t = new Date();
+  return revYear() < t.getFullYear() ? 12 : t.getMonth() + 1;
+}
+
+/** True when what we hold is not the selected year's data — including "we hold nothing". The two
+ *  cases want the same treatment, so they get one predicate rather than two that can drift. */
+function revDetailStale_() {
+  return !revenueDetail || String(revenueDetail.year) !== String(revYear());
+}
+
+let _revDetailLoading = null;   // year in flight, so a stale-year re-render cannot stack fetches
+
 async function loadRevenueDetail() {
-  const year = activeRevYear || new Date().getFullYear();
+  const year = revYear();
+  if (_revDetailLoading === year) return;
   const cacheKey = `rev_detail_${year}`;
   const cached = readCache(cacheKey);
-  if (cached) { revenueDetail = cached; if (section === 'revenue') renderRevenue(); return; }
+  // The year is checked even though it is part of the key. renderRevenue calls this whenever what
+  // it holds is the wrong year, so a cache entry that disagreed with its own key would hand back
+  // the same stale payload forever — a synchronous render→load→render loop, not a stale number.
+  if (cached && String(cached.year) === String(year)) {
+    revenueDetail = cached;
+    if (section === 'revenue') renderRevenue();
+    return;
+  }
   const proxyUrl = getProxyUrl();
   if (!proxyUrl) return;
+  _revDetailLoading = year;
   try {
     const res  = await fetch(`${proxyUrl}?action=revenue_detail&year=${year}&token=${encodeURIComponent(getToken())}`);
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
-    revenueDetail = data;
+    // The selection can move while this is in flight. Landing an older year's payload on top of a
+    // newer selection would recreate exactly the mismatch this function exists to prevent.
     writeCache(cacheKey, data);
+    if (String(data.year) !== String(revYear())) return;
+    revenueDetail = data;
     if (section === 'revenue') renderRevenue();
   } catch(e) {
     console.warn('Revenue detail fetch failed:', e.message);
+  } finally {
+    if (_revDetailLoading === year) _revDetailLoading = null;
   }
 }
 
 function renderRevenue() {
   const mc = document.getElementById('main-content');
-  if (!revenueDetail) {
+  const year = revYear();
+  // A payload for a DIFFERENT year is as unusable as no payload: rendering it would show the wrong
+  // year's numbers under the selected year's header. Ask for the right one and wait.
+  if (revDetailStale_()) {
     mc.innerHTML = `<div class="rev-wrap"><div class="empty-state"><span class="spinner-inline"></span>Loading revenue data…</div></div>`;
     loadRevenueDetail();
     return;
   }
 
-  const { cfg, atm, sub, year } = revenueDetail;
+  const { cfg, atm, sub } = revenueDetail;
   const machines    = cfg?.machines    || {};
   const subletCats  = cfg?.sublet_cats || {};
 
-  // Month pills — uses global activeMonth; default to current month if YTD/unset
+  // Month pills — the month comes from the SHARED selection, same as the year above it.
   const moNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const activeMo = (activeMonth > 0) ? activeMonth : new Date().getMonth() + 1;
+  const activeMo = revMonthNum();
   const month    = moNames[activeMo - 1];
   const moNav = moNames.map((m, i) => {
     const mo = i + 1;
@@ -4133,9 +4176,8 @@ function renderRevenue() {
   mc.innerHTML = `<div class="rev-wrap">
     <div class="rev-head">
       <span class="rev-title">Additional Revenue</span>
-      <div class="rev-year-tabs">
-        <button class="rev-mo-btn${activeRevYear===2025?' on':''}" onclick="setRevYear(2025)">2025</button>
-        <button class="rev-mo-btn${activeRevYear===2026?' on':''}" onclick="setRevYear(2026)">2026</button>
+      <div class="rev-year-tabs">${revYearChoices().map(y =>
+        `<button class="rev-mo-btn${y === year ? ' on' : ''}" onclick="setRevYear(${y})">${y}</button>`).join('')}
       </div>
     </div>
     <div class="rev-month-nav">${moNav}</div>
@@ -4162,21 +4204,22 @@ function renderRevenue() {
   </div>`;
 }
 
-function setRevYear(yr) {
-  if (activeRevYear === yr) return;
-  localStorage.removeItem('gc_cache_rev_detail_' + activeRevYear);
-  activeRevYear = yr;
-  revenueDetail = null;
-  loadRevenueDetail();
+/** The years this tab offers, matching the years the period popover can reach — so every year the
+ *  sub-nav can land on has a tab, and no tab can be lit for a year the selection is not on. It was
+ *  a literal [2025, 2026] beside a lit-state read off a private year; a hardcoded list next to a
+ *  derived highlight is the same two-sources-of-truth shape as the bug above, and it also goes
+ *  stale on its own every January. */
+function revYearChoices() {
+  const cur = new Date().getFullYear();
+  return [cur - 2, cur - 1, cur];
 }
 
-function setRevMonth(mo) {
-  activeMonth = mo;
-  activeWeek  = null;
-  activeDay   = null;
-  buildTimeNav();
-  renderRevenue();
-}
+// Both setters go through periodApply — the SINGLE write-point for the selection — so this tab's
+// own controls move the sub-nav period control instead of drifting away from it. setRevMonth used
+// to assign activeMonth directly and skip the reload periodApply does, so picking a month here and
+// then opening Income showed the previous month's sales under the new month's header.
+function setRevYear(yr)  { if (yr !== revYear()) periodApply({ year: yr, month: revMonthNum() }); }
+function setRevMonth(mo) { periodApply({ year: revYear(), month: mo }); }
 
 let _revEdit = {};
 function openRevModal(type, store, item, month, year) {
