@@ -77,36 +77,11 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .hint a{color:var(--green);text-decoration:none}
 .err-msg{font-size:11px;color:var(--red);margin-top:6px;line-height:1.5}
 
-/* Store status grid — desktop only; mobile uses .store-chip-grid */
-.store-status-grid{display:none}
-.store-status-card{background:var(--bg);border-radius:6px;padding:8px 10px;display:flex;align-items:center;gap:7px}
-.ss-spark{margin-left:auto}
-.ss-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--border-strong)}
-.ss-dot.ok{background:var(--green)}.ss-dot.err{background:var(--red)}.ss-dot.loading{background:var(--amber);animation:pulse 1s ease-in-out infinite}
-.ss-name{font-size:11px;color:var(--dim);flex:1}
-.ss-val{font-size:11px;font-weight:500;color:var(--text)}
-.ss-spark{display:none}
-
 /* Nav — section tabs: mobile = segmented control; desktop overrides to vertical list */
 .section-tabs{display:flex;gap:2px;margin-bottom:12px;background:var(--bg);border:0.5px solid var(--border);border-radius:10px;padding:2px}
 .stab{flex:1;font-size:12px;font-weight:500;padding:9px 4px;border-radius:8px;border:none;background:transparent;color:var(--muted);cursor:pointer;text-align:center;-webkit-tap-highlight-color:transparent}
 .stab.on{background:var(--card);color:var(--text)}
-/* store-scroll — desktop only; mobile uses .store-chip-grid */
-.store-scroll{display:none}
-.store-scroll::-webkit-scrollbar{display:none}
-.store-btn{font-size:11px;padding:4px 12px;border-radius:20px;border:0.5px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;white-space:nowrap;flex-shrink:0}
-.store-btn.on{background:var(--green);color:var(--green-ink);border-color:var(--green)}
 
-/* Mobile store chip grid (merged status + store filter) */
-.store-chip-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:5px;margin-bottom:10px}
-.store-chip{min-height:44px;background:var(--bg);border:0.5px solid var(--border);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;justify-content:center;cursor:pointer;transition:border-color 0.15s,background 0.15s;-webkit-tap-highlight-color:transparent}
-.store-chip.on{border-color:var(--green);background:rgba(74,222,128,.06)}
-.all-chip{grid-column:span 2;flex-direction:row!important;align-items:center;gap:8px}
-.sch-row{display:flex;align-items:center;gap:5px}
-.sch-dot{width:7px;height:7px;border-radius:50%;background:var(--border-strong);flex-shrink:0}
-.sch-dot.ok{background:var(--green)}.sch-dot.err{background:var(--red)}.sch-dot.loading{background:var(--amber);animation:pulse 1s ease-in-out infinite}
-.sch-name{font-size:11px;color:var(--dim)}
-.sch-val{font-size:12px;font-weight:500;color:var(--text);margin-top:2px}
 /* Mobile sticky header + period bar wrapper */
 .mob-sticky{position:sticky;top:0;z-index:100;background:rgba(10,14,13,.96);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);margin:-16px -16px 12px;padding:8px 16px 10px;border-bottom:0.5px solid var(--border)}
 .mob-sticky .logo-row{padding-top:0;margin-bottom:8px}
@@ -275,13 +250,6 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 @keyframes sbarGlowPulse{0%,100%{box-shadow:0 0 4px #86efac,0 0 8px rgba(134,239,172,.5)}50%{box-shadow:0 0 7px #4ade80,0 0 14px rgba(134,239,172,.7)}}
 .sbar-mark{position:absolute;top:-2px;bottom:-2px;width:1.5px;background:rgba(255,255,255,.22);border-radius:1px;pointer-events:none}
 .sbar-fill.over~.sbar-mark{background:#4ade80;opacity:.7;box-shadow:0 0 4px #86efac}
-.sparkline-cell{display:flex;align-items:center;gap:4px;flex-shrink:0}
-.sparkline-cell .spark-delta{font-size:10px;color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap}
-.sparkline-cell .spark-delta.up{color:var(--green)}
-.sparkline-cell .spark-delta.mid{color:var(--amber)}
-.sparkline-cell .spark-delta.down{color:var(--red)}
-.sparkline-cell polyline{stroke-dasharray:1;stroke-dashoffset:1;animation:spark-draw 0.5s ease-out forwards}
-@keyframes spark-draw{to{stroke-dashoffset:0}}
 .top-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--border)}
 .top-row:last-child{border-bottom:none;padding-bottom:0}
 .top-rank{font-size:11px;color:var(--muted);width:14px;flex-shrink:0;text-align:center}
@@ -441,12 +409,8 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .store-pill.err{border-color:rgba(239,68,68,.45);color:var(--red);animation:none;background-image:none}
 .store-pill.err .store-pill-dot{background:var(--red)!important}
 @keyframes storeShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-/* Same sweep for the mobile store chips, which are the "store buttons" on a phone. */
-.store-chip.loading{
-  background-image:linear-gradient(90deg,transparent 20%,rgba(230,236,233,.09) 50%,transparent 80%);
-  background-size:200% 100%;animation:storeShimmer 1.15s ease-in-out infinite}
 @media(prefers-reduced-motion:reduce){
-  .store-pill.loading,.store-chip.loading{animation:none;background-image:none;border-style:dashed}
+  .store-pill.loading{animation:none;background-image:none;border-style:dashed}
   .store-pill.loading .store-pill-dot{animation:none}
 }
 .dsk-gear{display:none;justify-content:flex-end;padding-top:10px;margin-top:auto;border-top:.5px solid var(--border)}
@@ -990,7 +954,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.511';
+const APP_VERSION = 'v2.512';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1543,32 +1507,21 @@ function closeSettings() {
 /* Called at every step of a load, so this is what drives the loading shimmer on the store buttons.
    It must repaint BOTH selectors — the desktop pills AND the mobile chip grid. It used to reach
    the chip grid only on the path where #store-status-grid exists, and that element is not in the
-   DOM at all, so the mobile chips never repainted mid-load and sat frozen on stale values. */
+/* Called at every step of a load, so this is what drives the loading shimmer on the store selectors.
+   It repaints the desktop pills and, when the mobile tray is open, the tray — those are the two
+   store selectors this app actually has.
+
+   It used to carry a second branch that filled #store-status-grid, an element in no markup, and to
+   call buildStoreChipGrid, whose #store-chip-grid is equally absent. That is worth stating plainly
+   because a comment here previously credited the chip-grid call with fixing the frozen mobile
+   selector: it did not, and could not — buildStoreChipGrid returned on its first line every time.
+   The buildStoreTray call below is what fixed it. Both dead paths deleted 2026-08-25. */
 function buildStatusGrid(state) {
   _storeStateMap = state;
-  const _ssg = document.getElementById('store-status-grid');
-  if (!_ssg) {
-    buildDskStores(); buildStoreChipGrid();
-    // The tray builds fresh on open, so it only needs repainting while it is ALREADY open.
-    const _tray = document.getElementById('mob-store-tray');
-    if (_tray && _tray.classList.contains('open')) buildStoreTray();
-    return;
-  }
-  _ssg.innerHTML = STORES.map(s => {
-    const st  = state[s.name] || 'idle';
-    const cls = st === 'ok' ? 'ok' : st === 'loading' ? 'loading' : st === 'err' ? 'err' : '';
-    const val = liveData[s.name]
-      ? fmtK(liveData[s.name].netSales)
-      : st === 'loading' ? '…' : st === 'err' ? 'Error' : '—';
-    return `<div class="store-status-card">
-      <div class="ss-dot ${cls}"></div>
-      <div class="ss-name">${s.display||s.name}</div>
-      <span class="ss-spark">${storeSparklineHtml(s.name)}</span>
-      <div class="ss-val">${val}</div>
-    </div>`;
-  }).join('');
   buildDskStores();
-  buildStoreChipGrid();
+  // The tray builds fresh on open, so it only needs repainting while it is ALREADY open.
+  const _tray = document.getElementById('mob-store-tray');
+  if (_tray && _tray.classList.contains('open')) buildStoreTray();
 }
 
 // ── Data loading ──────────────────────────────────────────────────────────────
@@ -2132,14 +2085,6 @@ function setStore(s) {
   // chip lit up, the set still won, and the numbers never moved. A single-store pick is an explicit
   // narrowing, so it replaces the multi-selection rather than losing to it.
   activeStoreSet = (s === 'All') ? null : new Set([s]);
-  document.querySelectorAll('.store-btn').forEach(t => {
-    const on = t.dataset.s === s;
-    t.classList.toggle('on', on);
-    const st = STORE_MAP.get(s);
-    t.style.background   = on && st ? st.color : '';
-    t.style.borderColor  = on && st ? st.color : '';
-  });
-  buildStoreChipGrid();
   updateMobBottomBar();
   render();
 }
@@ -2163,19 +2108,10 @@ function buildTimeNav() {
   updateMobBottomBar();  // mobile bottom bar
 }
 
+// #store-tabs is in no markup, so this only ever forwarded to the desktop pills. Kept as a name
+// because two callers use it; the tab strip it used to build is gone.
 function buildStoreTabs() {
-  const _st = document.getElementById('store-tabs');
-  if (!_st) { buildDskStores(); return; }
-  _st.innerHTML = ['All',...STORES.map(s=>s.name)].map(name => {
-    const s   = STORE_MAP.get(name);
-    const col = s ? s.color : 'var(--green)';
-    const on  = name === activeStore;
-    const lbl = s ? (s.display||s.name) : 'All';
-    return `<button class="store-btn${on?' on':''}" data-s="${name}"
-      style="${on?'background:'+col+';border-color:'+col:''}"
-      onclick="setStore('${name}')">${lbl}</button>`;
-  }).join('');
-  buildStoreChipGrid();
+  buildDskStores();
 }
 
 // ── Desktop sidebar builders ──────────────────────────────────────────────────
@@ -2378,31 +2314,6 @@ function fmtShort(n) {
   const abs = Math.abs(n);
   if (abs >= 1000000) return '$' + (n / 1000000).toFixed(1) + 'M';
   return '$' + Math.round(n / 1000) + 'k';
-}
-
-function buildStoreChipGrid() {
-  const el = document.getElementById('store-chip-grid');
-  if (!el) return;
-  const allOn   = activeStore === 'All';
-  const totalNet = STORES.reduce((a, s) => a + (liveData[s.name]?.netSales || 0), 0);
-  // All Stores is still loading while ANY single store is — its total is not final until they land.
-  const anyLoading = STORES.some(s => (_storeStateMap && _storeStateMap[s.name]) === 'loading');
-  let html = `<div class="store-chip all-chip${allOn ? ' on' : ''}${anyLoading ? ' loading' : ''}" onclick="setStore('All')">
-    <div class="sch-row"><div class="sch-dot ${anyLoading ? 'loading' : 'ok'}"></div><span class="sch-name">All Stores</span></div>
-    <span class="sch-val" style="margin-top:0">${anyLoading && totalNet <= 0 ? '…' : totalNet > 0 ? fmtShort(totalNet) : '—'}</span>
-  </div>`;
-  html += STORES.map(s => {
-    const st  = (_storeStateMap && _storeStateMap[s.name]) || 'idle';
-    const cls = st === 'ok' ? 'ok' : st === 'loading' ? 'loading' : st === 'err' ? 'err' : '';
-    const val = liveData[s.name] ? fmtShort(liveData[s.name].netSales)
-              : st === 'loading' ? '…' : st === 'err' ? 'Error' : '—';
-    const on  = activeStore === s.name;
-    return `<div class="store-chip${on ? ' on' : ''}${st === 'loading' ? ' loading' : ''}" onclick="setStore('${s.name}')">
-      <div class="sch-row"><div class="sch-dot ${cls}"></div><span class="sch-name">${s.display || s.name}</span></div>
-      <span class="sch-val">${val}</span>
-    </div>`;
-  }).join('');
-  el.innerHTML = html;
 }
 
 // ── 1c Mobile hero + bottom bar ──────────────────────────────────────────────
@@ -2864,41 +2775,6 @@ function animateStorePacingBars(animate) {
       el.style.width = el.getAttribute('data-final');
     }
   });
-}
-
-function storeSparklineHtml(storeName) {
-  const today = new Date();
-  function dayNet(daysAgo) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - daysAgo);
-    const ds = toDateStr(d);
-    return getDailyNet(liveDateMaps[storeName]?.[ds]) || getDailyNet(allDailyData[storeName]?.[ds]) || 0;
-  }
-  const recent = Array.from({length: 30}, (_, i) => dayNet(29 - i));
-  const prior  = Array.from({length: 30}, (_, i) => dayNet(59 - i));
-  const sumR = recent.reduce((a, b) => a + b, 0);
-  const sumP = prior.reduce((a, b) => a + b, 0);
-  if (sumR === 0) return '';
-  const max = Math.max(...recent);
-  if (max <= 0) return '';
-  const trendPct = sumP > 0 ? (sumR - sumP) / sumP : null;
-  const w = 120, h = 20;
-  const pts = recent.map((v, i) => {
-    const x = Math.round((i / 29) * w);
-    const y = Math.round(h - 1 - (v / max) * (h - 2));
-    return x + ',' + y;
-  }).join(' ');
-  const trendRatio = trendPct != null ? 100 + trendPct * 100 : 100;
-  const tier   = trendPct == null    ? 'up'
-               : trendRatio >= PACE_GREEN ? 'up'
-               : trendRatio >= PACE_AMBER ? 'mid'
-               : 'down';
-  const stroke = tier === 'up' ? 'var(--green)' : tier === 'mid' ? 'var(--amber)' : 'var(--red)';
-  const cls    = tier;
-  const label  = trendPct != null
-    ? (trendPct >= 0 ? '+' : '−') + Math.round(Math.abs(trendPct * 100)) + '%'
-    : '';
-  return `<span class="sparkline-cell"><svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline pathLength="1" fill="none" stroke="${stroke}" stroke-width="1.5" points="${pts}"/></svg>${label ? `<span class="spark-delta ${cls}">${label}</span>` : ''}</span>`;
 }
 
 function _storeBreakdownRows(stores, storeNets, isClosed, pacingPct, yr, daysInMo) {
@@ -5284,7 +5160,6 @@ function startSalesHeartbeat() {
 buildTimeNav();
 buildStoreTabs();
 buildStatusGrid({});
-buildStoreChipGrid();
 updateMobBottomBar();
 document.getElementById('proxy-url').value = DEFAULT_PROXY;
 updateCacheStatus();
