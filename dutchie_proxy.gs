@@ -419,6 +419,55 @@ function doGet(e) {
   }
 
   // Heartbeat: renew a still-valid token to extend the session
+  // ── pnlprobe — exercise the P&L path in the LIVE Apps Script runtime, without a session ──────
+  // The `pnl` action sits behind the session gate, so the only way to run it is to be signed in with
+  // a browser — which means the server-side half (qbProfitAndLoss_ by class, flattenPnlRows_, the
+  // cache) can sit unexercised while everything around it looks verified. That is exactly the gap
+  // this repo already fills with gxpin / authprobe / guardmode: secret-gated, read-only, and asked
+  // OF the running deployment rather than inferred from the source.
+  //
+  // It does not re-implement anything. It calls getPnl and then checks the one property that says
+  // the walk was correct: a P&L ties out. Income - COGS = Gross Profit, - Expenses = Net Operating
+  // Income, + Net Other Income = Net Income, in EVERY class column. A structural bug in the tree
+  // walk cannot leave those identities standing.
+  if (params.action === 'pnlprobe') {
+    const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
+    if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
+    try {
+      const out  = getPnl({ by: params.by || 'Classes', start: params.start, end: params.end, nocache: '1' });
+      const data = JSON.parse(out.getContent());
+      if (data.error) return jsonOut_({ ok: false, stage: 'getPnl', error: data.error });
+
+      const at = (label) => (data.rows || []).find(r => r.label === label);
+      const val = (label, i) => { const r = at(label); return r ? (r.values[i] || 0) : 0; };
+      const checks = [];
+      (data.columns || []).forEach((col, i) => {
+        const gp  = val('Total Income', i) - val('Total Cost of Goods Sold', i);
+        const noi = gp - val('Total Expenses', i);
+        const ni  = noi + val('Net Other Income', i);
+        checks.push({
+          column: col,
+          gross_profit:         Math.abs(gp  - val('Gross Profit', i))         < 0.005,
+          net_operating_income: Math.abs(noi - val('Net Operating Income', i)) < 0.005,
+          net_income:           Math.abs(ni  - val('Net Income', i))           < 0.005,
+          reported_net_income:  val('Net Income', i)
+        });
+      });
+      const failed = checks.filter(c => !c.gross_profit || !c.net_operating_income || !c.net_income);
+      return jsonOut_({
+        ok: failed.length === 0,
+        ran_in: 'apps script runtime',
+        by: data.by, start: data.start, end: data.end,
+        qb_source: data.qb_source, qb_fallback_reason: data.qb_fallback_reason,
+        columns: data.columns, rows: (data.rows || []).length,
+        kinds: (data.rows || []).reduce((a, r) => { a[r.kind] = (a[r.kind] || 0) + 1; return a; }, {}),
+        ties_out: failed.length === 0, failed_columns: failed
+      });
+    } catch (e) {
+      return jsonOut_({ ok: false, stage: 'probe', error: e.message });
+    }
+  }
+
   if (params.action === 'ping') {
     const pAuth = requireAuth_(params);
     if (!pAuth.ok) return jsonOut_({ ok: false, error: pAuth.error });
