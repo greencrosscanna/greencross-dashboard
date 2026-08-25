@@ -36,14 +36,6 @@ const BASE = 'https://api.pos.dutchie.com';
 const BUDGET_SHEET_ID  = '1OBNzkBrJtLIlf8xknVlGd6Jb8nlkg4_KG-Gq6BD7HHY';
 const BUDGET_SHEET_GID = 1092240858;
 
-// ── QuickBooks credentials ────────────────────────────────────────────────────
-// Paste values here ONLY to run exchangeQBCode() — after that they are stored
-// in Script Properties and these constants are no longer used.
-const QB_CLIENT_ID     = 'XXXXXXX';
-const QB_CLIENT_SECRET = 'XXXXXXX';
-const QB_REALM_ID      = 'XXXXXXX';
-const QB_AUTH_CODE     = 'XXXXXXX';
-
 // ── Cache helpers ─────────────────────────────────────────────────────────────
 const CACHE = CacheService.getScriptCache();
 
@@ -446,7 +438,6 @@ function doGet(e) {
   if (params.action === 'save_expense_mapping') { const g = writeGuard_(auth.user, 'save_expense_mapping'); if (!g.ok) return jsonOut_(g); return saveExpenseMapping_(params); }
   if (params.action === 'expenses')    return getExpenses(params);
   if (params.action === 'pnl')         return getPnl(params);
-  if (params.action === 'qbaccounts')  return getQBAccountNames();
   if (params.action === 'qbmapping')   return getQBMappingSheet();
   if (params.action === 'txfields')    return getTxFields(params);
   if (params.action === 'eodtest')     return getEodTest(params);
@@ -813,61 +804,7 @@ function getPacingFracs_() {
   return jsonOut_({ ok: true, fracs, hour, minute });
 }
 
-// ── QuickBooks OAuth ──────────────────────────────────────────────────────────
 
-// Run this ONCE after pasting QB_AUTH_CODE above. Saves refresh token to
-// Script Properties so the live proxy can auto-refresh without touching the code.
-function exchangeQBCode() {
-  const resp = UrlFetchApp.fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer', {
-    method: 'post',
-    headers: {
-      Authorization:  'Basic ' + Utilities.base64Encode(QB_CLIENT_ID + ':' + QB_CLIENT_SECRET),
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept:         'application/json',
-    },
-    payload: 'grant_type=authorization_code'
-           + '&code='         + encodeURIComponent(QB_AUTH_CODE)
-           + '&redirect_uri=' + encodeURIComponent('https://developer.intuit.com/v2/OAuth2Playground/RedirectUrl'),
-    muteHttpExceptions: true,
-  });
-
-  const data = JSON.parse(resp.getContentText());
-  if (data.refresh_token) {
-    const props = PropertiesService.getScriptProperties();
-    props.setProperty('QB_CLIENT_ID',     QB_CLIENT_ID);
-    props.setProperty('QB_CLIENT_SECRET', QB_CLIENT_SECRET);
-    props.setProperty('QB_REALM_ID',      QB_REALM_ID);
-    props.setProperty('QB_REFRESH_TOKEN', data.refresh_token);
-    Logger.log('Success! All QB credentials saved to Script Properties.');
-  } else {
-    Logger.log('Failed: ' + resp.getContentText());
-  }
-}
-
-function getQBAccessToken_() {
-  const props     = PropertiesService.getScriptProperties();
-  const clientId  = props.getProperty('QB_CLIENT_ID');
-  const secret    = props.getProperty('QB_CLIENT_SECRET');
-  const refresh   = props.getProperty('QB_REFRESH_TOKEN');
-  if (!refresh)  throw new Error('No QB_REFRESH_TOKEN — run exchangeQBCode() first.');
-  if (!clientId) throw new Error('No QB_CLIENT_ID in Script Properties — run exchangeQBCode() first.');
-
-  const resp = UrlFetchApp.fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer', {
-    method: 'post',
-    headers: {
-      Authorization:  'Basic ' + Utilities.base64Encode(clientId + ':' + secret),
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept:         'application/json',
-    },
-    payload: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(refresh),
-    muteHttpExceptions: true,
-  });
-
-  const data = JSON.parse(resp.getContentText());
-  if (!data.access_token) throw new Error('QB token refresh failed: ' + resp.getContentText());
-  props.setProperty('QB_REFRESH_TOKEN', data.refresh_token);
-  return data.access_token;
-}
 
 // ── QuickBooks Expenses ───────────────────────────────────────────────────────
 
@@ -1017,27 +954,25 @@ function walkQBRows_(rows, cols, result, accounts, seenRaws, mapConfig, depth) {
   }
 }
 
-// QB Profit & Loss raw report. Prefer the centralized GX Core connector (the single token owner); fall back
-// to the local Sales token only if GX Core is unreachable or not yet connected — so the Expenses tab keeps
-// working right through the cutover and auto-switches to GX Core the moment it's connected.
-// Returns { report, source: 'gxcore'|'local', fallback_reason }. The source is NOT decoration: this
-// function's whole job is to prefer Core and quietly survive when it can't, which means correct-looking
-// numbers are consistent with either path. That is precisely how a missing GX_DEPLOY_SECRET kept the
-// Expenses tab rendering off the legacy local token while the code read as if it were centralized. You
-// cannot retire qbReportLocal_ on "Expenses works" — only on knowing which path served it.
+// QB Profit & Loss raw report. GX Core's connector is now the ONLY path — Core is the sole owner of the
+// QuickBooks token. The local-token fallback was retired 2026-08-24 after gxpin showed last_source
+// gxcore@ across four days and a v153 -> v213 re-pin, i.e. the fallback had gone unused.
+//
+// It fails LOUD on purpose. The fallback existed to keep Expenses alive through the cutover, and the cost
+// was that it could not report the cutover had not happened: a misnamed GX_DEPLOY_SECRET kept the tab
+// rendering off the legacy token for an unknown stretch while this file read as if it were centralized.
+// An error here is a worse afternoon than a silently wrong number is; a silently wrong number is a worse
+// quarter. Keep the throw.
+//
+// Returns { report, source, fallback_reason } — the shape getExpenses and qb_source depend on. `source` is
+// constant today and stays anyway: it is what made the regression visible, and a second connector would
+// need it back.
 function qbProfitAndLoss_(start, end, by) {
   by = by || 'Month';
-  let why = '';
-  try {
-    const r = qbReportViaGXCore_(start, end, by);
-    if (r) return { report: r, source: 'gxcore', fallback_reason: '' };
-    // qbReportViaGXCore_ returns null for exactly one reason: no secret configured on this script.
-    why = 'GX_DEPLOY_SECRET not set on this script — never reached GX Core';
-  } catch (e) {
-    why = e.message;
-    Logger.log('QB via GX Core unavailable, falling back to local token: ' + e.message);
-  }
-  return { report: qbReportLocal_(start, end, by), source: 'local', fallback_reason: why };
+  const r = qbReportViaGXCore_(start, end, by);
+  // qbReportViaGXCore_ returns null for exactly one reason: no secret configured on this script.
+  if (!r) throw new Error('GX_DEPLOY_SECRET is not set on this script — cannot reach the GX Core QuickBooks connector.');
+  return { report: r, source: 'gxcore', fallback_reason: '' };
 }
 
 // Fetch the P&L through GX Core's centralized, health-instrumented QB connector (secret-gated qb_pnl route).
@@ -1059,23 +994,6 @@ function qbReportViaGXCore_(start, end, by) {
   throw new Error('qb_pnl unreachable after retries');
 }
 
-// Legacy local path — Sales refreshes its own QB token. Retained as the cutover fallback; remove once GX Core
-// is the proven sole owner (it and Sales must NOT both actively refresh — that's the invalid_grant desync).
-function qbReportLocal_(start, end, by) {
-  const props   = PropertiesService.getScriptProperties();
-  const token   = getQBAccessToken_();
-  const realmId = props.getProperty('QB_REALM_ID');
-  const qbBase  = (props.getProperty('QB_SANDBOX') === 'true')
-    ? 'https://sandbox-quickbooks.api.intuit.com'
-    : 'https://quickbooks.api.intuit.com';
-  const url = qbBase + '/v3/company/' + realmId + '/reports/ProfitAndLoss'
-    + '?start_date=' + start + '&end_date=' + end
-    + '&summarize_column_by=' + encodeURIComponent(by || 'Month');
-  const resp   = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }, muteHttpExceptions: true });
-  const report = JSON.parse(resp.getContentText());
-  if (report.Fault) throw new Error(JSON.stringify(report.Fault));
-  return report;
-}
 
 function getExpenses(params) {
   const output = ContentService.createTextOutput();
@@ -1092,9 +1010,8 @@ function getExpenses(params) {
     const end     = yr + '-' + String(today.getMonth() + 1).padStart(2, '0')
                         + '-' + String(today.getDate()).padStart(2, '0');
 
-    // Prefer the centralized GX Core QB connector (single token owner — no two-refresher desync); fall back
-    // to the local Sales token only if GX Core is unreachable/unconnected, so Expenses never gaps during the
-    // cutover. Once GX Core is the proven owner, the local fallback (qbReportLocal_) can be removed.
+    // GX Core's connector is the single token owner and the only path; a failure here throws rather than
+    // quietly serving numbers from somewhere else.
     const qb     = qbProfitAndLoss_(start, end);
     const report = qb.report;
     const raw    = JSON.stringify(report);
@@ -1366,85 +1283,8 @@ function getQBMappingSheet() {
   return output;
 }
 
-// Web-accessible version — hit ?action=qbaccounts to get all raw row names as JSON
-function getQBAccountNames() {
-  const output = ContentService.createTextOutput();
-  output.setMimeType(ContentService.MimeType.JSON);
-  try {
-    const token   = getQBAccessToken_();
-    const realmId = PropertiesService.getScriptProperties().getProperty('QB_REALM_ID');
-    const yr      = new Date().getFullYear();
-    const url     = 'https://quickbooks.api.intuit.com/v3/company/' + realmId
-      + '/reports/ProfitAndLoss?start_date=' + yr + '-01-01&end_date=' + yr + '-04-21&summarize_column_by=Month';
-    const resp   = UrlFetchApp.fetch(url, {
-      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
-      muteHttpExceptions: true,
-    });
-    const report = JSON.parse(resp.getContentText());
-    const names  = [];
-    function walk(rows, depth) {
-      for (const r of rows || []) {
-        if (r.Summary?.ColData?.[0]?.value) names.push({ type:'S', depth, name: r.Summary.ColData[0].value });
-        else if (r.ColData?.[0]?.value)     names.push({ type:'D', depth, name: r.ColData[0].value });
-        if (r.Rows?.Row) walk(r.Rows.Row, depth + 1);
-      }
-    }
-    walk(report.Rows?.Row || [], 0);
-    output.setContent(JSON.stringify({ names }));
-  } catch(e) {
-    output.setContent(JSON.stringify({ error: e.message }));
-  }
-  return output;
-}
 
-// Run in editor to see raw QB account/section names for mapping verification
-function debugQBAccountNames() {
-  const token   = getQBAccessToken_();
-  const realmId = PropertiesService.getScriptProperties().getProperty('QB_REALM_ID');
-  const yr      = new Date().getFullYear();
-  const url     = 'https://quickbooks.api.intuit.com/v3/company/' + realmId
-    + '/reports/ProfitAndLoss?start_date=' + yr + '-01-01&end_date=' + yr + '-04-20&summarize_column_by=Month';
-  const resp  = UrlFetchApp.fetch(url, {
-    headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
-    muteHttpExceptions: true,
-  });
-  const report = JSON.parse(resp.getContentText());
-  function names(rows, d) {
-    let out = [];
-    for (const r of rows || []) {
-      if (r.Summary?.ColData?.[0]?.value) out.push('  '.repeat(d) + '[S] ' + r.Summary.ColData[0].value);
-      else if (r.ColData?.[0]?.value)     out.push('  '.repeat(d) + '[D] ' + r.ColData[0].value);
-      if (r.Rows?.Row) out = out.concat(names(r.Rows.Row, d + 1));
-    }
-    return out;
-  }
-  Logger.log(names(report.Rows?.Row || [], 0).join('\n'));
-}
 
-function debugQBAuth() {
-  const props   = PropertiesService.getScriptProperties();
-  const realmId = props.getProperty('QB_REALM_ID') || '(not set)';
-  const hasRefresh = !!props.getProperty('QB_REFRESH_TOKEN');
-  const hasClient  = !!props.getProperty('QB_CLIENT_ID');
-  Logger.log('Realm ID: ' + realmId);
-  Logger.log('Has refresh token: ' + hasRefresh);
-  Logger.log('Has client ID: ' + hasClient);
-  // Try a simple company info call to verify auth
-  try {
-    const token     = getQBAccessToken_();
-    const sandbox   = (props.getProperty('QB_SANDBOX') === 'true');
-    const base      = sandbox ? 'https://sandbox-quickbooks.api.intuit.com' : 'https://quickbooks.api.intuit.com';
-    const url       = base + '/v3/company/' + realmId + '/companyinfo/' + realmId;
-    const resp  = UrlFetchApp.fetch(url, {
-      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
-      muteHttpExceptions: true,
-    });
-    Logger.log('Company info status: ' + resp.getResponseCode());
-    Logger.log('Company info response: ' + resp.getContentText().slice(0, 500));
-  } catch(e) {
-    Logger.log('Error: ' + e.message);
-  }
-}
 
 function testProxy() {
   const e = { parameter: {
