@@ -18,11 +18,40 @@ app key in GX Core is **`sales`**.
 | version | the **`APP_VERSION` constant** in `index.html` (no `?v=` cache-buster — there's no external `.js`) |
 | run | `python3 serve.py` → <http://localhost:3000> |
 | ship | commit → push (Pages) → `./deploy.sh` records the release to `version_history` |
-| tests | no automated suite — verify with the `gxpin` / `authprobe` routes below |
+| tests | `tests/*_test.js` — 9 suites, run by the **pre-push hook** via `gx-preflight.sh`; a failure blocks the push. Also verify live with the `gxpin` / `authprobe` routes below |
 
 The dev server talks to the **live** backend; `gx-dev.js` blocks writes until armed — which matters more
 here than elsewhere, since this app's writes now run through a fail-closed auth guard. `gx-preflight.sh`
-runs as a **pre-push hook** and refuses dev leftovers.
+runs as a **pre-push hook** and refuses dev leftovers — and it also runs every `tests/*_test.js`, so a
+failing test blocks the push exactly like a dev leftover does.
+
+**Run them yourself with `ls tests/*_test.js | xargs -n1 node`.** Seven of the nine read this repo's real
+`index.html` / `dutchie_proxy.gs` — none of them tests a copy, which is what stops coverage rotting
+silently. Five EXECUTE the shipped source: `pnl_statement`, `deposit_reconciliation`, `pacing_staleness`
+and `qb_deposits_shape` `grab()` named functions out of the file and run them in a `vm` context, and
+`write_guard` rebuilds them with `new Function` — so a renamed function fails the suite instead of quietly
+falling out of coverage. The other two, `orphan_css_classes` and `dev_guard_actions`, analyse the source
+text rather than running it. `.claude/gx-posttool-tests.sh` reruns all of them after every edit to those
+two files, which is why a broken edit surfaces mid-session instead of at push time.
+
+What they cover, before you assume a change is untested: `orphan_css_classes` (every class used in the
+markup is defined, and every class defined is used), `pnl_statement` (the P&L build **and** the store-pill
+state machine), `deposit_reconciliation`, `write_guard` (the auth guard's log / enforce / off modes),
+`dev_guard_actions` (every `action=` the app fetches is declared in `GX_DEV_READS`, so a new read cannot
+break localhost only), `pacing_staleness` (the two-clock bug — `paceFracs` going stale against a live
+poll), `qb_deposits_shape`.
+
+**Two of the nine are wrappers, and they SKIP — not fail — when `greencross-command-center` is not a
+sibling checkout.** `cross_app_contract` (the Leaderboard → Sales goal payload) and `store_palette_drift`
+(this app's hardcoded store palette against the hub's) both live canonically in the hub, because they span
+repos and neither side owns them. On a lone clone you get 7 suites, not 9, and the output says `SKIP` —
+read it, don't assume green means covered.
+
+*Corrected 2026-08-25: this row previously read "no automated suite — verify with the `gxpin` /
+`authprobe` routes". There were 9 suites behind two hooks at the time it said that. A doc that tells a
+session there is nothing to run invites skipping a gate that works: on the period-selector change,
+`orphan_css_classes` caught dead `.dsk-pfield`/`.dsk-chip` rules left mid-refactor and `pnl_statement`
+caught `refreshCompare` being undefined in the pill handlers. Both would have shipped.*
 
 **Shared files** (`deploy.sh`, `serve.py`, `gx-preflight.sh`, `.claude/gx-brain-notes.sh`) come from
 **gx-theme** via `./gx-sync.sh`, filled from `.gx_app`. Edit them **there**, then re-sync. This CLAUDE.md is
