@@ -77,8 +77,11 @@ const STORES         = vm.runInContext('STORES', ctx);
 const STORE_NAMES    = STORES.map(s => s.name);
 // pnlVisibleCols reads getActiveStores() off the global; install a settable stub.
 let SELECTED = STORE_NAMES.slice();
+let SHOW_CORP = true;
 vm.runInContext('function getActiveStores(){ return __SEL__; }', ctx);
 Object.defineProperty(ctx, '__SEL__', { get: () => SELECTED });
+Object.defineProperty(ctx, 'pnlShowCorporate', { get: () => SHOW_CORP });
+vm.runInContext(grab(HTML, 'pnlTotalOf', 'index.html'), ctx);
 
 // ── Fixture ───────────────────────────────────────────────────────────────────────────────────
 // Shape copied from a live ?action=qb_pnl&by=Classes response: two money classes plus TOTAL; an
@@ -246,37 +249,71 @@ ok('the map has no entries for stores that do not exist',
 ok('CORPORATE belongs to no store',
    STORE_NAMES.every(n => CLASS_BY_STORE[n] !== 'CORPORATE'));
 
-// ── 10. Column filtering follows the store pills ──────────────────────────────────────────────
+// ── 10. Column filtering follows the store pills + the Corporate pill ─────────────────────────
 const COLUMNS = LIVE_CLASSES.concat(['TOTAL']);
+const namesOf = (v) => v.keep.map(i => COLUMNS[i]);
 
-SELECTED = STORE_NAMES.slice();
+SELECTED = STORE_NAMES.slice(); SHOW_CORP = true;
 let v = ctx.pnlVisibleCols(COLUMNS);
-ok('all stores selected shows every column', v.keep.length === COLUMNS.length && v.allStores,
-   'kept ' + v.keep.length + ' of ' + COLUMNS.length);
+ok('everything selected keeps all 7 classes', v.keep.length === 7 && v.everything, namesOf(v).join(', '));
+ok("QB's own TOTAL is never passed through", !namesOf(v).some(n => n === 'TOTAL'));
 
+SHOW_CORP = false;
+v = ctx.pnlVisibleCols(COLUMNS);
+ok('Corporate pill off drops the CORPORATE column', !namesOf(v).some(n => n === 'CORPORATE'));
+ok('Corporate off still counts as all STORES', v.allStores && !v.everything);
+
+SHOW_CORP = true;
 SELECTED = ['River'];
 v = ctx.pnlVisibleCols(COLUMNS);
-ok('one store shows exactly its own column',
-   v.keep.length === 1 && COLUMNS[v.keep[0]] === 'RIVER RD',
-   'kept ' + v.keep.map(i => COLUMNS[i]).join(', '));
-ok("QB's TOTAL is hidden when filtered", !v.keep.some(i => COLUMNS[i] === 'TOTAL'));
-ok('CORPORATE is hidden when filtered',  !v.keep.some(i => COLUMNS[i] === 'CORPORATE'));
+ok('one store keeps that store + Corporate',
+   namesOf(v).sort().join('|') === ['CORPORATE', 'RIVER RD'].sort().join('|'), namesOf(v).join(', '));
 
-SELECTED = ['River', 'Bend'];
+SHOW_CORP = false;
 v = ctx.pnlVisibleCols(COLUMNS);
-ok('a subset shows exactly that subset',
-   v.keep.length === 2 &&
-   v.keep.map(i => COLUMNS[i]).sort().join('|') === ['CENTURY DR', 'RIVER RD'].sort().join('|'),
-   v.keep.map(i => COLUMNS[i]).join(', '));
+ok('one store, Corporate off, is a single column',
+   v.keep.length === 1 && COLUMNS[v.keep[0]] === 'RIVER RD', namesOf(v).join(', '));
 
-// Every store, one at a time, must resolve to a column — the drop-to-null failure mode, checked
-// by execution rather than by reading the map.
+// Every store, one at a time, must resolve to a column — the drop-to-null failure mode, checked by
+// execution rather than by reading the map.
 for (const n of STORE_NAMES) {
   SELECTED = [n];
   const r = ctx.pnlVisibleCols(COLUMNS);
-  ok('store ' + n + ' resolves to a column', r.keep.length === 1,
-     'resolved to ' + r.keep.length + ' columns');
+  ok('store ' + n + ' resolves to a column', r.keep.length === 1, 'resolved to ' + r.keep.length);
 }
+SELECTED = STORE_NAMES.slice(); SHOW_CORP = true;
+
+// ── 11. The computed Total ────────────────────────────────────────────────────────────────────
+// The claim that licenses computing it at all: on a live by=Classes report QB's own TOTAL is the
+// sum of its class columns. Assert that against the fixture, then assert the filtered case.
+const iTot = REPORT.Columns.Column.findIndex(c => c.ColTitle === 'TOTAL') - 1;
+const classIdx = [0, 1];   // RIVER RD, CORPORATE — every money column except TOTAL
+ok('QB TOTAL == sum of class columns, every row', rows.every(r => {
+  const t = r.values[iTot];
+  if (t === null) return true;
+  return Math.abs(classIdx.reduce((a, i) => a + (r.values[i] || 0), 0) - t) < 0.005;
+}));
+
+ok('pnlTotalOf reproduces QB TOTAL when nothing is filtered', rows.every(r => {
+  const t = r.values[iTot];
+  const mine = ctx.pnlTotalOf(classIdx.map(i => r.values[i]));
+  return t === null ? true : Math.abs(mine - t) < 0.005;
+}));
+
+ok('pnlTotalOf of a filtered subset equals that column',
+   Math.abs(ctx.pnlTotalOf([find('Net Income').values[0]]) - find('Net Income').values[0]) < 0.005);
+ok('pnlTotalOf is null when nothing on screen has a figure',
+   ctx.pnlTotalOf([null, null]) === null);
+ok('pnlTotalOf treats a blank as absent, not zero',
+   ctx.pnlTotalOf([null, 5]) === 5);
+
+// ── 12. Row set does NOT move with the filter ─────────────────────────────────────────────────
+// Sky's requirement: the statement must keep the same line-up as you switch stores, so it can be
+// read down twice and compared. Emptiness is judged on the FULL report, before column filtering.
+const labelsAt = (sel) => { SELECTED = sel; return ctx.pnlDropEmptyRows(rows).map(r => r.label).join('|'); };
+const baseline = labelsAt(STORE_NAMES.slice());
+ok('row set is identical for one store',   labelsAt(['River']) === baseline);
+ok('row set is identical for two stores',  labelsAt(['River', 'Bend']) === baseline);
 SELECTED = STORE_NAMES.slice();
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

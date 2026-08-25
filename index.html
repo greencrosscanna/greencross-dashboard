@@ -928,7 +928,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.503';
+const APP_VERSION = 'v2.504';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -2020,6 +2020,7 @@ function setSection(s) {
   buildTimeNav();
   if (s === 'revenue' && !revenueDetail) loadRevenueDetail();
   if (s === 'pnl') pnlSyncRange();   // period may have moved since this tab was last open
+  buildDskStores();                  // the Corporate pill is P&L-only, so the row changes with the tab
   render();
 }
 
@@ -2086,6 +2087,12 @@ function navToWeek() {
 
 function setStore(s) {
   activeStore = s;
+  // The app has TWO store selectors — the desktop pills (activeStoreSet, multi) and the mobile chips
+  // (activeStore, single) — and getActiveStores() prefers the set whenever it is non-null. Without
+  // this line, tapping a mobile chip after touching the desktop pills changed nothing at all: the
+  // chip lit up, the set still won, and the numbers never moved. A single-store pick is an explicit
+  // narrowing, so it replaces the multi-selection rather than losing to it.
+  activeStoreSet = (s === 'All') ? null : new Set([s]);
   document.querySelectorAll('.store-btn').forEach(t => {
     const on = t.dataset.s === s;
     t.classList.toggle('on', on);
@@ -2318,12 +2325,33 @@ function buildDskStores() {
       <span class="store-pill-name">${s.display||s.name}</span>
     </button>`;
   }).join('');
-  el.innerHTML = `<div class="store-pills">${allPill}${pills}</div>`;
+  // CORPORATE is a QuickBooks class carrying real money — rent, interest, corporate payroll — but it
+  // is not a store: it has no Dutchie feed, no goal, no row in STORES. So it cannot join
+  // activeStoreSet, which drives the sales fetches on every other tab. It gets its own flag and its
+  // own pill, and the pill exists ONLY on the P&L, the one view where the class means anything.
+  const corpPill = section === 'pnl'
+    ? `<button class="store-pill${pnlShowCorporate ? ' on' : ''}" onclick="pnlToggleCorporate()"
+         title="Corporate is a QuickBooks class, not a store">
+         <span class="store-pill-dot" style="background:#94A3B8"></span>
+         <span class="store-pill-name">Corporate</span>
+       </button>`
+    : '';
+  el.innerHTML = `<div class="store-pills">${allPill}${pills}${corpPill}</div>`;
 }
 
+function pnlToggleCorporate() {
+  pnlShowCorporate = !pnlShowCorporate;
+  buildDskStores();
+  render();
+}
+
+// Click semantics, corrected 2026-08-24 (Sky): from "all", clicking one store ISOLATES it. It used
+// to SUBTRACT — every pill stayed lit except the one you touched, so the obvious reading of "I want
+// River" produced everything-but-River. Nobody guesses subtract-from-all; they guess isolate, find
+// the opposite, and stop trusting the control.
 function dskToggleStore(name) {
   if (activeStoreSet === null) {
-    activeStoreSet = new Set(STORES.map(s => s.name).filter(n => n !== name));
+    activeStoreSet = new Set([name]);            // from all → just this one
   } else if (activeStoreSet.has(name)) {
     activeStoreSet.delete(name);
     if (activeStoreSet.size === 0) activeStoreSet = null;
@@ -2331,14 +2359,25 @@ function dskToggleStore(name) {
     activeStoreSet.add(name);
     if (activeStoreSet.size === STORES.length) activeStoreSet = null;
   }
+  syncActiveStoreMirror();
   buildDskStores();
   render();
 }
 
 function dskSelectAllStores() {
   activeStoreSet = null;
+  syncActiveStoreMirror();
   buildDskStores();
   render();
+}
+
+// activeStore (single) and activeStoreSet (multi) are two views of one selection, and the mobile
+// chip grid lights up from the FIRST while everything renders from the SECOND. Left unsynced the
+// chips show a store that is not the one on screen. A set of exactly one has an honest single-store
+// answer; anything else does not, so it reads 'All' and the pill row's "N of 6" carries the detail.
+function syncActiveStoreMirror() {
+  if (activeStoreSet === null || activeStoreSet.size !== 1) { activeStore = 'All'; return; }
+  activeStore = [...activeStoreSet][0];
 }
 
 // ── Mobile helpers ────────────────────────────────────────────────────────────
@@ -2482,7 +2521,13 @@ function updateMobBottomBar() {
   const periodLbl = document.getElementById('mbb-period-lbl');
   const storesLbl = document.getElementById('mbb-stores-lbl');
   if (periodLbl) periodLbl.textContent = getMobPeriodLabel();
-  if (storesLbl) storesLbl.textContent = activeStore === 'All' ? 'All stores' : activeStore;
+  if (storesLbl) {
+    // Describe the SET — with a multi-selection active, "All stores" is simply false.
+    const n = activeStoreSet === null ? STORES.length : activeStoreSet.size;
+    storesLbl.textContent = activeStoreSet === null ? 'All stores'
+      : n === 1 ? ((STORE_MAP.get([...activeStoreSet][0]) || {}).display || [...activeStoreSet][0])
+      : `${n} of ${STORES.length} stores`;
+  }
   document.querySelectorAll('.mbb-nav-btn').forEach(t =>
     t.classList.toggle('on', t.dataset.s === section)
   );
@@ -4046,6 +4091,7 @@ const PNL_CLASS_BY_STORE = Object.freeze({
   'River':       'RIVER RD',
 });
 const PNL_NON_STORE_CLASSES = Object.freeze(['CORPORATE']);
+let pnlShowCorporate = true;   // on by default — it is part of the company's P&L
 // QB's own PDF omits accounts with no activity in the period; the API returns them regardless, which
 // is how a dozen '(deleted)' rows end up padding the statement. Default to QB's behavior, but keep it
 // a TOGGLE rather than a filter — suppressing rows on a financial statement should be a visible
@@ -4144,24 +4190,39 @@ function pnlDropEmptyRows(rows) {
   return out;
 }
 
-// Which columns to show, from the store pills. Returns the indexes into pnlData.columns.
-//
-// The TOTAL column is QuickBooks' own total across ALL classes. It is shown ONLY when every class
-// is on screen, because the moment a store is filtered out that total stops describing what the
-// reader is looking at — and a "Total" that silently includes columns you filtered away is worse
-// than no total at all. A filtered view says so in the header instead. No derived total is invented
-// to replace it: every figure on this statement comes from QuickBooks.
+// Which CLASS columns to show, from the store pills plus the P&L's own Corporate pill. Returns
+// indexes into pnlData.columns. QuickBooks' own TOTAL column is deliberately NOT among them — see
+// pnlTotalOf below.
 function pnlVisibleCols(columns) {
   const wanted = new Set(getActiveStores().map(n => PNL_CLASS_BY_STORE[n]).filter(Boolean));
   const allStores = wanted.size === Object.keys(PNL_CLASS_BY_STORE).length;
+  if (pnlShowCorporate) PNL_NON_STORE_CLASSES.forEach(c => wanted.add(c));
   const keep = [];
   columns.forEach((title, i) => {
     const t = String(title || '').trim().toUpperCase();
-    if (wanted.has(t)) { keep.push(i); return; }
-    // Non-store classes and QB's TOTAL ride along only on the unfiltered view.
-    if (allStores && (PNL_NON_STORE_CLASSES.indexOf(t) !== -1 || t === 'TOTAL')) keep.push(i);
+    if (t === 'TOTAL') return;                    // recomputed, never passed through
+    if (wanted.has(t)) keep.push(i);
   });
-  return { keep, allStores };
+  return { keep, allStores, everything: allStores && pnlShowCorporate };
+}
+
+// The Total column, restricted to the classes on screen.
+//
+// This is arithmetic QuickBooks itself does, not a figure this app invents: verified across all 72
+// rows of a live by=Classes report, QB's TOTAL equals the sum of its class columns exactly. So
+// summing the SELECTED classes is the same operation on a subset, and when nothing is filtered it
+// reproduces QB's own number to the cent. That is what makes it safe to keep a Total on a filtered
+// view — the earlier build hid it, which left the reader adding seven columns by hand.
+//
+// null, not 0, when no visible column has a figure: a section header has no total, and neither does
+// an account with no activity anywhere on screen.
+function pnlTotalOf(values) {
+  let any = false, sum = 0;
+  for (const v of values) {
+    if (v === null || v === undefined) continue;
+    any = true; sum += v;
+  }
+  return any ? sum : null;
 }
 
 function renderPnl(nocache) {
@@ -4192,18 +4253,23 @@ function renderPnl(nocache) {
   }
 
   const allCols = pnlData.columns || [];
-  const { keep, allStores } = pnlVisibleCols(allCols);
-  const cols = keep.map(i => allCols[i]);
+  const { keep, everything } = pnlVisibleCols(allCols);
+  const cols = keep.map(i => allCols[i]).concat(['TOTAL']);
 
   const allRows = pnlData.rows || [];
-  // Empties are judged on the VISIBLE columns only — an account with activity solely at a store you
-  // filtered out is empty as far as this view is concerned, exactly as it would be in a QB PDF run
-  // for that class alone.
-  const viewRows = allRows.map(r => ({ ...r, values: keep.map(i => (r.values || [])[i]) }));
-  const rows = pnlHideEmpty ? pnlDropEmptyRows(viewRows) : viewRows;
-  const hiddenCount = viewRows.length - rows.length;
-  const storeLabel = allStores ? '' : getActiveStores()
-    .map(n => (STORE_MAP.get(n) || {}).display || n).join(', ');
+  // Which rows appear is decided on the FULL report, BEFORE any column filtering — so the statement
+  // keeps the same shape as you move between stores. Judging emptiness on the visible columns
+  // instead made rows come and go with the filter, and a statement whose line-up shifts under you
+  // is one you cannot read down twice and compare.
+  const keptRows = pnlHideEmpty ? pnlDropEmptyRows(allRows) : allRows;
+  const hiddenCount = allRows.length - keptRows.length;
+  const rows = keptRows.map(r => {
+    const vals = keep.map(i => (r.values || [])[i]);
+    return { ...r, values: vals.concat([r.kind === 'header' ? null : pnlTotalOf(vals)]) };
+  });
+  const storeLabel = everything ? '' : getActiveStores()
+    .map(n => (STORE_MAP.get(n) || {}).display || n)
+    .concat(pnlShowCorporate ? ['Corporate'] : []).join(', ');
 
   const body = rows.map(r => {
     const kindCls = `pnl-r-${r.kind}`;
@@ -4243,7 +4309,7 @@ function renderPnl(nocache) {
         <div class="pnl-title">Profit and Loss</div>
         <div class="pnl-range">${escHtml(pnlRangeLabel(pnlData))}</div>
         <div class="pnl-basis">${escHtml(pnlData.basis || '')} basis · by class</div>
-        ${storeLabel ? `<div class="pnl-filter">Filtered to ${escHtml(storeLabel)} — QuickBooks' TOTAL column covers every class and is hidden on a filtered view</div>` : ''}
+        ${storeLabel ? `<div class="pnl-filter">Filtered to ${escHtml(storeLabel)} — Total covers these ${cols.length - 1} column${cols.length === 2 ? '' : 's'} only</div>` : ''}
       </div>
       <div class="pnl-scroll">
         <table class="pnl-tbl">
