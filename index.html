@@ -655,6 +655,14 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .recon-dep-move button{background:none;border:0.5px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer;font-size:11px;line-height:1;padding:2px 5px;font-family:inherit}
 .recon-dep-move button:hover{color:var(--text);border-color:var(--border-strong)}
 .recon-dep-note{font-size:10px;color:var(--muted)}
+/* QuickBooks breaks each deposit out by revenue category, so the joined memos are usually
+   "Sales 3% Tax · Sales 17% Tax · Med Sales · Rec Sales · Non MJ Sales" — noise on a card, but the
+   line earns its place on the deposits that are NOT that. The live route returned a $12,662.91
+   deposit under COMMERCIAL ST reading "South Accident (January) Insurance Reimbursement": real money,
+   correctly banked to that class, and nothing to do with the week's sales. Filtering it out would be
+   a memo-based fold rule and would hide money; showing the memo lets the variance explain itself.
+   Truncated, full text on hover. */
+.recon-dep-memo{font-size:10px;color:var(--muted);margin:-2px 0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 .recon-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:2px}
 .recon-by{font-size:10px;color:var(--muted)}
@@ -4575,7 +4583,8 @@ function renderReconCard(row) {
                 <button title="This deposit pays for the previous week" onclick="reconMoveDeposit('${escHtml(row.store)}','${escHtml(d.id)}',-1)">←</button>
                 <button title="This deposit pays for the next week" onclick="reconMoveDeposit('${escHtml(row.store)}','${escHtml(d.id)}',1)">→</button>
               </span>
-            </div>`).join('')}
+            </div>
+            ${d.memo ? `<div class="recon-dep-memo" title="${escHtml(d.memo)}">${escHtml(d.memo)}</div>` : ''}`).join('')}
           ${row.deps.length > 1 ? `<div class="recon-dep-note">${row.deps.length} deposits this week</div>` : ''}
         </div>` : ''}
 

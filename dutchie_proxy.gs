@@ -1278,13 +1278,40 @@ function getDeposits(params) {
       const lines = Array.isArray(dep.lines) && dep.lines.length
         ? dep.lines
         : [{ class: '', amount: Number(dep.total || 0), memo: '' }];
+      // COLLAPSE THE LINES BY CLASS FIRST. A real store deposit arrives as FIVE lines all carrying
+      // the same class — "Sales 3% Tax", "Sales 17% Tax", "Med Sales", "Rec Sales", "Non MJ Sales" —
+      // because that is how the revenue is broken out in QuickBooks. Measured on the live route over
+      // 2026-08-01..08-25: 20 of 22 deposits are 5 lines, and NOT ONE spans more than one class.
+      //
+      // Pushing a record per LINE turned one trip to the bank into five rows under that store. The
+      // week TOTAL still reconciled, because amounts sum either way — but the card listed five
+      // deposits and any count was 5x out, and "Commercial banked ten times this week" reads as
+      // broken faster than a wrong total would.
+      //
+      // Grouped by class rather than assumed one-per-deposit: a deposit CAN carry several stores.
+      // That did not occur in the sample, so it is handled but not treated as the common case.
+      const byClass = {};
+      const order   = [];
       for (const ln of lines) {
-        const cls    = String(ln.class || '');
-        const amount = Math.round(Number(ln.amount || 0) * 100) / 100;
+        const cls = String(ln.class || '');
+        if (!hasOwn_(byClass, cls)) { byClass[cls] = { amount: 0, memos: [] }; order.push(cls); }
+        byClass[cls].amount += Number(ln.amount || 0);
+        const memo = String(ln.memo || '').trim();
+        if (memo) byClass[cls].memos.push(memo);
+      }
+      for (const cls of order) {
+        const g = byClass[cls];
         // Own property only — an inherited key like 'constructor' must not resolve to a store.
         const store  = hasOwn_(RECON_STORE_BY_CLASS_, cls) ? RECON_STORE_BY_CLASS_[cls] : null;
-        const rec = { id: String(dep.id || ''), date: date, amount: amount,
-                      class: cls, account: String(dep.account || ''), memo: String(ln.memo || '') };
+        const rec = {
+          id: String(dep.id || ''), date: date,
+          amount: Math.round(g.amount * 100) / 100,
+          class: cls, account: String(dep.account || ''),
+          // The per-line memos are the tax/med/rec breakdown. Kept, not folded away — GX Core
+          // deliberately did not collapse them upstream, and they are the obvious next thing to
+          // want on this tab.
+          memo: g.memos.join(' · '), lines: g.memos.length,
+        };
         if (store) { (byStore[store] = byStore[store] || []).push(rec); }
         else       { unattributed.push(rec); }
       }

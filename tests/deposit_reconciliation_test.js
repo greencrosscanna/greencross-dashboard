@@ -123,6 +123,32 @@ for (const sl of SLIPS) {
      win === sl.from && C.reconAddDays(win, 6) === sl.to);
 }
 
+// The SAME slips, but dated the way QUICKBOOKS dates them. Measured on the live qb_deposits route
+// over 2026-08-01..08-25: QB's TxnDate runs ONE DAY EARLIER than the DEPOSIT DATE printed on
+// Shawn's slip — Bend's $40,418.94 is 08-18 on the slip and 2026-08-17 in QB. So a deposit lands on
+// the LAST DAY of the window it pays for, not the day after, and the attribution rule has to be
+// right at that boundary too. It is, because the rule steps back a day before finding the window —
+// but that was true by luck until this asserted it, and a change to the rule could break it silently.
+const QB_SLIPS = [
+  { store: 'Bend',        txn: '2026-08-17', from: '2026-08-11', to: '2026-08-17' },
+  { store: 'Hillsboro',   txn: '2026-08-17', from: '2026-08-11', to: '2026-08-17' },
+  { store: 'Center',      txn: '2026-08-18', from: '2026-08-12', to: '2026-08-18' },
+  { store: 'River',       txn: '2026-08-18', from: '2026-08-12', to: '2026-08-18' },
+  { store: 'Commercial',  txn: '2026-08-18', from: '2026-08-12', to: '2026-08-18' },
+  { store: 'Portland Rd', txn: '2026-08-18', from: '2026-08-12', to: '2026-08-18' },
+];
+reconData = { config: {}, assign: {} };
+for (const q of QB_SLIPS) {
+  const win = C.reconWindowForDeposit(q.store, { id: 'q', date: q.txn });
+  ok(`${q.store}: QB TxnDate ${q.txn} (the window's LAST day) still pays for ${q.from}..${q.to}`,
+     win === q.from && C.reconAddDays(win, 6) === q.to);
+}
+// Commercial's split is two deposits on ONE date, so the default rule must put both in the same
+// window with no manual override — the case the first cut assumed would need nudging.
+const cA = C.reconWindowForDeposit('Commercial', { id: 'a', date: '2026-08-18' });
+const cB = C.reconWindowForDeposit('Commercial', { id: 'b', date: '2026-08-18' });
+ok('a same-day split lands both halves in one window, unaided', cA === cB && cA === '2026-08-12');
+
 // A junk or unknown value must fall back, never leak through as a week start.
 ok('a junk config value does not leak through', (reconData = { config: { River: 99 } },
    C.reconWeekStartFor('River') === 3));
