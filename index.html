@@ -1007,7 +1007,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.509';
+const APP_VERSION = 'v2.510';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -2211,7 +2211,7 @@ function buildTimeNav() {
 
   // Helper: render a single collapsed pill for a group
   function collapsedPill(group, label, isOn) {
-    return `<button class="mtab tnav-pill${isOn ? ' on' : ''}" onclick="toggleExpand('${group}')">${label}</button>`;
+    return `<button class="mtab${isOn ? ' on' : ''}" onclick="toggleExpand('${group}')">${label}</button>`;
   }
 
   // ── Year — always shows current year + 2 prior, auto-advances each Jan 1 ──
@@ -2243,7 +2243,7 @@ function buildTimeNav() {
         return `<button class="mtab${mo===activeMonth?' on':''}${future?' future':''}" data-m="${mo}" onclick="setMonth(${mo})">${m}</button>`;
       }).join('') + `</span>`);
   } else {
-    parts.push(`<button class="mtab tnav-pill on" onclick="navToMonth()">${monthLbl}</button>`);
+    parts.push(`<button class="mtab on" onclick="navToMonth()">${monthLbl}</button>`);
   }
 
   if (activeMonth === MONTH_YTD) {
@@ -2257,13 +2257,13 @@ function buildTimeNav() {
   parts.push(sep);
   if (expandedGroup === 'week') {
     parts.push(`<span class="tnav-group">` +
-      `<button class="mtab wtab${!activeWeek?' on':''}" onclick="setWeekAll()">All</button>` +
+      `<button class="mtab${!activeWeek?' on':''}" onclick="setWeekAll()">All</button>` +
       getWeeksInMonth(activeYear, activeMonth).map(w => {
         const future = activeYear===curYear && (activeMonth>curMo || (activeMonth===curMo && w>curWeek));
-        return `<button class="mtab wtab${w===activeWeek?' on':''}${future?' future':''}" data-w="${w}" onclick="setWeek(${w})">WK${w}</button>`;
+        return `<button class="mtab${w===activeWeek?' on':''}${future?' future':''}" data-w="${w}" onclick="setWeek(${w})">WK${w}</button>`;
       }).join('') + `</span>`);
   } else {
-    parts.push(`<button class="mtab tnav-pill${activeWeek ? ' on' : ''}" onclick="navToWeek()">${weekLbl}</button>`);
+    parts.push(`<button class="mtab${activeWeek ? ' on' : ''}" onclick="navToWeek()">${weekLbl}</button>`);
   }
 
   if (!activeWeek) {
@@ -2407,7 +2407,7 @@ function buildDskStores() {
     return `<button class="store-pill${isOn ? ' on' : ''}${stateCls}" onclick="dskToggleStore('${s.name}')"
       title="${st === 'err' ? 'Failed to load' : st === 'loading' ? 'Loading…' : ''}">
       <span class="store-pill-dot" style="background:${s.color}"></span>
-      <span class="store-pill-name">${s.display||s.name}</span>
+      <span>${s.display||s.name}</span>
     </button>`;
   }).join('');
   // CORPORATE is a QuickBooks class carrying real money — rent, interest, corporate payroll — but it
@@ -2418,7 +2418,7 @@ function buildDskStores() {
     ? `<button class="store-pill${pnlShowCorporate ? ' on' : ''}" onclick="pnlToggleCorporate()"
          title="Corporate is a QuickBooks class, not a store">
          <span class="store-pill-dot" style="background:#94A3B8"></span>
-         <span class="store-pill-name">Corporate</span>
+         <span>Corporate</span>
        </button>`
     : '';
   el.innerHTML = `<div class="store-pills">${allPill}${pills}${corpPill}</div>`;
@@ -2595,10 +2595,10 @@ function buildPeriodExpanded() {
         return `<button class="mtab${mo === activeMonth ? ' on' : ''}${future ? ' future' : ''}" onclick="setMonth(${mo})">${m}</button>`;
       }).join('');
   } else if (expandedGroup === 'week') {
-    html = `<button class="mtab wtab${!activeWeek ? ' on' : ''}" onclick="setWeekAll()">All</button>` +
+    html = `<button class="mtab${!activeWeek ? ' on' : ''}" onclick="setWeekAll()">All</button>` +
       getWeeksInMonth(activeYear, activeMonth).map(w => {
         const future = activeYear === curYear && (activeMonth > curMo || (activeMonth === curMo && w > curWeek));
-        return `<button class="mtab wtab${w === activeWeek ? ' on' : ''}${future ? ' future' : ''}" onclick="setWeek(${w})">WK${w}</button>`;
+        return `<button class="mtab${w === activeWeek ? ' on' : ''}${future ? ' future' : ''}" onclick="setWeek(${w})">WK${w}</button>`;
       }).join('');
   } else if (expandedGroup === 'day') {
     html = getDaysOfISOWeek(activeYear, activeWeek).map(d => {
@@ -3346,7 +3346,7 @@ function renderIncome() {
           ${_incomeKpiDskHtml(net, gross, orders, disc, cost, aov)}
         </div>
         <div class="ic-lower">
-          <div class="ic-dsk-bd-wrap card" id="ic-dsk-bd">
+          <div class="card" id="ic-dsk-bd">
             <div class="sec-lbl" style="margin-bottom:8px">Store breakdown</div>
             ${_incomeBreakdownDskHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo)}
           </div>
@@ -3774,7 +3774,7 @@ function renderRevenue() {
         <span class="rev-store-sub">${storeTxns > 0 ? `${storeTxns.toLocaleString('en-US')} txns` : ''}</span>
         <span class="rev-store-sub">${storeRevFmt}</span>
       </div>
-      <div class="rev-machine rev-machine-hdr">
+      <div class="rev-machine">
         <div class="rev-machine-name"></div>
         <div class="rev-machine-val rev-txns" style="opacity:.55;font-size:.72rem">Transactions</div>
         <div class="rev-machine-val rev-rev" style="opacity:.55;font-size:.72rem">Revenue</div>

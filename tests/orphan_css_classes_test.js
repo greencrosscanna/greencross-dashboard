@@ -20,11 +20,26 @@ let pass = 0, fail = 0;
 const ok = (msg, cond) => { if (cond) { pass++; console.log('  ok   ' + msg); }
                             else      { fail++; console.log('  FAIL ' + msg); } };
 
-// Every class this page's own <style> blocks define.
-const css = (HTML.match(/<style[^>]*>([\s\S]*?)<\/style>/g) || []).join('\n');
+// Every class this page defines — and it defines them in TWO places, which is the thing that made
+// the first version of this test cry wolf about fourteen classes that were perfectly fine.
+//
+//   1. <style> blocks.
+//   2. CSS built as a JS STRING and injected with createElement('style'). The What's New modal does
+//      exactly this, concatenating one rule per line. A test that only reads <style> declares every
+//      one of those classes an orphan while the page renders them correctly.
+//
+// So: <style> blocks, plus any string literal that looks like a CSS rule (a .selector followed by a
+// brace). A string literal that shape is not something you write by accident.
+const styleBlocks = (HTML.match(/<style[^>]*>([\s\S]*?)<\/style>/g) || []).join('\n');
+const injected = (HTML.match(/'[^'\n]*'|"[^"\n]*"/g) || [])
+  .filter(lit => /\.[A-Za-z][\w-]*\s*[,{]/.test(lit) && lit.includes('}'))
+  .join('\n');
+const css = styleBlocks + '\n' + injected;
 const defined = new Set();
 for (const m of css.matchAll(/\.([A-Za-z][\w-]*)/g)) defined.add(m[1]);
 ok('found the stylesheet and its class definitions', defined.size > 50);
+ok('found CSS injected from JS strings too, not just <style>',
+   defined.has('wn-modal') && defined.has('wn-rel-ver'));
 
 // Every class actually used in markup. Template-literal class attributes carry ${...} expressions;
 // strip those before splitting so an interpolation is never mistaken for a class name.
@@ -56,16 +71,20 @@ const SHARED = /^(gx-|is-|has-)/;
 // Set by script at runtime rather than styled here.
 const RUNTIME = new Set(['spinner-inline']);
 
-// PRE-EXISTING orphans, baselined so this test locks in "no NEW ones" without pretending these are
-// fine. They were found the day this test was written and are NOT investigated — several are
-// probably styled by gx-theme (the wn-* release-notes modal is rendered by the shared GXChangelog),
-// and the rest may be dead hooks or genuinely unstyled. Deleting an entry as you verify or fix it is
-// the point; adding one to make a failure go away is not.
-const KNOWN_ORPHANS = new Set([
-  'ic-dsk-bd-wrap', 'rev-machine-hdr', 'store-pill-name', 'tnav-pill', 'wtab',
-  'wn-body', 'wn-foot', 'wn-head', 'wn-icon', 'wn-items', 'wn-modal', 'wn-ok',
-  'wn-rel', 'wn-rel-date', 'wn-rel-head', 'wn-rel-ver', 'wn-sub', 'wn-title', 'wn-x',
-]);
+// The baseline is EMPTY, and that is the point — it exists so a real orphan can be quarantined
+// while it is investigated, never so one can be hidden. It was populated with 19 names the day this
+// test was written; all 19 are now resolved rather than tolerated:
+//
+//   14 wn-* were never orphans at all. The What's New modal injects its CSS from a JS string, and
+//      the first version of this test only read <style> blocks. The TEST was wrong, not the app.
+//    5 were genuinely dead — ic-dsk-bd-wrap, rev-machine-hdr, store-pill-name, tnav-pill, wtab.
+//      Each sat beside a class that does the styling (card, rev-machine, store-pill, mtab), none
+//      was read by any selector or any querySelector, and ic-dsk-bd is targeted by ID. They were
+//      removed from the markup rather than given rules: inventing styling for a name nobody styled
+//      would have CHANGED how the page looks, which is not what fixing an orphan means.
+//
+// Anything added here needs the same treatment — a reason, and a way out.
+const KNOWN_ORPHANS = new Set([]);
 
 const orphans = [...used.entries()]
   .filter(([c]) => !defined.has(c) && !SHARED.test(c) && !RUNTIME.has(c) && !KNOWN_ORPHANS.has(c))
