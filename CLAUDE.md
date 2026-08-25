@@ -122,7 +122,38 @@ the admit test below passed. Reads unaffected; unauthenticated and forged-token 
 the session gate ABOVE the guard, so a signature failure never reaches the grant lookup. **Roll back in one
 command:** the same `guardmode` call with `mode=log`.
 
-**Now pinned to GXCore v213** (2026-08-23, from v204; deployment `AKfycbzju5He…@160`). The reason was the
+**Now pinned to GXCore v220** (2026-08-25, from v213; deployment `AKfycbzju5He…@175`). The reason was
+`getPeriodGoals`: through v218 it returned `match[0]` — the first matching row in SHEET ORDER — and GX
+Core held both the stale and the corrected DST pay-period rows, with the stale ones earlier in the sheet.
+Every date from 2026-01-05 to 2026-03-15 resolved here to a period that never existed; March carried a
+14-day goal total over a 15-day window. Verified live after the redeploy: `?action=libversion` →
+`{"ok":true,"gxcore":220}` five consecutive reads, `gxpin` → `gxcore_version 220`,
+`authprobe&user=shawn` → `role editor` / `has_roleForApp true` / `write_guard_mode enforce`, and
+`goalprobe&date=2026-03-05` → `2026-03-02..2026-03-15`. A `pnlprobe` in the same window returned
+`qb_source: gxcore` with all three P&L identities balancing, so the QuickBooks-through-Core path is
+healthy on this pin too.
+
+**`action=goalprobe` — secret-gated, added 2026-08-25.** `getPeriodGoalsForDate_` sits behind the login
+gate, so proving a re-pin resolves dates to the right pay period used to mean opening a browser and
+logging in. Same trick and same reasoning as `pnlprobe`/`reconprobe`: read-only, runs the real path in
+the live runtime, returns exactly what the app would render.
+`?action=goalprobe&date=YYYY-MM-DD&secret=…`.
+
+**KNOWN, NOT FIXED — four of six stores get NO period goals, silently.** `GXCore.getPeriodGoals` matches
+the store with exact `gxSlug_` equality, but the `period_goals` tab is keyed by **alias**: the rows are
+`baseline`, `center`, `century`, `commercial`, `portland`, `river`. `getPeriodGoalsForDate_` asks with
+Dutchie names, so only `Center` and `Commercial` hit — `Bend`→`bend` vs row `century`, `Hillsboro`→
+`hillsboro` vs `baseline`, `Portland Rd`→`portland-rd` vs `portland`, `River Rd`→`river-rd` vs `river`
+all return null, and the `catch(e2)` in that loop makes a miss indistinguishable from a store with no
+goals. Measured on the live `/exec` 2026-08-25. The DATA is right — asking Core `store=river` for
+2026-03-05 returns `2026-03-02..2026-03-15`, total `70711` — only the lookup key is wrong. **Do not
+patch this here with a store-alias table**; that is hardcoding stores. It is Core's `getPeriodGoals` that
+should resolve through `gxResolveStore_` before comparing. Asked as `note_mt99ji06_9as` to `core-admin`,
+which also flags `expectedSalesFrac` for the same assumption (`getPacingFracs_` passes the same six
+Dutchie names).
+
+**Superseded — kept for the history.** Pinned to GXCore v213 (2026-08-23, from v204; deployment
+`AKfycbzju5He…@160`). The reason was the
 shared bug reporter: on v204 `gxIngestBug` does **not** self-install the `bug_reports.context` header, so
 every 🐞 filed from Sales silently lost its state snapshot while still returning `ok`. Sales was filing
 half-reports until this landed. Verified live on the deployed `/exec`: `?action=libversion` →
