@@ -928,7 +928,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.504';
+const APP_VERSION = 'v2.505';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -2309,11 +2309,14 @@ function buildDskStores() {
   const el = document.getElementById('dsk-stores');
   if (!el) return;
   const allSelected = activeStoreSet === null;
-  const count  = allSelected ? STORES.length : activeStoreSet.size;
-  // The old header carried this count in its own line; as a pill row there is no header, so the
-  // All pill's own label carries it — the information survives the restyle.
-  const allLbl = allSelected ? `All ${STORES.length}` : `${count} of ${STORES.length}`;
-  const allPill = `<button class="store-pill${allSelected ? ' on' : ''}" onclick="dskSelectAllStores()">${allLbl}</button>`;
+  // Just "All". It used to read "All 6" / "3 of 6" — a button whose label reported the current state
+  // while its click did something else entirely. Which stores are on is already legible from which
+  // pills are lit, so the count was duplicating that at the cost of making the control ambiguous.
+  //
+  // On the P&L, "All" means all SEVEN columns: Corporate is part of the company's P&L, so the pill
+  // is not lit while Corporate is off, and clicking it turns Corporate back on.
+  const corpOn  = section !== 'pnl' || pnlShowCorporate;
+  const allPill = `<button class="store-pill${allSelected && corpOn ? ' on' : ''}" onclick="dskSelectAllStores()">All</button>`;
   const pills = STORES.map(s => {
     const isOn   = allSelected || activeStoreSet.has(s.name);
     // Load state drives the shimmer. 'ok'/'idle' add nothing — only the two states worth showing.
@@ -2366,6 +2369,7 @@ function dskToggleStore(name) {
 
 function dskSelectAllStores() {
   activeStoreSet = null;
+  pnlShowCorporate = true;   // "All" on the P&L means every class, Corporate included
   syncActiveStoreMirror();
   buildDskStores();
   render();
