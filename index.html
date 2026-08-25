@@ -147,10 +147,10 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .mbb-period-lbl{font-size:14px;font-weight:600;color:var(--text);white-space:nowrap}
 .mbb-stores-lbl{font-size:14px;font-weight:500;color:var(--dim);white-space:nowrap}
 .mbb-arrow{font-size:9px;color:var(--muted)}
-.mbb-nav-row{background:rgba(10,14,13,.97);border-top:.5px solid var(--border);display:grid;grid-template-columns:repeat(4,1fr);padding:6px 8px 0;padding-bottom:calc(0px + env(safe-area-inset-bottom));height:calc(68px + env(safe-area-inset-bottom))}
+.mbb-nav-row{background:rgba(10,14,13,.97);border-top:.5px solid var(--border);display:grid;grid-template-columns:repeat(5,1fr);padding:6px 8px 0;padding-bottom:calc(0px + env(safe-area-inset-bottom));height:calc(68px + env(safe-area-inset-bottom))}
 .mbb-nav-btn{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:5px;padding-top:6px;border:none;background:transparent;cursor:pointer;-webkit-tap-highlight-color:transparent;color:var(--muted)}
 .mbb-nav-btn.on{color:var(--green)}
-.mbb-nav-lbl{font-size:10px;font-weight:500}
+.mbb-nav-lbl{font-size:9.5px;font-weight:500;letter-spacing:-.01em;white-space:nowrap}
 .mbb-nav-btn.on .mbb-nav-lbl{font-weight:600}
 /* Bottom-sheet trays */
 .mob-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:300;backdrop-filter:blur(2px)}
@@ -195,6 +195,76 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .exp-map-btn{font-size:11px;background:none;border:.5px solid var(--border);color:var(--muted);cursor:pointer;padding:3px 8px;border-radius:12px;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
 .exp-map-btn:hover{color:var(--text);border-color:var(--border-strong)}
 .exp-unmap-badge{background:#EF4444;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px}
+/* ── P&L statement — QB-PDF layout on screen, an actual QB-looking sheet on paper ──────────────
+   The numbers are the point here, so the type is tabular-lining: every column of digits has to sit
+   in the same place down the page or a reader cannot compare two rows by eye. The account column is
+   sticky because a class-summarized P&L is 8 money columns wide and scrolls on a phone — a number
+   with its label scrolled off screen is just a number. */
+.pnl-doc{background:var(--card);border:.5px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.pnl-head{padding:16px 16px 12px;text-align:center;border-bottom:.5px solid var(--border)}
+.pnl-co{font-size:14px;font-weight:700;letter-spacing:.02em;color:var(--text)}
+.pnl-title{font-size:17px;font-weight:700;margin-top:2px;color:var(--text)}
+.pnl-range{font-size:11px;color:var(--dim);margin-top:3px}
+.pnl-basis{font-size:10px;color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:.06em}
+.pnl-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.pnl-tbl{border-collapse:collapse;width:100%;min-width:100%;font-size:12px;
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+.pnl-tbl th,.pnl-tbl td{padding:3px 10px;white-space:nowrap}
+.pnl-tbl thead th{position:sticky;top:0;background:var(--card-2);font-size:10px;font-weight:700;
+  letter-spacing:.05em;text-transform:uppercase;color:var(--dim);text-align:right;
+  border-bottom:1px solid var(--border-strong);padding-top:8px;padding-bottom:8px}
+.pnl-tbl thead th.pnl-acct{text-align:left}
+.pnl-acct{position:sticky;left:0;z-index:1;background:var(--card);text-align:left;min-width:190px;max-width:290px;
+  white-space:normal;word-break:break-word;
+  /* The frozen column needs a visible edge, or a half-scrolled money column reads as part of the
+     account name. Shadow only — a border would print as a stray rule on the PDF. */
+  box-shadow:1px 0 0 var(--border)}
+.pnl-tbl thead th.pnl-acct{background:var(--card-2);z-index:2}
+.pnl-num{text-align:right;min-width:96px;color:var(--text)}
+.pnl-num.neg{color:var(--red)}
+.pnl-zero{color:var(--muted)}
+/* Row kinds — these are the QB PDF's own rules, not decoration: a subtotal gets a hairline above it,
+   and the computed statement lines (Gross Profit / Net Income) get the heavier one. */
+.pnl-r-header .pnl-acct{font-weight:700;color:var(--text);padding-top:9px}
+.pnl-r-detail .pnl-acct{color:var(--dim)}
+.pnl-r-total td{font-weight:700;border-top:.5px solid var(--border-strong);padding-top:5px}
+.pnl-r-total .pnl-acct{color:var(--text)}
+.pnl-r-grand td{font-weight:700;border-top:1.5px solid var(--border-strong);
+  border-bottom:.5px solid var(--border-strong);background:var(--card-2);padding-top:7px;padding-bottom:7px}
+.pnl-r-grand .pnl-acct{color:var(--text);letter-spacing:.01em}
+.pnl-r-net td{border-bottom:3px double var(--border-strong)}
+.pnl-tbl tbody tr:hover td:not(.pnl-acct){background:rgba(255,255,255,.03)}
+.pnl-tbl tbody tr:hover .pnl-acct{background:var(--card-2)}
+.pnl-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pnl-filter{font-size:10px;color:var(--green);margin-top:5px}
+.pnl-foot{padding:9px 14px;font-size:10px;color:var(--muted);border-top:.5px solid var(--border);
+  display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+
+/* Print / "Save as PDF" — the whole point of the button. Everything that is dashboard chrome comes
+   off, the sheet goes white, and the statement prints landscape so 8 class columns fit a page. */
+@media print{
+  @page{size:landscape;margin:12mm}
+  body{background:#fff!important}
+  body *{visibility:hidden}
+  #pnl-doc,#pnl-doc *{visibility:visible}
+  #pnl-doc{position:absolute;left:0;top:0;width:100%;border:none;background:#fff;color:#000}
+  #pnl-doc .pnl-head{border-bottom:1px solid #000}
+  #pnl-doc .pnl-co,#pnl-doc .pnl-title{color:#000}
+  #pnl-doc .pnl-range,#pnl-doc .pnl-basis{color:#333}
+  #pnl-doc .pnl-scroll{overflow:visible}
+  #pnl-doc .pnl-tbl{font-size:9pt}
+  #pnl-doc .pnl-tbl thead th{background:#fff;color:#000;border-bottom:1px solid #000;position:static}
+  #pnl-doc .pnl-acct{position:static;background:#fff;color:#000;max-width:none;box-shadow:none}
+  #pnl-doc .pnl-num{color:#000}
+  #pnl-doc .pnl-num.neg{color:#000}
+  #pnl-doc .pnl-zero{color:#666}
+  #pnl-doc .pnl-r-detail .pnl-acct{color:#000}
+  #pnl-doc .pnl-r-total td{border-top:.5pt solid #000}
+  #pnl-doc .pnl-r-grand td{background:#fff;border-top:1pt solid #000;border-bottom:.5pt solid #000}
+  #pnl-doc .pnl-r-net td{border-bottom:2.5pt double #000}
+  #pnl-doc .pnl-noprint{display:none!important}
+  #pnl-doc tr{page-break-inside:avoid}
+}
 .exp-map-row{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:.5px solid var(--border)}
 .exp-map-row:last-child{border-bottom:none}
 .exp-map-qb{font-size:13px;color:#1D9E75;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -576,7 +646,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   // Guarded writes: reportbug, save_expense_mapping, set_otherrev, set_revenue
   window.GX_DEV_READS = [
     'cogs', 'cogs_dutchie', 'config', 'expbudgets', 'expenses', 'getdailygoals', 'goals',
-    'inventory', 'login', 'otherrev', 'pace', 'period_goals', 'ping', 'published_goals',
+    'inventory', 'login', 'otherrev', 'pace', 'period_goals', 'ping', 'pnl', 'published_goals',
     'revenue_detail',
     'stores', 'velocity', 'version_history'
   ];
@@ -606,6 +676,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   <div class="gx-topnav-tabs" id="dsk-nav">
     <button class="gx-topnav-tab is-active" data-s="income" onclick="setSection('income')">Income</button>
     <button class="gx-topnav-tab" data-s="expenses" onclick="setSection('expenses')">Expenses</button>
+    <button class="gx-topnav-tab" data-s="pnl" onclick="setSection('pnl')">P&amp;L</button>
     <button class="gx-topnav-tab" data-s="inventory" onclick="setSection('inventory')">Inventory</button>
     <button class="gx-topnav-tab" data-s="revenue" id="revenue-nav-btn" style="display:none" onclick="setSection('revenue')">Revenue</button>
   </div>
@@ -666,6 +737,10 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
     <button class="mbb-nav-btn" data-s="expenses" onclick="mobSetSection('expenses')">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/></svg>
       <span class="mbb-nav-lbl">Expenses</span>
+    </button>
+    <button class="mbb-nav-btn" data-s="pnl" onclick="mobSetSection('pnl')">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/></svg>
+      <span class="mbb-nav-lbl">P&amp;L</span>
     </button>
     <button class="mbb-nav-btn" data-s="inventory" onclick="mobSetSection('inventory')">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4"/><path d="M12 11v10"/></svg>
@@ -853,7 +928,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.501';
+const APP_VERSION = 'v2.506';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1944,6 +2019,11 @@ function setSection(s) {
   document.querySelectorAll('#dsk-nav .gx-topnav-tab').forEach(t => t.classList.toggle('is-active', t.dataset.s === s));
   buildTimeNav();
   if (s === 'revenue' && !revenueDetail) loadRevenueDetail();
+  // "No stores, Corporate only" is meaningful on the P&L and nowhere else — every other tab would
+  // read an empty set as "fetch nothing" and render a blank dashboard. Restore all on the way out.
+  if (s !== 'pnl' && activeStoreSet !== null && activeStoreSet.size === 0) pnlResetToAll_();
+  if (s === 'pnl') pnlSyncRange();   // period may have moved since this tab was last open
+  buildDskStores();                  // the Corporate pill is P&L-only, so the row changes with the tab
   render();
 }
 
@@ -2010,6 +2090,12 @@ function navToWeek() {
 
 function setStore(s) {
   activeStore = s;
+  // The app has TWO store selectors — the desktop pills (activeStoreSet, multi) and the mobile chips
+  // (activeStore, single) — and getActiveStores() prefers the set whenever it is non-null. Without
+  // this line, tapping a mobile chip after touching the desktop pills changed nothing at all: the
+  // chip lit up, the set still won, and the numbers never moved. A single-store pick is an explicit
+  // narrowing, so it replaces the multi-selection rather than losing to it.
+  activeStoreSet = (s === 'All') ? null : new Set([s]);
   document.querySelectorAll('.store-btn').forEach(t => {
     const on = t.dataset.s === s;
     t.classList.toggle('on', on);
@@ -2226,11 +2312,14 @@ function buildDskStores() {
   const el = document.getElementById('dsk-stores');
   if (!el) return;
   const allSelected = activeStoreSet === null;
-  const count  = allSelected ? STORES.length : activeStoreSet.size;
-  // The old header carried this count in its own line; as a pill row there is no header, so the
-  // All pill's own label carries it — the information survives the restyle.
-  const allLbl = allSelected ? `All ${STORES.length}` : `${count} of ${STORES.length}`;
-  const allPill = `<button class="store-pill${allSelected ? ' on' : ''}" onclick="dskSelectAllStores()">${allLbl}</button>`;
+  // Just "All". It used to read "All 6" / "3 of 6" — a button whose label reported the current state
+  // while its click did something else entirely. Which stores are on is already legible from which
+  // pills are lit, so the count was duplicating that at the cost of making the control ambiguous.
+  //
+  // On the P&L, "All" means all SEVEN columns: Corporate is part of the company's P&L, so the pill
+  // is not lit while Corporate is off, and clicking it turns Corporate back on.
+  const corpOn  = section !== 'pnl' || pnlShowCorporate;
+  const allPill = `<button class="store-pill${allSelected && corpOn ? ' on' : ''}" onclick="dskSelectAllStores()">All</button>`;
   const pills = STORES.map(s => {
     const isOn   = allSelected || activeStoreSet.has(s.name);
     // Load state drives the shimmer. 'ok'/'idle' add nothing — only the two states worth showing.
@@ -2242,27 +2331,98 @@ function buildDskStores() {
       <span class="store-pill-name">${s.display||s.name}</span>
     </button>`;
   }).join('');
-  el.innerHTML = `<div class="store-pills">${allPill}${pills}</div>`;
+  // CORPORATE is a QuickBooks class carrying real money — rent, interest, corporate payroll — but it
+  // is not a store: it has no Dutchie feed, no goal, no row in STORES. So it cannot join
+  // activeStoreSet, which drives the sales fetches on every other tab. It gets its own flag and its
+  // own pill, and the pill exists ONLY on the P&L, the one view where the class means anything.
+  const corpPill = section === 'pnl'
+    ? `<button class="store-pill${pnlShowCorporate ? ' on' : ''}" onclick="pnlToggleCorporate()"
+         title="Corporate is a QuickBooks class, not a store">
+         <span class="store-pill-dot" style="background:#94A3B8"></span>
+         <span class="store-pill-name">Corporate</span>
+       </button>`
+    : '';
+  el.innerHTML = `<div class="store-pills">${allPill}${pills}${corpPill}</div>`;
+}
+
+function pnlToggleCorporate() {
+  if (activeStoreSet === null) {
+    // From all → Corporate alone. An EMPTY store set is a real state here, not a bug: the P&L can
+    // show the Corporate class with no store beside it. setSection puts it back before any other
+    // tab — which reads an empty set as "fetch nothing" — can ever see it.
+    activeStoreSet   = new Set();
+    pnlShowCorporate = true;
+  } else {
+    pnlShowCorporate = !pnlShowCorporate;
+    if (pnlSelectionCleared_() || pnlSelectionComplete_()) pnlResetToAll_();
+  }
+  syncActiveStoreMirror();
+  buildDskStores();
+  render();
+}
+
+// Click semantics, corrected 2026-08-24 (Sky): from "all", clicking one pill ISOLATES it. It used
+// to SUBTRACT — every pill stayed lit except the one you touched, so the obvious reading of "I want
+// River" produced everything-but-River. Nobody guesses subtract-from-all; they guess isolate, find
+// the opposite, and stop trusting the control.
+//
+// On the P&L there are SEVEN pills, not six: Corporate is a QuickBooks class rather than a store, so
+// it lives in its own flag (it cannot join activeStoreSet, which drives the Dutchie fetches on every
+// other tab) — but it must CLICK identically or the row behaves two different ways depending on
+// which pill you hit. Isolating therefore clears Corporate too, and Corporate can isolate to itself
+// with no stores selected at all. pnlSelectionCleared_ is the "nothing left on" case that snaps the
+// row back to all, and it is the only place the two halves of the selection have to agree.
+// Both are section-aware: Corporate is a pill only on the P&L, so off it the store set alone decides
+// whether the selection is empty or complete. Without that, isolating a store (which clears
+// pnlShowCorporate) would stop Income's pill row from ever collapsing back to "All".
+function pnlSelectionCleared_() {
+  if (activeStoreSet === null || activeStoreSet.size !== 0) return false;
+  return section !== 'pnl' || !pnlShowCorporate;
+}
+
+function pnlSelectionComplete_() {
+  if (activeStoreSet === null || activeStoreSet.size !== STORES.length) return false;
+  return section !== 'pnl' || pnlShowCorporate;
+}
+
+// Restoring "all" has to restore BOTH halves. Clearing the last store used to null the store set and
+// leave pnlShowCorporate false — so the row snapped back to six lit stores with Corporate dark and
+// the All pill unlit, a state the user never asked for and could not have reached deliberately.
+function pnlResetToAll_() {
+  activeStoreSet   = null;
+  pnlShowCorporate = true;
 }
 
 function dskToggleStore(name) {
   if (activeStoreSet === null) {
-    activeStoreSet = new Set(STORES.map(s => s.name).filter(n => n !== name));
+    activeStoreSet   = new Set([name]);   // from all → just this one...
+    pnlShowCorporate = false;             // ...and "just this one" excludes Corporate
   } else if (activeStoreSet.has(name)) {
     activeStoreSet.delete(name);
-    if (activeStoreSet.size === 0) activeStoreSet = null;
+    if (pnlSelectionCleared_()) pnlResetToAll_();
   } else {
     activeStoreSet.add(name);
-    if (activeStoreSet.size === STORES.length) activeStoreSet = null;
+    if (pnlSelectionComplete_()) pnlResetToAll_();
   }
+  syncActiveStoreMirror();
   buildDskStores();
   render();
 }
 
 function dskSelectAllStores() {
-  activeStoreSet = null;
+  pnlResetToAll_();          // "All" on the P&L means every class, Corporate included
+  syncActiveStoreMirror();
   buildDskStores();
   render();
+}
+
+// activeStore (single) and activeStoreSet (multi) are two views of one selection, and the mobile
+// chip grid lights up from the FIRST while everything renders from the SECOND. Left unsynced the
+// chips show a store that is not the one on screen. A set of exactly one has an honest single-store
+// answer; anything else does not, so it reads 'All' and the pill row's "N of 6" carries the detail.
+function syncActiveStoreMirror() {
+  if (activeStoreSet === null || activeStoreSet.size !== 1) { activeStore = 'All'; return; }
+  activeStore = [...activeStoreSet][0];
 }
 
 // ── Mobile helpers ────────────────────────────────────────────────────────────
@@ -2406,7 +2566,13 @@ function updateMobBottomBar() {
   const periodLbl = document.getElementById('mbb-period-lbl');
   const storesLbl = document.getElementById('mbb-stores-lbl');
   if (periodLbl) periodLbl.textContent = getMobPeriodLabel();
-  if (storesLbl) storesLbl.textContent = activeStore === 'All' ? 'All stores' : activeStore;
+  if (storesLbl) {
+    // Describe the SET — with a multi-selection active, "All stores" is simply false.
+    const n = activeStoreSet === null ? STORES.length : activeStoreSet.size;
+    storesLbl.textContent = activeStoreSet === null ? 'All stores'
+      : n === 1 ? ((STORE_MAP.get([...activeStoreSet][0]) || {}).display || [...activeStoreSet][0])
+      : `${n} of ${STORES.length} stores`;
+  }
   document.querySelectorAll('.mbb-nav-btn').forEach(t =>
     t.classList.toggle('on', t.dataset.s === section)
   );
@@ -2593,6 +2759,7 @@ function render() {
   if (section === 'expenses')  { renderExpenses();  updateMobHero(); return; }
   if (section === 'inventory') { renderInventory(); updateMobHero(); return; }
   if (section === 'revenue')   { renderRevenue();   updateMobHero(); return; }
+  if (section === 'pnl')       { renderPnl();       updateMobHero(); return; }
   if (Object.keys(liveData).length === 0) {
     _incomeMounted = false;
     document.getElementById('main-content').innerHTML =
@@ -3938,6 +4105,274 @@ function setExpSection(s) {
   expSection = s;
   renderExpenses();
 }
+
+// ── P&L statement ─────────────────────────────────────────────────────────────────────────────
+// Separate state from expenseData on purpose. The Expenses tab shows THIS APP'S category rollup —
+// QB accounts folded through the mapping sheet, with unmapped ones dropped. The P&L shows what
+// QuickBooks itself would print: every account, QB's order, QB's subtotals. They disagree by design,
+// and the day someone reconciles the two it must be obvious which is which.
+let pnlData    = null;
+let pnlLoading = false;
+
+// QuickBooks tags every transaction with a CLASS, and the classes ARE the stores — so a P&L
+// summarized by class is the per-store P&L. Measured against the live company file, not assumed:
+// `summarize_column_by=Class` is rejected by QuickBooks ("Invalid Enumeration"); `Classes` is the
+// accepted value, and it returns exactly these seven columns plus TOTAL.
+//
+// Written as an EXPLICIT map rather than a fold-and-match rule ("strip a trailing ST/DR/RD, then
+// compare"). A rule like that looks tidy and fails silently: this repo already lost four ATM
+// machines to one, because in a lookup a miss is not a wrong bucket, it is a row that VANISHES.
+// An explicit map is checkable, and pnl_statement_test.js checks it — every store resolves, and
+// nothing resolves to a class the live report doesn't have.
+//
+// CORPORATE is deliberately absent. It is a real class carrying real money (rent, interest, the
+// corporate payroll) but it is not a store, so no store pill can select it.
+const PNL_CLASS_BY_STORE = Object.freeze({
+  'Bend':        'CENTURY DR',
+  'Center':      'CENTER ST',
+  'Commercial':  'COMMERCIAL ST',
+  'Hillsboro':   'BASELINE ST',
+  'Portland Rd': 'PORTLAND RD',
+  'River':       'RIVER RD',
+});
+const PNL_NON_STORE_CLASSES = Object.freeze(['CORPORATE']);
+let pnlShowCorporate = true;   // on by default — it is part of the company's P&L
+// QB's own PDF omits accounts with no activity in the period; the API returns them regardless, which
+// is how a dozen '(deleted)' rows end up padding the statement. Default to QB's behavior, but keep it
+// a TOGGLE rather than a filter — suppressing rows on a financial statement should be a visible
+// choice, not something the renderer decided quietly. Totals are QB's and never move either way.
+let pnlHideEmpty = true;
+
+// The period bar drives the statement's date range, same as every other tab. monthRange gives the
+// current selection; `to` can come back as a full ISO timestamp, and the P&L takes dates as TEXT.
+function pnlWantedRange() {
+  const r = monthRange(activeMonth, activeYear);
+  return { start: String(r.from).slice(0, 10), end: String(r.to).slice(0, 10) };
+}
+
+// Drop cached data whose range no longer matches the period bar. Called on entering the tab and
+// before each render, so it self-heals no matter which setter moved the period.
+function pnlSyncRange() {
+  const want = pnlWantedRange();
+  if (pnlData && !pnlData.error && (pnlData.start !== want.start || pnlData.end !== want.end)) {
+    pnlData    = null;
+    pnlLoading = false;
+  }
+}
+
+async function loadPnl(nocache) {
+  const want = pnlWantedRange();
+  const url = `${getProxyUrl()}?action=pnl&by=Classes`
+            + `&start=${encodeURIComponent(want.start)}&end=${encodeURIComponent(want.end)}`
+            + `&token=${encodeURIComponent(getToken())}${nocache ? '&nocache=1' : ''}`;
+  try {
+    const res  = await fetch(url);
+    const data = await res.json();
+    pnlData = data;
+  } catch (e) {
+    console.warn('P&L fetch failed:', e.message);
+    pnlData = { error: e.message };
+  }
+}
+
+function togglePnlEmpty() {
+  pnlHideEmpty = !pnlHideEmpty;
+  renderPnl();
+}
+
+function reloadPnl() {
+  pnlData    = null;
+  pnlLoading = false;
+  renderPnl(true);
+}
+
+// A blank cell and a zero are different facts on a statement — QB prints nothing for an account with
+// no activity in that class, and so do we. fmtD would turn both into "$0".
+function fmtPnlCell(v) {
+  if (v === null || v === undefined) return '<span class="pnl-zero">—</span>';
+  if (Math.abs(v) < 0.005)           return '<span class="pnl-zero">0.00</span>';
+  const s = Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return v < 0 ? `(${s})` : s;   // accounting-style negatives, as in the QB PDF
+}
+
+function pnlRangeLabel(d) {
+  const fmt = (iso) => {
+    // Dates stay TEXT the whole way — parsing 'YYYY-MM-DD' with new Date() reads it as UTC and can
+    // render the previous day west of Greenwich, which is exactly the drift this app bans elsewhere.
+    const [y, m, day] = String(iso || '').split('-');
+    if (!y || !m || !day) return iso || '';
+    return `${MONTHS[Number(m) - 1]} ${Number(day)}, ${y}`;
+  };
+  return `${fmt(d.start)} – ${fmt(d.end)}`;
+}
+
+// Drop the rows QB's PDF wouldn't print: detail accounts with no activity anywhere in the period, and
+// then any section left with nothing to show. Two passes, because emptying a subsection can empty its
+// parent — the loop runs until it stops changing rather than assuming one level of nesting.
+function pnlRowIsEmpty(r) {
+  return (r.values || []).every(v => v === null || v === undefined || Math.abs(v) < 0.005);
+}
+
+function pnlDropEmptyRows(rows) {
+  let out = rows.filter(r => r.kind !== 'detail' || !pnlRowIsEmpty(r));
+  // Remove the header and its total TOGETHER, in one pass over adjacent pairs. Dropping them in two
+  // separate filters cannot work: once the header is gone the orphaned total sits next to the
+  // PREVIOUS section's total at the same depth, and is indistinguishable from a legitimate one.
+  for (let pass = 0; pass < 8; pass++) {
+    const drop = new Set();
+    for (let i = 0; i < out.length - 1; i++) {
+      const head = out[i], tot = out[i + 1];
+      // A header whose very next row is its own total has lost every child it had; if that total is
+      // empty too, QB's PDF would print neither line.
+      if (head.kind === 'header' && tot.kind === 'total' &&
+          tot.depth === head.depth && pnlRowIsEmpty(tot)) {
+        drop.add(i); drop.add(i + 1);
+      }
+    }
+    if (!drop.size) return out;                       // stable — nothing left to collapse
+    out = out.filter((_, i) => !drop.has(i));         // re-run: an emptied child can empty its parent
+  }
+  return out;
+}
+
+// Which CLASS columns to show, from the store pills plus the P&L's own Corporate pill. Returns
+// indexes into pnlData.columns. QuickBooks' own TOTAL column is deliberately NOT among them — see
+// pnlTotalOf below.
+function pnlVisibleCols(columns) {
+  const wanted = new Set(getActiveStores().map(n => PNL_CLASS_BY_STORE[n]).filter(Boolean));
+  const allStores = wanted.size === Object.keys(PNL_CLASS_BY_STORE).length;
+  if (pnlShowCorporate) PNL_NON_STORE_CLASSES.forEach(c => wanted.add(c));
+  const keep = [];
+  columns.forEach((title, i) => {
+    const t = String(title || '').trim().toUpperCase();
+    if (t === 'TOTAL') return;                    // recomputed, never passed through
+    if (wanted.has(t)) keep.push(i);
+  });
+  return { keep, allStores, everything: allStores && pnlShowCorporate };
+}
+
+// The Total column, restricted to the classes on screen.
+//
+// This is arithmetic QuickBooks itself does, not a figure this app invents: verified across all 72
+// rows of a live by=Classes report, QB's TOTAL equals the sum of its class columns exactly. So
+// summing the SELECTED classes is the same operation on a subset, and when nothing is filtered it
+// reproduces QB's own number to the cent. That is what makes it safe to keep a Total on a filtered
+// view — the earlier build hid it, which left the reader adding seven columns by hand.
+//
+// null, not 0, when no visible column has a figure: a section header has no total, and neither does
+// an account with no activity anywhere on screen.
+function pnlTotalOf(values) {
+  let any = false, sum = 0;
+  for (const v of values) {
+    if (v === null || v === undefined) continue;
+    any = true; sum += v;
+  }
+  return any ? sum : null;
+}
+
+function renderPnl(nocache) {
+  const host = document.getElementById('main-content');
+  pnlSyncRange();
+
+  if (!pnlData) {
+    if (!pnlLoading) {
+      pnlLoading = true;
+      host.innerHTML = `
+        <div class="sec-lbl">Profit &amp; Loss</div>
+        <div class="card"><div class="empty-state"><span class="spinner-inline"></span>Loading P&amp;L from QuickBooks…</div></div>`;
+      loadPnl(nocache).finally(() => {
+        pnlLoading = false;
+        if (section === 'pnl') renderPnl();
+      });
+    }
+    return;
+  }
+
+  if (pnlData.error) {
+    host.innerHTML = `
+      <div class="sec-lbl">Profit &amp; Loss</div>
+      <div class="card"><div class="empty-state">Couldn't load the P&amp;L — ${escHtml(pnlData.error)}
+        <div style="margin-top:8px"><button class="pill-btn" onclick="reloadPnl()">Try again</button></div>
+      </div></div>`;
+    return;
+  }
+
+  const allCols = pnlData.columns || [];
+  const { keep, everything } = pnlVisibleCols(allCols);
+  const cols = keep.map(i => allCols[i]).concat(['TOTAL']);
+
+  const allRows = pnlData.rows || [];
+  // Which rows appear is decided on the FULL report, BEFORE any column filtering — so the statement
+  // keeps the same shape as you move between stores. Judging emptiness on the visible columns
+  // instead made rows come and go with the filter, and a statement whose line-up shifts under you
+  // is one you cannot read down twice and compare.
+  const keptRows = pnlHideEmpty ? pnlDropEmptyRows(allRows) : allRows;
+  const hiddenCount = allRows.length - keptRows.length;
+  const rows = keptRows.map(r => {
+    const vals = keep.map(i => (r.values || [])[i]);
+    return { ...r, values: vals.concat([r.kind === 'header' ? null : pnlTotalOf(vals)]) };
+  });
+  const storeLabel = everything ? '' : getActiveStores()
+    .map(n => (STORE_MAP.get(n) || {}).display || n)
+    .concat(pnlShowCorporate ? ['Corporate'] : []).join(', ');
+
+  const body = rows.map(r => {
+    const kindCls = `pnl-r-${r.kind}`;
+    // Net Income is the statement's last word — QB double-rules it and nothing else.
+    const netCls  = (r.kind === 'grand' && r.group === 'NetIncome') ? ' pnl-r-net' : '';
+    const indent  = 8 + (r.depth || 0) * 14;
+    // Header rows are labels, not figures; QB leaves their number cells empty and the totals row
+    // below carries the money. Printing a header's ColData here would double-count on the eye.
+    const cells = r.kind === 'header'
+      ? cols.map(() => `<td class="pnl-num"></td>`).join('')
+      : (r.values || []).map(v =>
+          `<td class="pnl-num${(v !== null && v < 0) ? ' neg' : ''}">${fmtPnlCell(v)}</td>`).join('');
+    return `<tr class="${kindCls}${netCls}">
+      <td class="pnl-acct" style="padding-left:${indent}px">${escHtml(r.label)}</td>
+      ${cells}
+    </tr>`;
+  }).join('');
+
+  const srcNote = pnlData.qb_source === 'local'
+    ? `<span title="${escHtml(pnlData.qb_fallback_reason || '')}">source: local token</span>`
+    : `<span>source: GX Core</span>`;
+
+  destroyCharts();
+  host.innerHTML = `
+    <div class="sec-lbl pnl-bar" style="justify-content:space-between">
+      <span class="pnl-bar">Profit &amp; Loss${storeLabel ? ` <span style="text-transform:none;letter-spacing:0;color:var(--green)">· ${escHtml(storeLabel)}</span>` : ''}</span>
+      <span class="pnl-bar">
+        <button class="exp-map-btn" onclick="togglePnlEmpty()" title="QuickBooks' PDF omits accounts with no activity">${pnlHideEmpty ? `👁 Show empty${hiddenCount ? ` (${hiddenCount})` : ''}` : '👁 Hide empty'}</button>
+        <button class="exp-map-btn" onclick="printPnl()">🖨 Print / PDF</button>
+        <button class="exp-map-btn" onclick="reloadPnl()">↻ Refresh</button>
+      </span>
+    </div>
+
+    <div class="pnl-doc" id="pnl-doc">
+      <div class="pnl-head">
+        <div class="pnl-co">Green Cross</div>
+        <div class="pnl-title">Profit and Loss</div>
+        <div class="pnl-range">${escHtml(pnlRangeLabel(pnlData))}</div>
+        <div class="pnl-basis">${escHtml(pnlData.basis || '')} basis · by class</div>
+        ${storeLabel ? `<div class="pnl-filter">Filtered to ${escHtml(storeLabel)} — Total covers these ${cols.length - 1} column${cols.length === 2 ? '' : 's'} only</div>` : ''}
+      </div>
+      <div class="pnl-scroll">
+        <table class="pnl-tbl">
+          <thead><tr>
+            <th class="pnl-acct"></th>
+            ${cols.map(c => `<th>${escHtml(c)}</th>`).join('')}
+          </tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+      <div class="pnl-foot">
+        <span>${rows.length} lines · ${cols.length} column${cols.length === 1 ? '' : 's'} · ${escHtml(pnlData.currency || 'USD')}${hiddenCount ? ` · ${hiddenCount} inactive account${hiddenCount === 1 ? '' : 's'} hidden` : ''}</span>
+        <span class="pnl-noprint">${srcNote} · loaded ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+      </div>
+    </div>`;
+}
+
+function printPnl() { window.print(); }
 
 function renderExpenseMapping() {
   const accounts = expenseData?.allAccounts || [];
