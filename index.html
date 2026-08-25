@@ -679,7 +679,9 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
    read as absent — especially for unattributed deposits, which are real money. */
 .recon-hidden-note{margin-top:10px;font-size:11px;line-height:1.6;color:var(--muted);display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
 .recon-hidden-note strong{color:var(--dim);font-weight:600}
-.recon-linkish{background:none;border:none;padding:0;font:inherit;font-size:11px;color:var(--green);cursor:pointer;text-decoration:underline}
+/* Sits on .toggle-btn (the app's text-button, which was defined and never used) and only adds the
+   underline that makes it read as clickable inside a sentence. */
+.recon-linkish{text-decoration:underline;color:var(--green)}
 .recon-linkish:hover{opacity:.8}
 .recon-unatt-hd{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
 
@@ -1005,7 +1007,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.508';
+const APP_VERSION = 'v2.509';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -4471,7 +4473,7 @@ function renderReconcile(nocache) {
       <div class="sec-lbl">Deposit reconciliation</div>
       <div class="card"><div class="empty-state">Couldn't load deposits — ${escHtml(reconData.error || 'unknown error')}
         <div style="margin-top:6px;opacity:.7;font-size:12px">Deposits come from QuickBooks through GX Core's <code>qb_deposits</code> (live since v216). A <code>[GXDev] BLOCKED</code> message above is the LOCAL dev guard, not the backend — that means an action is missing from <code>GX_DEV_READS</code> in this page's head.</div>
-        <div style="margin-top:8px"><button class="pill-btn" onclick="reloadRecon()">Try again</button></div>
+        <div style="margin-top:8px"><button class="s-btn" onclick="reloadRecon()">Try again</button></div>
       </div></div>`;
     return;
   }
@@ -4539,13 +4541,9 @@ function renderReconcile(nocache) {
         <span class="recon-chip">${shown.length - readyCount - offCount} awaiting deposit</span>
       </div>
       <div class="recon-actions">
-        <button class="pill-btn" onclick="reloadRecon()">Refresh</button>
-        <button class="pill-btn${reconAllWeeks ? ' on' : ''}" onclick="toggleReconAllWeeks()">
-          ${reconAllWeeks ? 'This week only' : 'All weeks in period'}
-        </button>
-        <button class="pill-btn${reconShowHistory ? ' on' : ''}" onclick="toggleReconHistory()">
-          ${reconShowHistory ? 'Hide' : 'Show'} reconciled (${done.length})
-        </button>
+        <button class="s-btn" onclick="reloadRecon()">↻ Refresh</button>
+        <button class="rev-mo-btn${reconAllWeeks ? ' on' : ''}" onclick="toggleReconAllWeeks()">All weeks</button>
+        <button class="rev-mo-btn${reconShowHistory ? ' on' : ''}" onclick="toggleReconHistory()">Reconciled (${done.length})</button>
       </div>
     </div>
 
@@ -4554,19 +4552,19 @@ function renderReconcile(nocache) {
         Showing the latest complete week per store.
         ${earlierCount ? `<strong>${earlierCount} earlier week${earlierCount === 1 ? '' : 's'} still unreconciled.</strong>` : ''}
         ${incompleteCount ? `${incompleteCount} week${incompleteCount === 1 ? '' : 's'} hidden for incomplete sales data.` : ''}
-        <button class="recon-linkish" onclick="toggleReconAllWeeks()">Show all</button>
+        <button class="toggle-btn recon-linkish" onclick="toggleReconAllWeeks()">Show all</button>
       </div>` : ''}
 
     ${unatt.length ? (reconIgnoreUnatt ? `
       <div class="recon-hidden-note">
         Ignoring ${unatt.length} deposit${unatt.length === 1 ? '' : 's'} not attributed to a store
         (${reconFmtMoney(unatt.reduce((a, d) => a + d.amount, 0))}).
-        <button class="recon-linkish" onclick="toggleReconUnatt()">Show</button>
+        <button class="toggle-btn recon-linkish" onclick="toggleReconUnatt()">Show</button>
       </div>` : `
       <div class="card recon-unatt">
         <div class="recon-unatt-hd">
           ${unatt.length} deposit${unatt.length === 1 ? '' : 's'} not attributed to a store
-          <button class="recon-linkish" onclick="toggleReconUnatt()">Ignore these</button>
+          <button class="toggle-btn recon-linkish" onclick="toggleReconUnatt()">Ignore these</button>
         </div>
         <div class="recon-unatt-note">These carry a QuickBooks class that maps to no store. They are listed rather than dropped — money that disappears from a reconciliation screen is the failure this tab exists to prevent.</div>
         ${unatt.map(d => `<div class="recon-unatt-row"><span>${escHtml(d.date)}</span><span>${escHtml(d.class || '(no class)')}</span><span>${reconFmtMoney(d.amount)}</span></div>`).join('')}
@@ -4670,9 +4668,9 @@ function renderReconCard(row) {
 
       <div class="recon-foot">
         ${row.done
-          ? `<button class="pill-btn" onclick="unreconcileWeek('${escHtml(row.store)}','${row.win.start}')">Reopen</button>
+          ? `<button class="s-btn" onclick="unreconcileWeek('${escHtml(row.store)}','${row.win.start}')">Reopen</button>
              <span class="recon-by">${escHtml(reconDoneBy(row))}</span>`
-          : `<button class="pill-btn recon-go" ${row.reconcilable ? '' : 'disabled'}
+          : `<button class="s-btn primary recon-go" ${row.reconcilable ? '' : 'disabled'}
                onclick="reconcileWeek('${escHtml(row.store)}','${row.win.start}')">Reconcile</button>`}
       </div>
     </div>`;
@@ -4888,7 +4886,7 @@ function renderPnl(nocache) {
     host.innerHTML = `
       <div class="sec-lbl">Profit &amp; Loss</div>
       <div class="card"><div class="empty-state">Couldn't load the P&amp;L — ${escHtml(pnlData.error)}
-        <div style="margin-top:8px"><button class="pill-btn" onclick="reloadPnl()">Try again</button></div>
+        <div style="margin-top:8px"><button class="s-btn" onclick="reloadPnl()">Try again</button></div>
       </div></div>`;
     return;
   }
@@ -5020,8 +5018,8 @@ function renderExpenseMapping() {
     </div>
     ${accounts.length > 0 ? `
     <div style="display:flex;gap:8px;margin-top:14px">
-      <button class="pill-btn on" style="flex:1" onclick="saveExpenseMappings()">Save Mappings</button>
-      <button class="pill-btn" onclick="setExpSection('main')">Cancel</button>
+      <button class="s-btn primary" style="flex:1;margin-top:0" onclick="saveExpenseMappings()">Save Mappings</button>
+      <button class="s-btn" onclick="setExpSection('main')">Cancel</button>
     </div>` : ''}
   `;
 }
