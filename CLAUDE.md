@@ -111,8 +111,17 @@ half-reports until this landed. Verified live on the deployed `/exec`: `?action=
   all under v194/v204, none since the v213 re-pin on 2026-08-23. A hand-typed `"shawn"` exercises the grant
   lookup but NOT the session-token → `auth.user` → `roleForApp` chain; a mismatch there would refuse him
   while the probe kept saying `editor`. **A real non-superadmin save under v213 is what actually settles
-  it** — until one lands, read `write_guard_log` after Shawn's next expense-mapping save rather than
-  assuming. Rollback is unchanged and one command: `guardmode&mode=log`.
+  it**. Rollback is unchanged and one command: `guardmode&mode=log`.
+
+  **CLOSED 2026-08-24 on Sky's word: Shawn has saved under v213 several times, so the token-derived
+  path is exercised and this caution is spent.** Recorded with its provenance because the two sources
+  disagree: `write_guard_log` at 2026-08-24 ~18:00 held three admits, all stamped v194-era
+  (`2026-08-20T21:08`, `2026-08-22T14:07`–`14:08`), with nothing after the v213 re-pin on 08-23. The
+  ring keeps 25 and records refusals too, so real saves should have appeared in it. Sky owns the app
+  and knows what Shawn has been doing; the likeliest reading is that the log is not capturing what it
+  is assumed to capture. **Do not treat the log's silence as evidence of a problem — but do not cite
+  the log as proof of the admit either.** If it ever matters, one real save followed by `authprobe`
+  settles which of the two is wrong.
   *Re-run independently later the same evening, against deployment `@162`, by a second session that had
   not seen this note: same answer — `role editor`, `has_roleForApp true`, `gxcore_version 213`, and the
   same three v194-era admits in the log with nothing newer. Two runs agreeing does not upgrade the
