@@ -612,6 +612,63 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .sx-submit:hover{opacity:0.85}
 .sx-submit:disabled{opacity:0.45;cursor:not-allowed}
 .sx-status{font-size:11px;color:var(--muted);margin-top:8px;text-align:center;min-height:16px}
+/* ── Deposit reconciliation ──────────────────────────────────────────────────────────────────
+   State is carried by a LEFT BORDER plus a word, never by colour alone — the four states have to
+   survive a colourblind reader and a projector, and "Off" is the one you must not miss. */
+.recon-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.recon-tally{display:flex;gap:8px;flex-wrap:wrap}
+.recon-actions{display:flex;gap:8px}
+.recon-chip{font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;background:var(--card);border:0.5px solid var(--border);color:var(--dim)}
+.recon-chip-ok{background:var(--green-soft);color:var(--green-ink);border-color:transparent}
+.recon-chip-off{background:var(--red-soft);color:var(--red);border-color:transparent}
+
+.recon-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-top:12px}
+.recon-card{border-left:3px solid var(--border);display:flex;flex-direction:column;gap:8px}
+.recon-matched{border-left-color:var(--green)}
+.recon-off{border-left-color:var(--red)}
+.recon-awaiting{border-left-color:var(--amber)}
+.recon-incomplete{border-left-color:var(--border-strong)}
+.recon-done{border-left-color:var(--green);opacity:.72}
+
+.recon-hd{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.recon-store{font-size:14px;font-weight:600;color:var(--text)}
+.recon-state{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.recon-matched .recon-state{color:var(--green)}
+.recon-off .recon-state{color:var(--red)}
+.recon-window{font-size:11px;color:var(--muted)}
+.recon-ws{opacity:.65}
+
+.recon-figs{display:flex;gap:18px;margin-top:2px}
+.recon-figs>div{display:flex;flex-direction:column;gap:2px}
+.recon-figs span{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.recon-figs strong{font-size:15px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+.recon-diff{font-size:12px;font-weight:600;color:var(--red)}
+.recon-missing{font-size:11px;line-height:1.45;color:var(--muted);background:var(--card);border-radius:6px;padding:7px 9px}
+
+.recon-deps{display:flex;flex-direction:column;gap:4px;border-top:0.5px solid var(--border);padding-top:7px}
+.recon-dep{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim)}
+.recon-dep-date{flex:0 0 auto;font-variant-numeric:tabular-nums}
+.recon-dep-amt{flex:1 1 auto;text-align:right;font-variant-numeric:tabular-nums;color:var(--text)}
+.recon-dep-move{display:flex;gap:2px}
+.recon-dep-move button{background:none;border:0.5px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer;font-size:11px;line-height:1;padding:2px 5px;font-family:inherit}
+.recon-dep-move button:hover{color:var(--text);border-color:var(--border-strong)}
+.recon-dep-note{font-size:10px;color:var(--muted)}
+
+.recon-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:2px}
+.recon-by{font-size:10px;color:var(--muted)}
+.recon-go:disabled{opacity:.4;cursor:not-allowed}
+
+.recon-cfg{margin-top:12px}
+.recon-cfg summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--dim)}
+.recon-cfg-note{font-size:11px;line-height:1.5;color:var(--muted);margin:8px 0 10px}
+.recon-cfg-rows{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+.recon-cfg-row{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;color:var(--dim)}
+.recon-cfg-row select{font-family:inherit;font-size:11px;background:var(--card);border:0.5px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px}
+
+.recon-unatt{margin-top:12px;border-left:3px solid var(--amber)}
+.recon-unatt-hd{font-size:13px;font-weight:600;color:var(--text)}
+.recon-unatt-note{font-size:11px;line-height:1.5;color:var(--muted);margin:5px 0 9px}
+.recon-unatt-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;font-size:12px;color:var(--dim);padding:3px 0;font-variant-numeric:tabular-nums}
 </style>
 <!-- GX dev-guard bootstrap. Canonical source: greencross-gx-theme/gx-dev-boot.html.
      Paste this ONCE in <head>, before the app's own scripts. It replaces the old
@@ -677,6 +734,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
     <button class="gx-topnav-tab is-active" data-s="income" onclick="setSection('income')">Income</button>
     <button class="gx-topnav-tab" data-s="expenses" onclick="setSection('expenses')">Expenses</button>
     <button class="gx-topnav-tab" data-s="pnl" onclick="setSection('pnl')">P&amp;L</button>
+    <button class="gx-topnav-tab" data-s="reconcile" onclick="setSection('reconcile')">Reconcile</button>
     <button class="gx-topnav-tab" data-s="inventory" onclick="setSection('inventory')">Inventory</button>
     <button class="gx-topnav-tab" data-s="revenue" id="revenue-nav-btn" style="display:none" onclick="setSection('revenue')">Revenue</button>
   </div>
@@ -928,7 +986,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.506';
+const APP_VERSION = 'v2.507';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -2760,6 +2818,7 @@ function render() {
   if (section === 'inventory') { renderInventory(); updateMobHero(); return; }
   if (section === 'revenue')   { renderRevenue();   updateMobHero(); return; }
   if (section === 'pnl')       { renderPnl();       updateMobHero(); return; }
+  if (section === 'reconcile') { renderReconcile(); updateMobHero(); return; }
   if (Object.keys(liveData).length === 0) {
     _incomeMounted = false;
     document.getElementById('main-content').innerHTML =
@@ -4104,6 +4163,425 @@ function setExpSection(s) {
   }
   expSection = s;
   renderExpenses();
+}
+
+// ── Weekly deposit reconciliation ─────────────────────────────────────────────────────────────
+//
+// Checks that what the stores SOLD in a week equals what Shawn BANKED for it. The comparison is
+// Net Sales + Tax against the bank deposit, per store, per week — which is how Sky has been doing it
+// by hand in a spreadsheet, and the drift he was chasing came from that sheet's numbers going stale.
+// Here the sales side is live Dutchie data and the deposit side is live QuickBooks, so the only
+// differences left are real ones (usually a return applied to an earlier day).
+//
+// Four things make this harder than a calendar-week sum, all of them real:
+//   1. The week does not start on Monday and it DIFFERS BY STORE — some Tue→Mon, some Wed→Tue,
+//      because that is when the deposits happen. Configured per store, not hardcoded.
+//   2. One week can hold SEVERAL deposits. Commercial is routinely split 3 days + 4 days.
+//   3. A deposit spanning month end is split in two so income lands in the right month.
+//   4. A deposit is made AFTER the week it covers, so a deposit's own date does not say which week
+//      it belongs to. See reconWindowForDeposit — that rule is a DEFAULT and is overridable.
+
+let reconData    = null;   // { deposits:{store:[…]}, unattributed, config, state, assign }
+let reconLoading = false;
+let reconShowHistory = false;
+
+const RECON_DOW_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+// Dates are TEXT end to end, and this arithmetic stays in UTC so the browser's timezone can never
+// shift a day. `new Date('2026-08-18')` is midnight UTC and renders as the 17th west of Greenwich —
+// that one-day slip is exactly what would misfile a Sunday's sales into the wrong week.
+function reconAddDays(dateStr, n) {
+  const p = String(dateStr).split('-').map(Number);
+  const d = new Date(Date.UTC(p[0], p[1] - 1, p[2]));
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+function reconDow(dateStr) {
+  const p = String(dateStr).split('-').map(Number);
+  return new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay();
+}
+// The first day of the week window that CONTAINS dateStr, given a week-start weekday (0=Sun..6=Sat).
+function reconWindowStart(dateStr, weekStart) {
+  const back = (reconDow(dateStr) - weekStart + 7) % 7;
+  return reconAddDays(dateStr, -back);
+}
+
+// Every week window for one store that STARTS inside [from, to], oldest first.
+//
+// Starts-inside, not overlaps: a period almost never begins on a store's week-start day, so the
+// window straddling the start is mostly made of days from the previous period that were never
+// loaded. Including it produced a card that read "Incomplete" forever, sorted to the top because it
+// was oldest, on every store, every month — six permanent non-answers above the real work. The week
+// that straddles the boundary belongs to the period it STARTED in, and is reconciled there.
+function reconWindows(store, from, to) {
+  const ws = reconWeekStartFor(store);
+  const out = [];
+  let cur = reconWindowStart(from, ws);
+  if (cur < from) cur = reconAddDays(cur, 7);   // that straddling week belongs to the previous period
+  while (cur <= to) {
+    out.push({ start: cur, end: reconAddDays(cur, 6) });
+    cur = reconAddDays(cur, 7);
+  }
+  return out;
+}
+
+function reconWeekStartFor(store) {
+  const v = Number((reconData && reconData.config || {})[store]);
+  return (Number.isInteger(v) && v >= 0 && v <= 6) ? v : 2;   // Tuesday, same default as the backend
+}
+
+// Which week does a deposit pay for? DEFAULT RULE: the most recent window that had already ENDED
+// when the deposit was made. A deposit dated the day after a window closes pays for that window.
+//
+// This is a default, not a fact — it is right for an ordinary week and wrong when a deposit is late
+// or split across month end. That is why every deposit carries a manual override (reconAssign),
+// and why the card names the window it summed rather than leaving you to infer it.
+function reconWindowForDeposit(store, dep) {
+  const override = (reconData && reconData.assign || {})[dep.id];
+  if (override) return override;
+  const ws = reconWeekStartFor(store);
+  // Step back one day so a deposit made ON a window's start date pays for the window that just
+  // closed, not the one opening that morning.
+  return reconWindowStart(reconAddDays(dep.date, -1), ws);
+}
+
+// Sales side for one store over one window: Net Sales + Tax, summed from the daily data already
+// loaded for the dashboard. Returns null when a day in the window has no data at all, because a
+// window missing a day would otherwise render as a confident shortfall — the tab must say
+// "incomplete", never quietly show a mismatch that is really a gap.
+function reconExpectedFor(store, win) {
+  const days = allDailyData[store] || {};
+  let total = 0, missing = [];
+  for (let d = win.start; d <= win.end; d = reconAddDays(d, 1)) {
+    const rec = days[d];
+    if (!rec) { missing.push(d); continue; }
+    total += (rec.netSales || 0) + (rec.tax || 0);
+  }
+  return { total: Math.round(total * 100) / 100, missing };
+}
+
+function reconStateKey(store, win) { return store + '|' + win.start; }
+function reconIsDone(store, win) {
+  return !!(reconData && reconData.state || {})[reconStateKey(store, win)];
+}
+
+// One store-week, everything the card needs, computed once.
+function reconBuildRow(store, win) {
+  const exp  = reconExpectedFor(store, win);
+  const deps = ((reconData && reconData.deposits || {})[store] || [])
+    .filter(d => reconWindowForDeposit(store, d) === win.start);
+  const deposited = Math.round(deps.reduce((a, d) => a + (d.amount || 0), 0) * 100) / 100;
+  const diff = Math.round((deposited - exp.total) * 100) / 100;
+  // A cent of rounding is not a discrepancy. Anything above it is, and gets investigated.
+  const matched = deps.length > 0 && Math.abs(diff) < 0.01;
+  return { store, win, expected: exp.total, missing: exp.missing, deps, deposited, diff,
+           matched, done: reconIsDone(store, win) };
+}
+
+// ── Reconcile: data loading ───────────────────────────────────────────────────────────────────
+
+// The deposit range is deliberately WIDER than the sales range: a week at the end of the period is
+// banked in the days after it, so a deposit paying for the last window is dated outside the window.
+// Ask for a week of slack on each side and let the attribution rule sort them.
+function reconWantedRange() {
+  const r = monthRange(activeMonth, activeYear);
+  return { start: String(r.from).slice(0, 10), end: String(r.to).slice(0, 10) };
+}
+
+async function loadRecon(nocache) {
+  const want = reconWantedRange();
+  const url = `${getProxyUrl()}?action=deposits`
+            + `&start=${encodeURIComponent(reconAddDays(want.start, -7))}`
+            + `&end=${encodeURIComponent(reconAddDays(want.end, 7))}`
+            + `&token=${encodeURIComponent(getToken())}${nocache ? '&nocache=1' : ''}`;
+  try {
+    const res  = await fetch(url);
+    const data = await res.json();
+    reconData = data;
+  } catch (e) {
+    console.warn('deposits fetch failed:', e.message);
+    reconData = { ok: false, error: e.message };
+  }
+}
+
+function reloadRecon() {
+  reconData    = null;
+  reconLoading = false;
+  renderReconcile(true);
+}
+
+function toggleReconHistory() {
+  reconShowHistory = !reconShowHistory;
+  renderReconcile();
+}
+
+// ── Reconcile: writes ─────────────────────────────────────────────────────────────────────────
+// Every write goes through the proxy's fail-closed guard, so an un-granted user is refused at the
+// server and the UI just reports it. gx-dev.js blocks these outright until writes are armed.
+
+async function reconPost(action, extra) {
+  const qs = Object.entries(extra || {})
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+  const url = `${getProxyUrl()}?action=${action}&token=${encodeURIComponent(getToken())}&${qs}`;
+  const res  = await fetch(url);
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'write refused');
+  return data;
+}
+
+async function setReconWeekStart(store, dow) {
+  try {
+    const d = await reconPost('set_recon_config', { store, week_start: dow });
+    reconData.config = d.config;
+    renderReconcile();
+  } catch (e) { alert("Couldn't save the week start — " + e.message); }
+}
+
+async function reconcileWeek(store, start) {
+  const win = { start, end: reconAddDays(start, 6) };
+  const row = reconBuildRow(store, win);
+  // Guard in the UI as well as the copy: reconciling a week whose sales are incomplete records a
+  // tick against a number that is still moving.
+  if (row.missing.length) { alert('That week is missing sales data for ' + row.missing.join(', ') + ' — load the period first.'); return; }
+  try {
+    const d = await reconPost('set_recon', {
+      store, start: win.start, end: win.end,
+      expected: row.expected, deposited: row.deposited, reconciled: 'true',
+    });
+    reconData.state = d.state;
+    renderReconcile();
+  } catch (e) { alert("Couldn't reconcile — " + e.message); }
+}
+
+async function unreconcileWeek(store, start) {
+  try {
+    const d = await reconPost('set_recon', { store, start, end: reconAddDays(start, 6), reconciled: 'false' });
+    reconData.state = d.state;
+    renderReconcile();
+  } catch (e) { alert("Couldn't reopen that week — " + e.message); }
+}
+
+// Nudge one deposit into the previous or next week window. This is the escape hatch for the two
+// cases the date rule cannot get right on its own: a late deposit, and the second half of a deposit
+// split across month end.
+async function reconMoveDeposit(store, depId, dir) {
+  const dep = ((reconData.deposits || {})[store] || []).find(d => d.id === depId);
+  if (!dep) return;
+  const cur = reconWindowForDeposit(store, dep);
+  try {
+    const d = await reconPost('set_recon_assign', { deposit_id: depId, window: reconAddDays(cur, dir * 7) });
+    reconData.assign = d.assign;
+    renderReconcile();
+  } catch (e) { alert("Couldn't move that deposit — " + e.message); }
+}
+
+// ── Reconcile: render ─────────────────────────────────────────────────────────────────────────
+
+function renderReconcile(nocache) {
+  const host = document.getElementById('main-content');
+
+  if (!reconData) {
+    if (!reconLoading) {
+      reconLoading = true;
+      host.innerHTML = `
+        <div class="sec-lbl">Deposit reconciliation</div>
+        <div class="card"><div class="empty-state"><span class="spinner-inline"></span>Loading deposits from QuickBooks…</div></div>`;
+      loadRecon(nocache).finally(() => {
+        reconLoading = false;
+        if (section === 'reconcile') renderReconcile();
+      });
+    }
+    return;
+  }
+
+  // Deposits come from GX Core and GX Core alone — Sales holds no QuickBooks token. A failure here
+  // is shown, never papered over: a Reconcile tab that renders sales with an empty deposit column
+  // reads as "nothing has been banked", which is the one wrong answer this tab must never give.
+  if (reconData.ok === false || reconData.error) {
+    host.innerHTML = `
+      <div class="sec-lbl">Deposit reconciliation</div>
+      <div class="card"><div class="empty-state">Couldn't load deposits — ${escHtml(reconData.error || 'unknown error')}
+        <div style="margin-top:6px;opacity:.7;font-size:12px">Deposits come from QuickBooks through GX Core. If this says the route is missing, GX Core hasn't shipped <code>qb_deposits</code> yet.</div>
+        <div style="margin-top:8px"><button class="pill-btn" onclick="reloadRecon()">Try again</button></div>
+      </div></div>`;
+    return;
+  }
+
+  if (Object.keys(allDailyData).length === 0) {
+    host.innerHTML = `
+      <div class="sec-lbl">Deposit reconciliation</div>
+      <div class="card"><div class="empty-state">No sales data loaded yet — hit “Load live data” first.</div></div>`;
+    return;
+  }
+
+  const want   = reconWantedRange();
+  const stores = getActiveStores();
+
+  // Build every store-week in the period, then split by state. A week is "open" until it is ticked
+  // off; reconciled weeks move to the history list and are hidden unless you ask for them.
+  const open = [], done = [];
+  for (const store of stores) {
+    for (const win of reconWindows(store, want.start, want.end)) {
+      const row = reconBuildRow(store, win);
+      (row.done ? done : open).push(row);
+    }
+  }
+  // Oldest first — the week you owe an answer on is the one at the top.
+  open.sort((a, b) => a.win.start.localeCompare(b.win.start) || a.store.localeCompare(b.store));
+  done.sort((a, b) => b.win.start.localeCompare(a.win.start) || a.store.localeCompare(b.store));
+
+  const readyCount = open.filter(r => r.matched && !r.missing.length).length;
+  const offCount   = open.filter(r => r.deps.length && !r.matched).length;
+
+  const unatt = reconData.unattributed || [];
+
+  host.innerHTML = `
+    <div class="sec-lbl">Deposit reconciliation</div>
+
+    <div class="card recon-summary">
+      <div class="recon-tally">
+        <span class="recon-chip recon-chip-ok">${readyCount} matched</span>
+        <span class="recon-chip recon-chip-off">${offCount} off</span>
+        <span class="recon-chip">${open.length - readyCount - offCount} awaiting deposit</span>
+      </div>
+      <div class="recon-actions">
+        <button class="pill-btn" onclick="reloadRecon()">Refresh</button>
+        <button class="pill-btn${reconShowHistory ? ' on' : ''}" onclick="toggleReconHistory()">
+          ${reconShowHistory ? 'Hide' : 'Show'} reconciled (${done.length})
+        </button>
+      </div>
+    </div>
+
+    ${unatt.length ? `
+    <div class="card recon-unatt">
+      <div class="recon-unatt-hd">${unatt.length} deposit${unatt.length === 1 ? '' : 's'} not attributed to a store</div>
+      <div class="recon-unatt-note">These carry a QuickBooks class that maps to no store. They are listed rather than dropped — money that disappears from a reconciliation screen is the failure this tab exists to prevent.</div>
+      ${unatt.map(d => `<div class="recon-unatt-row"><span>${escHtml(d.date)}</span><span>${escHtml(d.class || '(no class)')}</span><span>${reconFmtMoney(d.amount)}</span></div>`).join('')}
+    </div>` : ''}
+
+    ${renderReconConfig(stores)}
+
+    <div class="recon-grid">
+      ${open.length ? open.map(renderReconCard).join('')
+                    : `<div class="card"><div class="empty-state">Nothing open in this period.</div></div>`}
+    </div>
+
+    ${reconShowHistory ? `
+      <div class="sec-lbl" style="margin-top:18px">Reconciled</div>
+      <div class="recon-grid">
+        ${done.length ? done.map(renderReconCard).join('')
+                      : `<div class="card"><div class="empty-state">No weeks reconciled yet.</div></div>`}
+      </div>` : ''}
+  `;
+}
+
+// Per-store week-start setting. Lives on the tab rather than in a constant because the mapping was
+// not recorded anywhere findable, and because a store whose deposit day moves should be a dropdown,
+// not a deploy.
+function renderReconConfig(stores) {
+  return `
+    <details class="card recon-cfg">
+      <summary>Week boundaries — which day each store's deposit week starts</summary>
+      <div class="recon-cfg-note">A store's week runs 7 days from the day chosen here. Defaults to Tuesday for every store; set each one to match Shawn's actual deposit days.</div>
+      <div class="recon-cfg-rows">
+        ${stores.map(store => {
+          const ws = reconWeekStartFor(store);
+          const disp = (STORE_MAP.get(store) || {}).display || store;
+          return `<label class="recon-cfg-row">
+            <span>${escHtml(disp)}</span>
+            <select onchange="setReconWeekStart('${escHtml(store)}', Number(this.value))">
+              ${RECON_DOW_NAMES.map((n, i) =>
+                `<option value="${i}"${i === ws ? ' selected' : ''}>${n} – ${RECON_DOW_NAMES[(i + 6) % 7]}</option>`).join('')}
+            </select>
+          </label>`;
+        }).join('')}
+      </div>
+    </details>`;
+}
+
+// One store-week card. Four states, and they are deliberately distinguishable at a glance:
+//   incomplete — a day of sales is missing, so no verdict is offered at all
+//   awaiting   — sales are in, nothing banked against them yet
+//   off        — deposits exist and do not sum to the sales
+//   matched    — they agree to the cent, and the Reconcile button is live
+function renderReconCard(row) {
+  const disp = (STORE_MAP.get(row.store) || {}).display || row.store;
+  const ws   = reconWeekStartFor(row.store);
+  const state = row.missing.length ? 'incomplete'
+              : row.done           ? 'done'
+              : !row.deps.length   ? 'awaiting'
+              : row.matched        ? 'matched' : 'off';
+
+  const label = { incomplete: 'Incomplete', done: 'Reconciled', awaiting: 'Awaiting deposit',
+                  matched: 'Matches', off: 'Off' }[state];
+
+  const diffLine = row.deps.length && !row.matched
+    ? `<div class="recon-diff">${row.diff > 0 ? 'Over' : 'Short'} by ${reconFmtMoney(Math.abs(row.diff))}</div>`
+    : '';
+
+  return `
+    <div class="card recon-card recon-${state}">
+      <div class="recon-hd">
+        <div class="recon-store">${escHtml(disp)}</div>
+        <div class="recon-state">${label}</div>
+      </div>
+      <div class="recon-window">${reconFmtRange(row.win)} <span class="recon-ws">(${RECON_DOW_NAMES[ws]} week)</span></div>
+
+      <div class="recon-figs">
+        <div><span>Expected</span><strong>${reconFmtMoney(row.expected)}</strong></div>
+        <div><span>Deposited</span><strong>${row.deps.length ? reconFmtMoney(row.deposited) : '—'}</strong></div>
+      </div>
+      ${diffLine}
+
+      ${row.missing.length ? `
+        <div class="recon-missing">No sales data for ${row.missing.map(escHtml).join(', ')} — the expected figure is incomplete, so this week can't be reconciled yet.</div>` : ''}
+
+      ${row.deps.length ? `
+        <div class="recon-deps">
+          ${row.deps.map(d => `
+            <div class="recon-dep">
+              <span class="recon-dep-date">${escHtml(d.date)}</span>
+              <span class="recon-dep-amt">${reconFmtMoney(d.amount)}</span>
+              <span class="recon-dep-move">
+                <button title="This deposit pays for the previous week" onclick="reconMoveDeposit('${escHtml(row.store)}','${escHtml(d.id)}',-1)">←</button>
+                <button title="This deposit pays for the next week" onclick="reconMoveDeposit('${escHtml(row.store)}','${escHtml(d.id)}',1)">→</button>
+              </span>
+            </div>`).join('')}
+          ${row.deps.length > 1 ? `<div class="recon-dep-note">${row.deps.length} deposits this week</div>` : ''}
+        </div>` : ''}
+
+      <div class="recon-foot">
+        ${row.done
+          ? `<button class="pill-btn" onclick="unreconcileWeek('${escHtml(row.store)}','${row.win.start}')">Reopen</button>
+             <span class="recon-by">${escHtml(reconDoneBy(row))}</span>`
+          : `<button class="pill-btn recon-go" ${row.matched && !row.missing.length ? '' : 'disabled'}
+               onclick="reconcileWeek('${escHtml(row.store)}','${row.win.start}')">Reconcile</button>`}
+      </div>
+    </div>`;
+}
+
+function reconDoneBy(row) {
+  const rec = (reconData.state || {})[reconStateKey(row.store, row.win)];
+  if (!rec) return '';
+  const who = rec.by || 'someone';
+  return rec.at ? `${who} · ${String(rec.at).slice(0, 10)}` : who;
+}
+
+// Money on THIS tab keeps its cents. Everywhere else in the app fmtD rounds to whole dollars,
+// which is right for a dashboard and wrong here: the entire claim being made is "these two figures
+// are the same number", and a rounded pair renders $8,400 against $8,400 while the card says Off.
+// A reconciliation that cannot show you the discrepancy it just found is worse than no card at all.
+function reconFmtMoney(n) {
+  return '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function reconFmtRange(win) {
+  const f = (ds) => {
+    const p = ds.split('-').map(Number);
+    return new Date(Date.UTC(p[0], p[1] - 1, p[2]))
+      .toLocaleDateString([], { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  };
+  return `${f(win.start)} – ${f(win.end)}`;
 }
 
 // ── P&L statement ─────────────────────────────────────────────────────────────────────────────
