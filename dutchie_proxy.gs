@@ -1029,7 +1029,7 @@ function qbProfitAndLoss_(start, end, by) {
 function qbReportViaGXCore_(start, end, by) {
   const GXCORE_EXEC = 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec';
   const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
-  if (!secret) return null;   // no secret configured → skip straight to local
+  if (!secret) return null;   // no secret configured → caller throws; there is no local path any more
   const url = GXCORE_EXEC + '?action=qb_pnl&secret=' + encodeURIComponent(secret)
     + '&start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end)
     + '&by=' + encodeURIComponent(by || 'Month');
@@ -1037,7 +1037,7 @@ function qbReportViaGXCore_(start, end, by) {
     const resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
     let data = null; try { data = JSON.parse(resp.getContentText()); } catch (e) {}
     if (data && data.ok === true && data.report) return data.report;
-    if (data && data.ok === false) throw new Error(data.error || 'qb_pnl error');   // connected but errored → let caller fall back
+    if (data && data.ok === false) throw new Error(data.error || 'qb_pnl error');   // connected but errored → surface it; nothing to fall back TO
     Utilities.sleep(500);   // transient Drive-HTML miss → retry
   }
   throw new Error('qb_pnl unreachable after retries');

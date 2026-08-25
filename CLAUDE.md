@@ -99,7 +99,7 @@ every 🐞 filed from Sales silently lost its state snapshot while still returni
 half-reports until this landed. Verified live on the deployed `/exec`: `?action=libversion` →
 `{"ok":true,"gxcore":213}`, eight consecutive reads.
 
-**Two cautions attached to that re-pin, both still open:**
+**Two cautions were attached to that re-pin. Both are now DISCHARGED — 2026-08-24:**
 
 - **~~The admit check was NOT re-run~~ — RUN 2026-08-24, and it PASSES on the hand-typed path.**
   `authprobe&user=shawn` under v213 returns `role_for_user {"user":"shawn","role":"editor"}`, with
@@ -113,6 +113,10 @@ half-reports until this landed. Verified live on the deployed `/exec`: `?action=
   while the probe kept saying `editor`. **A real non-superadmin save under v213 is what actually settles
   it** — until one lands, read `write_guard_log` after Shawn's next expense-mapping save rather than
   assuming. Rollback is unchanged and one command: `guardmode&mode=log`.
+  *Re-run independently later the same evening, against deployment `@162`, by a second session that had
+  not seen this note: same answer — `role editor`, `has_roleForApp true`, `gxcore_version 213`, and the
+  same three v194-era admits in the log with nothing newer. Two runs agreeing does not upgrade the
+  hand-typed path into the token-derived one; it only rules out a flaky read.*
 - **~~`gxpin` itself was not read~~ — READ AND CLEAN 2026-08-24.** It returns
   `{"gxcore_version":213,"qb":{"secret_configured":true,"last_source":"gxcore@2026-08-24T23:32:08Z"}}`.
   So `GX_DEPLOY_SECRET` is set on this script and the connector that actually served the last uncached
