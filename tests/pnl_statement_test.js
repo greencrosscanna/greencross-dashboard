@@ -316,5 +316,87 @@ ok('row set is identical for one store',   labelsAt(['River']) === baseline);
 ok('row set is identical for two stores',  labelsAt(['River', 'Bend']) === baseline);
 SELECTED = STORE_NAMES.slice();
 
+// ── 13. The store-pill state machine ──────────────────────────────────────────────────────────
+// Sky's rule, in his words: clicking a store goes from "all" to just that store, clicking another
+// adds, clicking a lit one takes it away — and Corporate behaves identically even though it lives
+// in a separate flag, because it is a QuickBooks class and cannot join activeStoreSet.
+//
+// Run on the REAL handlers with the DOM calls stubbed. This is the part most likely to rot: it has
+// four interacting pieces (the set, the Corporate flag, the current tab, and the null-means-all
+// convention) and every failure looks like a UI quirk rather than an error.
+const pillCtx = { console, STORES, activeStoreSet: null, activeStore: 'All',
+                  pnlShowCorporate: true, section: 'pnl',
+                  buildDskStores() {}, render() {}, syncActiveStoreMirror() {} };
+vm.createContext(pillCtx);
+vm.runInContext([
+  grab(HTML, 'pnlResetToAll_',        'index.html'),
+  grab(HTML, 'pnlSelectionCleared_',  'index.html'),
+  grab(HTML, 'pnlSelectionComplete_', 'index.html'),
+  grab(HTML, 'dskToggleStore',        'index.html'),
+  grab(HTML, 'pnlToggleCorporate',    'index.html'),
+  grab(HTML, 'dskSelectAllStores',    'index.html'),
+].join('\n'), pillCtx);
+
+const ALL = '<all>';
+const sel = () => {
+  const set = pillCtx.activeStoreSet;
+  const stores = set === null ? ALL : [...set].sort().join(',') || '(none)';
+  return stores + (pillCtx.pnlShowCorporate ? ' +corp' : '');
+};
+const reset = (section) => {
+  pillCtx.activeStoreSet = null; pillCtx.pnlShowCorporate = true;
+  pillCtx.section = section || 'pnl';
+};
+
+reset();
+pillCtx.dskToggleStore('River');
+ok('store click from all isolates it, Corporate included', sel() === 'River');
+
+pillCtx.dskToggleStore('Bend');
+ok('a second store adds', sel() === 'Bend,River');
+
+pillCtx.dskToggleStore('River');
+ok('clicking a lit store removes it', sel() === 'Bend');
+
+pillCtx.dskToggleStore('Bend');
+ok('removing the last selection restores all AND Corporate', sel() === ALL + ' +corp');
+
+reset();
+pillCtx.pnlToggleCorporate();
+ok('Corporate click from all isolates Corporate alone', sel() === '(none) +corp');
+
+pillCtx.dskToggleStore('River');
+ok('a store adds alongside Corporate', sel() === 'River +corp');
+
+pillCtx.pnlToggleCorporate();
+ok('Corporate can be removed like any pill', sel() === 'River');
+
+pillCtx.pnlToggleCorporate();
+ok('Corporate can be added back', sel() === 'River +corp');
+
+// Every store selected but Corporate off is NOT "all" on the P&L.
+reset();
+pillCtx.dskToggleStore('River');
+for (const n of STORE_NAMES.filter(n => n !== 'River')) pillCtx.dskToggleStore(n);
+ok('six stores without Corporate is not yet all', sel() !== ALL + ' +corp' && sel() !== ALL);
+pillCtx.pnlToggleCorporate();
+ok('...and adding Corporate completes it', sel() === ALL + ' +corp');
+
+// Off the P&L there is no Corporate pill, so the store set alone decides completeness.
+reset('income');
+pillCtx.dskToggleStore('River');
+for (const n of STORE_NAMES.filter(n => n !== 'River')) pillCtx.dskToggleStore(n);
+ok('off the P&L, all six stores collapses back to all', pillCtx.activeStoreSet === null);
+
+reset('income');
+pillCtx.dskToggleStore('River');
+pillCtx.dskToggleStore('River');
+ok('off the P&L, removing the last store restores all', pillCtx.activeStoreSet === null);
+
+reset();
+pillCtx.pnlToggleCorporate();
+pillCtx.dskSelectAllStores();
+ok('the All pill restores every class', sel() === ALL + ' +corp');
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
