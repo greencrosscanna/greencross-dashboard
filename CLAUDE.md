@@ -18,7 +18,7 @@ app key in GX Core is **`sales`**.
 | version | the **`APP_VERSION` constant** in `index.html` (no `?v=` cache-buster — there's no external `.js`) |
 | run | `python3 serve.py` → <http://localhost:3000> |
 | ship | commit → push (Pages) → `./deploy.sh` records the release to `version_history` |
-| tests | `tests/*_test.js` — 9 suites, run by the **pre-push hook** via `gx-preflight.sh`; a failure blocks the push. Also verify live with the `gxpin` / `authprobe` routes below |
+| tests | `tests/*_test.js` — 10 suites, run by the **pre-push hook** via `gx-preflight.sh`; a failure blocks the push. Also verify live with the `gxpin` / `authprobe` routes below |
 
 The dev server talks to the **live** backend; `gx-dev.js` blocks writes until armed — which matters more
 here than elsewhere, since this app's writes now run through a fail-closed auth guard. `gx-preflight.sh`
@@ -44,7 +44,7 @@ poll), `qb_deposits_shape`.
 **Two of the nine are wrappers, and they SKIP — not fail — when `greencross-command-center` is not a
 sibling checkout.** `cross_app_contract` (the Leaderboard → Sales goal payload) and `store_palette_drift`
 (this app's hardcoded store palette against the hub's) both live canonically in the hub, because they span
-repos and neither side owns them. On a lone clone you get 7 suites, not 9, and the output says `SKIP` —
+repos and neither side owns them. On a lone clone you get 8 suites, not 10, and the output says `SKIP` —
 read it, don't assume green means covered.
 
 *Corrected 2026-08-25: this row previously read "no automated suite — verify with the `gxpin` /
