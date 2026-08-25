@@ -98,18 +98,30 @@ half-reports until this landed. Verified live on the deployed `/exec`: `?action=
   blocked by the sandbox during the re-pin. **Run it before trusting writes:** `authprobe&user=shawn`
   should return `role editor`, and a real non-superadmin save is what actually settles it. Rollback if not:
   `guardmode&mode=log`.
-- **`gxpin` itself was not read**, only `libversion`. Both call `GXCore.libVersion()`, so the pin is
-  confirmed — but `gxpin` also reports `qb.secret_configured` and `qb.last_source`, and those remain
-  unchecked. A `Forbidden` there is the finding that `GX_DEPLOY_SECRET` is unset or stale, which silently
-  drops `qbReportViaGXCore_` back to the legacy local QuickBooks token.
+- **~~`gxpin` itself was not read~~ — READ AND CLEAN 2026-08-24.** It returns
+  `{"gxcore_version":213,"qb":{"secret_configured":true,"last_source":"gxcore@2026-08-24T23:32:08Z"}}`.
+  So `GX_DEPLOY_SECRET` is set on this script and the connector that actually served the last uncached
+  Expenses load was **GX Core, not the legacy local QuickBooks token** — the silent-fallback hazard this
+  bullet was raised about is not present. Re-check after any deploy that touches script properties; a
+  `Forbidden` here, or a `last_source` of `local@…`, is the finding.
 
-**`gxengine.sh` targets the WRONG deployment in this repo — do not use it here.** It picks the highest
-`@version` among non-HEAD deployments, and this script has a stray `AKfycbxDmCB_…@159` that outranks the
-one every caller actually uses (`AKfycbzju5He…`, hardcoded as `DEFAULT_PROXY` in `index.html`). Running
-`./gxengine.sh --deploy` would push the code to HEAD and then redeploy the stray, leaving the live `/exec`
-serving the old snapshot while reporting success. Re-pin by hand until that is fixed:
-`clasp push --force` then `clasp update-deployment AKfycbzju5He…`. `gxengine.sh` is synced from gx-theme,
-so the fix belongs to **core-admin**, not here.
+**`gxengine.sh` — FIXED 2026-08-24, safe to use again.** It used to pick the highest `@version` among
+non-HEAD deployments, and this script has a stray `AKfycbxDmCB_…@159` that outranked the one every caller
+actually uses (`AKfycbzju5He…`, hardcoded as `DEFAULT_PROXY` in `index.html`) — so `--deploy` would push
+to HEAD, redeploy the stray, and report success while the live `/exec` kept serving the old snapshot.
+core-admin fixed it in gx-theme; `./gx-sync.sh` pulled it here. It now matches deployment ids against the
+ones this repo's own source references, and **stops** rather than guessing when it cannot tell
+(`GX_DEPLOY_ID=` overrides). Verified by running it: it resolves `AKfycbzju5He…@161`, *"referenced by this
+repo's source"*. The by-hand path still works if you want it: `clasp push --force` then
+`clasp update-deployment AKfycbzju5He…`.
+
+**`deploy.sh` reads `git show HEAD:index.html`**, not the working tree — same 2026-08-24 sync. It used to
+grep the version off disk while pairing it with a sha from `git rev-parse HEAD`, so a mid-edit tree could
+record a version and a sha that never coexisted. `GX_VERSION=vX.YYY` records an exact version;
+`GX_ALLOW_DIRTY=1` proceeds when HEAD and your tree disagree, which otherwise stops with both printed.
+
+> Both scripts are synced from gx-theme. After **every** `./gx-sync.sh`, `chmod 755` them before
+> committing — Dropbox strips the exec bit back to 0600 on its next sweep.
 
 **`ATM_MACHINE_MAP` (`dutchie_proxy.gs`) must NOT be switched to `GXCore.resolveStore()`.** core-admin's
 re-pin notes carry a blanket line saying to use `resolveStore()` if you fold store names yourself; it does

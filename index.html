@@ -147,10 +147,10 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .mbb-period-lbl{font-size:14px;font-weight:600;color:var(--text);white-space:nowrap}
 .mbb-stores-lbl{font-size:14px;font-weight:500;color:var(--dim);white-space:nowrap}
 .mbb-arrow{font-size:9px;color:var(--muted)}
-.mbb-nav-row{background:rgba(10,14,13,.97);border-top:.5px solid var(--border);display:grid;grid-template-columns:repeat(4,1fr);padding:6px 8px 0;padding-bottom:calc(0px + env(safe-area-inset-bottom));height:calc(68px + env(safe-area-inset-bottom))}
+.mbb-nav-row{background:rgba(10,14,13,.97);border-top:.5px solid var(--border);display:grid;grid-template-columns:repeat(5,1fr);padding:6px 8px 0;padding-bottom:calc(0px + env(safe-area-inset-bottom));height:calc(68px + env(safe-area-inset-bottom))}
 .mbb-nav-btn{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:5px;padding-top:6px;border:none;background:transparent;cursor:pointer;-webkit-tap-highlight-color:transparent;color:var(--muted)}
 .mbb-nav-btn.on{color:var(--green)}
-.mbb-nav-lbl{font-size:10px;font-weight:500}
+.mbb-nav-lbl{font-size:9.5px;font-weight:500;letter-spacing:-.01em;white-space:nowrap}
 .mbb-nav-btn.on .mbb-nav-lbl{font-weight:600}
 /* Bottom-sheet trays */
 .mob-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:300;backdrop-filter:blur(2px)}
@@ -236,10 +236,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .pnl-tbl tbody tr:hover td:not(.pnl-acct){background:rgba(255,255,255,.03)}
 .pnl-tbl tbody tr:hover .pnl-acct{background:var(--card-2)}
 .pnl-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.pnl-seg{display:inline-flex;border:.5px solid var(--border);border-radius:12px;overflow:hidden}
-.pnl-seg button{font-size:11px;background:none;border:none;color:var(--muted);cursor:pointer;padding:4px 11px}
-.pnl-seg button.on{background:var(--green-soft);color:var(--green);font-weight:600}
-.pnl-seg button:not(.on):hover{color:var(--text)}
+.pnl-filter{font-size:10px;color:var(--green);margin-top:5px}
 .pnl-foot{padding:9px 14px;font-size:10px;color:var(--muted);border-top:.5px solid var(--border);
   display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
 
@@ -679,6 +676,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   <div class="gx-topnav-tabs" id="dsk-nav">
     <button class="gx-topnav-tab is-active" data-s="income" onclick="setSection('income')">Income</button>
     <button class="gx-topnav-tab" data-s="expenses" onclick="setSection('expenses')">Expenses</button>
+    <button class="gx-topnav-tab" data-s="pnl" onclick="setSection('pnl')">P&amp;L</button>
     <button class="gx-topnav-tab" data-s="inventory" onclick="setSection('inventory')">Inventory</button>
     <button class="gx-topnav-tab" data-s="revenue" id="revenue-nav-btn" style="display:none" onclick="setSection('revenue')">Revenue</button>
   </div>
@@ -739,6 +737,10 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
     <button class="mbb-nav-btn" data-s="expenses" onclick="mobSetSection('expenses')">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/></svg>
       <span class="mbb-nav-lbl">Expenses</span>
+    </button>
+    <button class="mbb-nav-btn" data-s="pnl" onclick="mobSetSection('pnl')">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/></svg>
+      <span class="mbb-nav-lbl">P&amp;L</span>
     </button>
     <button class="mbb-nav-btn" data-s="inventory" onclick="mobSetSection('inventory')">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4"/><path d="M12 11v10"/></svg>
@@ -926,7 +928,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.502';
+const APP_VERSION = 'v2.503';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -2017,6 +2019,7 @@ function setSection(s) {
   document.querySelectorAll('#dsk-nav .gx-topnav-tab').forEach(t => t.classList.toggle('is-active', t.dataset.s === s));
   buildTimeNav();
   if (s === 'revenue' && !revenueDetail) loadRevenueDetail();
+  if (s === 'pnl') pnlSyncRange();   // period may have moved since this tab was last open
   render();
 }
 
@@ -2666,6 +2669,7 @@ function render() {
   if (section === 'expenses')  { renderExpenses();  updateMobHero(); return; }
   if (section === 'inventory') { renderInventory(); updateMobHero(); return; }
   if (section === 'revenue')   { renderRevenue();   updateMobHero(); return; }
+  if (section === 'pnl')       { renderPnl();       updateMobHero(); return; }
   if (Object.keys(liveData).length === 0) {
     _incomeMounted = false;
     document.getElementById('main-content').innerHTML =
@@ -3841,7 +3845,6 @@ async function reloadExpenses() {
 
 function renderExpenses() {
   if (expSection === 'mapping') { renderExpenseMapping(); return; }
-  if (expSection === 'pnl')     { renderPnl();            return; }
 
   if (!expenseData) {
     if (!expensesLoading) {
@@ -3931,12 +3934,9 @@ function renderExpenses() {
 
     <div class="sec-lbl" style="display:flex;align-items:center;justify-content:space-between">
       <span>By category</span>
-      <span class="pnl-bar">
-        <button class="exp-map-btn" onclick="setExpSection('pnl')">📄 P&amp;L</button>
-        <button class="exp-map-btn" onclick="setExpSection('mapping')">
-          ⚙ Mapping${expenseData.unmappedCount > 0 ? ` <span class="exp-unmap-badge">${expenseData.unmappedCount}</span>` : ''}
-        </button>
-      </span>
+      <button class="exp-map-btn" onclick="setExpSection('mapping')">
+        ⚙ Mapping${expenseData.unmappedCount > 0 ? ` <span class="exp-unmap-badge">${expenseData.unmappedCount}</span>` : ''}
+      </button>
     </div>
     <div class="card">
       ${cats.map(c => {
@@ -4023,15 +4023,56 @@ function setExpSection(s) {
 // and the day someone reconciles the two it must be obvious which is which.
 let pnlData    = null;
 let pnlLoading = false;
-let pnlBy      = 'Classes';   // Classes = one column per store, which is how QB has them tagged
+
+// QuickBooks tags every transaction with a CLASS, and the classes ARE the stores — so a P&L
+// summarized by class is the per-store P&L. Measured against the live company file, not assumed:
+// `summarize_column_by=Class` is rejected by QuickBooks ("Invalid Enumeration"); `Classes` is the
+// accepted value, and it returns exactly these seven columns plus TOTAL.
+//
+// Written as an EXPLICIT map rather than a fold-and-match rule ("strip a trailing ST/DR/RD, then
+// compare"). A rule like that looks tidy and fails silently: this repo already lost four ATM
+// machines to one, because in a lookup a miss is not a wrong bucket, it is a row that VANISHES.
+// An explicit map is checkable, and pnl_statement_test.js checks it — every store resolves, and
+// nothing resolves to a class the live report doesn't have.
+//
+// CORPORATE is deliberately absent. It is a real class carrying real money (rent, interest, the
+// corporate payroll) but it is not a store, so no store pill can select it.
+const PNL_CLASS_BY_STORE = Object.freeze({
+  'Bend':        'CENTURY DR',
+  'Center':      'CENTER ST',
+  'Commercial':  'COMMERCIAL ST',
+  'Hillsboro':   'BASELINE ST',
+  'Portland Rd': 'PORTLAND RD',
+  'River':       'RIVER RD',
+});
+const PNL_NON_STORE_CLASSES = Object.freeze(['CORPORATE']);
 // QB's own PDF omits accounts with no activity in the period; the API returns them regardless, which
 // is how a dozen '(deleted)' rows end up padding the statement. Default to QB's behavior, but keep it
 // a TOGGLE rather than a filter — suppressing rows on a financial statement should be a visible
 // choice, not something the renderer decided quietly. Totals are QB's and never move either way.
 let pnlHideEmpty = true;
 
+// The period bar drives the statement's date range, same as every other tab. monthRange gives the
+// current selection; `to` can come back as a full ISO timestamp, and the P&L takes dates as TEXT.
+function pnlWantedRange() {
+  const r = monthRange(activeMonth, activeYear);
+  return { start: String(r.from).slice(0, 10), end: String(r.to).slice(0, 10) };
+}
+
+// Drop cached data whose range no longer matches the period bar. Called on entering the tab and
+// before each render, so it self-heals no matter which setter moved the period.
+function pnlSyncRange() {
+  const want = pnlWantedRange();
+  if (pnlData && !pnlData.error && (pnlData.start !== want.start || pnlData.end !== want.end)) {
+    pnlData    = null;
+    pnlLoading = false;
+  }
+}
+
 async function loadPnl(nocache) {
-  const url = `${getProxyUrl()}?action=pnl&by=${encodeURIComponent(pnlBy)}`
+  const want = pnlWantedRange();
+  const url = `${getProxyUrl()}?action=pnl&by=Classes`
+            + `&start=${encodeURIComponent(want.start)}&end=${encodeURIComponent(want.end)}`
             + `&token=${encodeURIComponent(getToken())}${nocache ? '&nocache=1' : ''}`;
   try {
     const res  = await fetch(url);
@@ -4041,14 +4082,6 @@ async function loadPnl(nocache) {
     console.warn('P&L fetch failed:', e.message);
     pnlData = { error: e.message };
   }
-}
-
-function setPnlBy(by) {
-  if (by === pnlBy) return;
-  pnlBy      = by;
-  pnlData    = null;
-  pnlLoading = false;
-  renderPnl();
 }
 
 function togglePnlEmpty() {
@@ -4111,46 +4144,66 @@ function pnlDropEmptyRows(rows) {
   return out;
 }
 
+// Which columns to show, from the store pills. Returns the indexes into pnlData.columns.
+//
+// The TOTAL column is QuickBooks' own total across ALL classes. It is shown ONLY when every class
+// is on screen, because the moment a store is filtered out that total stops describing what the
+// reader is looking at — and a "Total" that silently includes columns you filtered away is worse
+// than no total at all. A filtered view says so in the header instead. No derived total is invented
+// to replace it: every figure on this statement comes from QuickBooks.
+function pnlVisibleCols(columns) {
+  const wanted = new Set(getActiveStores().map(n => PNL_CLASS_BY_STORE[n]).filter(Boolean));
+  const allStores = wanted.size === Object.keys(PNL_CLASS_BY_STORE).length;
+  const keep = [];
+  columns.forEach((title, i) => {
+    const t = String(title || '').trim().toUpperCase();
+    if (wanted.has(t)) { keep.push(i); return; }
+    // Non-store classes and QB's TOTAL ride along only on the unfiltered view.
+    if (allStores && (PNL_NON_STORE_CLASSES.indexOf(t) !== -1 || t === 'TOTAL')) keep.push(i);
+  });
+  return { keep, allStores };
+}
+
 function renderPnl(nocache) {
   const host = document.getElementById('main-content');
+  pnlSyncRange();
 
   if (!pnlData) {
     if (!pnlLoading) {
       pnlLoading = true;
       host.innerHTML = `
-        <div class="sec-lbl" style="display:flex;align-items:center;justify-content:space-between">
-          <span>Profit &amp; Loss</span>
-          <button class="exp-map-btn" onclick="setExpSection('main')">← Back to Expenses</button>
-        </div>
+        <div class="sec-lbl">Profit &amp; Loss</div>
         <div class="card"><div class="empty-state"><span class="spinner-inline"></span>Loading P&amp;L from QuickBooks…</div></div>`;
       loadPnl(nocache).finally(() => {
         pnlLoading = false;
-        if (section === 'expenses' && expSection === 'pnl') renderPnl();
+        if (section === 'pnl') renderPnl();
       });
     }
     return;
   }
 
-  const backBtn = `<button class="exp-map-btn" onclick="setExpSection('main')">← Back to Expenses</button>`;
-
   if (pnlData.error) {
     host.innerHTML = `
-      <div class="sec-lbl" style="display:flex;align-items:center;justify-content:space-between">
-        <span>Profit &amp; Loss</span>${backBtn}
-      </div>
+      <div class="sec-lbl">Profit &amp; Loss</div>
       <div class="card"><div class="empty-state">Couldn't load the P&amp;L — ${escHtml(pnlData.error)}
         <div style="margin-top:8px"><button class="pill-btn" onclick="reloadPnl()">Try again</button></div>
       </div></div>`;
     return;
   }
 
-  const cols = pnlData.columns || [];
-  const allRows = pnlData.rows || [];
-  const rows = pnlHideEmpty ? pnlDropEmptyRows(allRows) : allRows;
-  const hiddenCount = allRows.length - rows.length;
+  const allCols = pnlData.columns || [];
+  const { keep, allStores } = pnlVisibleCols(allCols);
+  const cols = keep.map(i => allCols[i]);
 
-  const seg = (val, label) =>
-    `<button class="${pnlBy === val ? 'on' : ''}" onclick="setPnlBy('${val}')">${label}</button>`;
+  const allRows = pnlData.rows || [];
+  // Empties are judged on the VISIBLE columns only — an account with activity solely at a store you
+  // filtered out is empty as far as this view is concerned, exactly as it would be in a QB PDF run
+  // for that class alone.
+  const viewRows = allRows.map(r => ({ ...r, values: keep.map(i => (r.values || [])[i]) }));
+  const rows = pnlHideEmpty ? pnlDropEmptyRows(viewRows) : viewRows;
+  const hiddenCount = viewRows.length - rows.length;
+  const storeLabel = allStores ? '' : getActiveStores()
+    .map(n => (STORE_MAP.get(n) || {}).display || n).join(', ');
 
   const body = rows.map(r => {
     const kindCls = `pnl-r-${r.kind}`;
@@ -4176,15 +4229,11 @@ function renderPnl(nocache) {
   destroyCharts();
   host.innerHTML = `
     <div class="sec-lbl pnl-bar" style="justify-content:space-between">
-      <span class="pnl-bar">
-        Profit &amp; Loss
-        <span class="pnl-seg">${seg('Classes', 'By store')}${seg('Month', 'By month')}${seg('Total', 'Total')}</span>
-      </span>
+      <span class="pnl-bar">Profit &amp; Loss${storeLabel ? ` <span style="text-transform:none;letter-spacing:0;color:var(--green)">· ${escHtml(storeLabel)}</span>` : ''}</span>
       <span class="pnl-bar">
         <button class="exp-map-btn" onclick="togglePnlEmpty()" title="QuickBooks' PDF omits accounts with no activity">${pnlHideEmpty ? `👁 Show empty${hiddenCount ? ` (${hiddenCount})` : ''}` : '👁 Hide empty'}</button>
         <button class="exp-map-btn" onclick="printPnl()">🖨 Print / PDF</button>
         <button class="exp-map-btn" onclick="reloadPnl()">↻ Refresh</button>
-        ${backBtn}
       </span>
     </div>
 
@@ -4193,7 +4242,8 @@ function renderPnl(nocache) {
         <div class="pnl-co">Green Cross</div>
         <div class="pnl-title">Profit and Loss</div>
         <div class="pnl-range">${escHtml(pnlRangeLabel(pnlData))}</div>
-        <div class="pnl-basis">${escHtml(pnlData.basis || '')} basis${pnlBy === 'Classes' ? ' · by class' : ''}</div>
+        <div class="pnl-basis">${escHtml(pnlData.basis || '')} basis · by class</div>
+        ${storeLabel ? `<div class="pnl-filter">Filtered to ${escHtml(storeLabel)} — QuickBooks' TOTAL column covers every class and is hidden on a filtered view</div>` : ''}
       </div>
       <div class="pnl-scroll">
         <table class="pnl-tbl">

@@ -16,7 +16,14 @@
  *      removes a row that was carrying a number. Hiding must be cosmetic. If a single total moves
  *      between the two toggle states, the toggle is falsifying the statement.
  *
- * Both are checked by running the REAL shipped functions — pulled out of dutchie_proxy.gs and
+ *   3. The store->QB-class map drops a store. The P&L's columns are QuickBooks CLASSES, and the
+ *      classes are the stores; the store filter pills pick columns through PNL_CLASS_BY_STORE. A
+ *      miss there is not a wrong bucket, it is a store that VANISHES from the statement with no
+ *      error anywhere — the same failure that cost this repo four ATM machines when a lookup map
+ *      was swapped for a fold-and-match rule. So every store must resolve, to a distinct class the
+ *      live report actually has.
+ *
+ * These are checked by running the REAL shipped functions — pulled out of dutchie_proxy.gs and
  * index.html here rather than restated — over a fixture whose shape is copied from a live QuickBooks
  * ProfitAndLoss response (summarize_column_by=Classes). The figures are invented; the STRUCTURE is
  * not, and structure is what these functions are responsible for.
@@ -54,6 +61,24 @@ vm.runInContext(
 // `const` at the top of a vm script does not become a property of the context object the way a
 // function declaration does — read the binding out by evaluating its name.
 const SUMMARIZE_BY = vm.runInContext('PNL_SUMMARIZE_BY_', ctx);
+
+// The store->class map and the column filter, lifted from the shipped page.
+const MAP_SRC    = /const PNL_CLASS_BY_STORE = Object\.freeze\(\{[\s\S]*?\}\);/.exec(HTML);
+const NONSTORE   = /const PNL_NON_STORE_CLASSES = Object\.freeze\(\[[^\]]*\]\);/.exec(HTML);
+const STORES_SRC = /const STORES = \[[\s\S]*?\n\];/.exec(HTML);
+if (!MAP_SRC || !NONSTORE || !STORES_SRC) {
+  console.log('PNL_CLASS_BY_STORE / PNL_NON_STORE_CLASSES / STORES missing from index.html');
+  console.log('\n0 passed, 1 failed'); process.exit(1);
+}
+vm.runInContext(MAP_SRC[0] + '\n' + NONSTORE[0] + '\n' + STORES_SRC[0] + '\n' +
+  grab(HTML, 'pnlVisibleCols', 'index.html') + '\n', ctx);
+const CLASS_BY_STORE = vm.runInContext('PNL_CLASS_BY_STORE', ctx);
+const STORES         = vm.runInContext('STORES', ctx);
+const STORE_NAMES    = STORES.map(s => s.name);
+// pnlVisibleCols reads getActiveStores() off the global; install a settable stub.
+let SELECTED = STORE_NAMES.slice();
+vm.runInContext('function getActiveStores(){ return __SEL__; }', ctx);
+Object.defineProperty(ctx, '__SEL__', { get: () => SELECTED });
 
 // ── Fixture ───────────────────────────────────────────────────────────────────────────────────
 // Shape copied from a live ?action=qb_pnl&by=Classes response: two money classes plus TOTAL; an
@@ -199,6 +224,60 @@ for (const bad of ['constructor', '__proto__', 'toString', 'Classes ', 'classes'
 for (const good of ['Classes', 'Month', 'Total']) {
   ok('accepts by=' + good, SUMMARIZE_BY.indexOf(good) !== -1);
 }
+
+// ── 9. The store -> QB class map ──────────────────────────────────────────────────────────────
+// The column titles a live `by=Classes` report returns for this company file. If QuickBooks ever
+// renames or adds a class this list goes stale — which is the point: the test fails loudly rather
+// than the store quietly dropping off the statement.
+const LIVE_CLASSES = ['BASELINE ST', 'CENTER ST', 'CENTURY DR', 'COMMERCIAL ST',
+                      'CORPORATE', 'PORTLAND RD', 'RIVER RD'];
+
+ok('every store has a class', STORE_NAMES.every(n => !!CLASS_BY_STORE[n]),
+   'unmapped: ' + STORE_NAMES.filter(n => !CLASS_BY_STORE[n]).join(', '));
+ok('every mapped class exists in the live report',
+   STORE_NAMES.every(n => LIVE_CLASSES.indexOf(CLASS_BY_STORE[n]) !== -1),
+   'not in report: ' + STORE_NAMES.filter(n => LIVE_CLASSES.indexOf(CLASS_BY_STORE[n]) === -1)
+     .map(n => n + '->' + CLASS_BY_STORE[n]).join(', '));
+ok('no two stores share a class',
+   new Set(STORE_NAMES.map(n => CLASS_BY_STORE[n])).size === STORE_NAMES.length);
+ok('the map has no entries for stores that do not exist',
+   Object.keys(CLASS_BY_STORE).every(k => STORE_NAMES.indexOf(k) !== -1),
+   'stray: ' + Object.keys(CLASS_BY_STORE).filter(k => STORE_NAMES.indexOf(k) === -1).join(', '));
+ok('CORPORATE belongs to no store',
+   STORE_NAMES.every(n => CLASS_BY_STORE[n] !== 'CORPORATE'));
+
+// ── 10. Column filtering follows the store pills ──────────────────────────────────────────────
+const COLUMNS = LIVE_CLASSES.concat(['TOTAL']);
+
+SELECTED = STORE_NAMES.slice();
+let v = ctx.pnlVisibleCols(COLUMNS);
+ok('all stores selected shows every column', v.keep.length === COLUMNS.length && v.allStores,
+   'kept ' + v.keep.length + ' of ' + COLUMNS.length);
+
+SELECTED = ['River'];
+v = ctx.pnlVisibleCols(COLUMNS);
+ok('one store shows exactly its own column',
+   v.keep.length === 1 && COLUMNS[v.keep[0]] === 'RIVER RD',
+   'kept ' + v.keep.map(i => COLUMNS[i]).join(', '));
+ok("QB's TOTAL is hidden when filtered", !v.keep.some(i => COLUMNS[i] === 'TOTAL'));
+ok('CORPORATE is hidden when filtered',  !v.keep.some(i => COLUMNS[i] === 'CORPORATE'));
+
+SELECTED = ['River', 'Bend'];
+v = ctx.pnlVisibleCols(COLUMNS);
+ok('a subset shows exactly that subset',
+   v.keep.length === 2 &&
+   v.keep.map(i => COLUMNS[i]).sort().join('|') === ['CENTURY DR', 'RIVER RD'].sort().join('|'),
+   v.keep.map(i => COLUMNS[i]).join(', '));
+
+// Every store, one at a time, must resolve to a column — the drop-to-null failure mode, checked
+// by execution rather than by reading the map.
+for (const n of STORE_NAMES) {
+  SELECTED = [n];
+  const r = ctx.pnlVisibleCols(COLUMNS);
+  ok('store ' + n + ' resolves to a column', r.keep.length === 1,
+     'resolved to ' + r.keep.length + ' columns');
+}
+SELECTED = STORE_NAMES.slice();
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
