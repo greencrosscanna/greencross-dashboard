@@ -52,10 +52,20 @@ curl -sL -G "<sales /exec>" --data-urlencode action=gxpin --data-urlencode "secr
 ```
 
 `gxpin` returns `GXCore.libVersion()` from the live deployment plus `qb.last_source`, which names the
-connector that actually served the last uncached Expenses load (`gxcore@<iso>` vs `local@<iso>`). A
-`Forbidden` here is a finding, not a route bug: it means `GX_DEPLOY_SECRET` is unset or stale on this
-script, and that same property gates `qbReportViaGXCore_` — which fails *silently* to the legacy local
-QuickBooks token, the path that must not run while Core also refreshes.
+connector that served the last uncached Expenses load. A `Forbidden` here is a finding, not a route bug:
+it means `GX_DEPLOY_SECRET` is unset or stale on this script, and that same property gates
+`qbReportViaGXCore_`.
+
+**The legacy local QuickBooks path was REMOVED 2026-08-24** (`qbReportLocal_`, `getQBAccessToken_`,
+`exchangeQBCode`, the `qbaccounts` route and the two editor debug fns — ~180 lines). Sales no longer reads
+`QB_REFRESH_TOKEN`/`QB_CLIENT_*`/`QB_REALM_ID` at all; the only `QB_` property left is the `QB_LAST_SOURCE`
+diagnostic. **GX Core is now the sole QuickBooks token owner by construction, not by convention** — the
+invalid_grant desync is no longer a thing that can happen here, so don't re-add a "temporary" local
+fallback. `qbProfitAndLoss_` now THROWS when Core is unreachable instead of quietly serving numbers from
+somewhere else; a broken Expenses tab is the intended failure, and it is strictly better than the silent
+one that hid the misnamed-secret regression for an unknown stretch. `last_source` can now only read
+`gxcore@…`; the field stays because it is what made that regression visible, and `null` (nothing has
+missed cache yet) is still meaningfully different from a stale timestamp.
 
 **The write guard is LIVE BUT DARK — don't mistake it for enforcing.** All four writes
 (`save_expense_mapping` GET+POST, `set_otherrev`, `set_revenue`, `clear_atm_cache`) call `writeGuard_`,
@@ -91,19 +101,25 @@ half-reports until this landed. Verified live on the deployed `/exec`: `?action=
 
 **Two cautions attached to that re-pin, both still open:**
 
-- **The admit check was NOT re-run.** Nine Core versions were crossed and `writeGuard_` fails CLOSED, so a
-  Core-side change to `roleForApp` would look exactly like an outage. Under v204 the evidence was
-  `authprobe&user=shawn` → `role editor` (hand-typed path) plus a real Shawn expense-mapping save under
-  v194. Neither has been repeated under v213 — `authprobe` is secret-gated and the secret-bearing curl was
-  blocked by the sandbox during the re-pin. **Run it before trusting writes:** `authprobe&user=shawn`
-  should return `role editor`, and a real non-superadmin save is what actually settles it. Rollback if not:
-  `guardmode&mode=log`.
+- **~~The admit check was NOT re-run~~ — RUN 2026-08-24, and it PASSES on the hand-typed path.**
+  `authprobe&user=shawn` under v213 returns `role_for_user {"user":"shawn","role":"editor"}`, with
+  `has_roleForApp true`, `gxcore_version 213` and `write_guard_mode enforce`. So the nine-version crossing
+  did not break `roleForApp`, which was the fear — `writeGuard_` fails CLOSED, so a Core-side break would
+  have looked exactly like an outage.
+  **This is the weaker of the two evidences, and the stronger one is still missing.** The guard log's three
+  admits (`shawn` / `editor` / `err null`) are stamped `2026-08-20T21:08` and `2026-08-22T14:07`–`14:08` —
+  all under v194/v204, none since the v213 re-pin on 2026-08-23. A hand-typed `"shawn"` exercises the grant
+  lookup but NOT the session-token → `auth.user` → `roleForApp` chain; a mismatch there would refuse him
+  while the probe kept saying `editor`. **A real non-superadmin save under v213 is what actually settles
+  it** — until one lands, read `write_guard_log` after Shawn's next expense-mapping save rather than
+  assuming. Rollback is unchanged and one command: `guardmode&mode=log`.
 - **~~`gxpin` itself was not read~~ — READ AND CLEAN 2026-08-24.** It returns
   `{"gxcore_version":213,"qb":{"secret_configured":true,"last_source":"gxcore@2026-08-24T23:32:08Z"}}`.
   So `GX_DEPLOY_SECRET` is set on this script and the connector that actually served the last uncached
   Expenses load was **GX Core, not the legacy local QuickBooks token** — the silent-fallback hazard this
-  bullet was raised about is not present. Re-check after any deploy that touches script properties; a
-  `Forbidden` here, or a `last_source` of `local@…`, is the finding.
+  bullet was raised about is not present. That reading, holding across four days and the v153 → v213
+  re-pin, is what licensed **deleting** the local path outright on 2026-08-24 (see above). Re-check after
+  any deploy that touches script properties; a `Forbidden` here is the finding.
 
 **`gxengine.sh` — FIXED 2026-08-24, safe to use again.** It used to pick the highest `@version` among
 non-HEAD deployments, and this script has a stray `AKfycbxDmCB_…@159` that outranked the one every caller
