@@ -345,5 +345,24 @@ ok('reconStraysFrom tolerates no rows at all', C.reconStraysFrom(null).length ==
      C.reconStraysFrom(rows).map(d => d.id).join(',') === '1,2');
 }
 
+// Reconciling a week must not take its set-aside deposits off the screen with it. They are collected
+// from done weeks as well as open ones — the money did not stop existing when the week was ticked off.
+{
+  const openRows = [{ store: 'Portland Rd', win: { start: '2026-06-03' },
+                      strays: [{ id: 'o', date: '2026-06-08', amount: 69.89 }] }];
+  const doneRows = [{ store: 'River', win: { start: '2026-06-03' },
+                      strays: [{ id: 'd', date: '2026-06-05', amount: 12.50 }] }];
+  const got = C.reconStraysFrom(openRows.concat(doneRows));
+  ok('a reconciled week keeps its set-aside deposit on the list',
+     got.length === 2 && got.some(d => d.id === 'd'));
+}
+// The memo is what identifies one of these, so it has to survive the hand-off.
+{
+  const got = C.reconStraysFrom([{ store: 'Portland Rd', win: { start: '2026-06-03' },
+    strays: [{ id: 'm', date: '2026-06-08', amount: 69.89, memo: 'Printer Ink (refund)' }] }]);
+  ok('the QuickBooks memo survives into the not-included list',
+     got[0].memo === 'Printer Ink (refund)');
+}
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
