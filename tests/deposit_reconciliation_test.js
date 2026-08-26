@@ -61,7 +61,7 @@ if (!FALLBACK_SRC) { console.log('RECON_WEEK_START_FALLBACK is gone from index.h
 vm.runInContext(FALLBACK_SRC[0], ctx);
 for (const fn of ['reconAddDays', 'reconDow', 'reconWindowStart', 'reconWindows',
                   'reconWeekStartFor', 'reconWindowForDeposit', 'reconExpectedFor',
-                  'reconIsPending', 'reconUnattributedIn', 'reconSplitStrays',
+                  'reconIsPending', 'reconUnattributedIn', 'reconSplitStrays', 'reconStraysFrom',
                   'reconStateKey', 'reconIsDone', 'reconBuildRow']) {
   vm.runInContext(grab(HTML, fn, 'index.html'), ctx);
 }
@@ -317,6 +317,33 @@ ok('a complete week is never pending', C.reconIsPending({ missing: [] }, '2026-0
      got.length === 1 && got[0].date === '2026-07-15');
 }
 ok('an empty list is handled', C.reconUnattributedIn(null, '2026-07-01', '2026-07-31').length === 0);
+
+// A set-aside deposit belongs in the not-included list, not on the store's card. Sky's Portland
+// week: 23,175.29 expected, an exact 23,175.29 deposit, and a 69.89 printer-ink refund.
+{
+  const rows = [
+    { store: 'Portland Rd', win: { start: '2026-06-03' },
+      strays: [{ id: 'p1', date: '2026-06-08', amount: 69.89, class: 'PORTLAND RD' }] },
+    { store: 'River', win: { start: '2026-06-03' }, strays: [] },
+  ];
+  const got = C.reconStraysFrom(rows);
+  ok('a stray is handed to the not-included list',
+     got.length === 1 && got[0].amount === 69.89);
+  ok('it carries where it came from so the row can say so',
+     got[0].from_store === 'Portland Rd' && got[0].from_win === '2026-06-03');
+  ok('the QuickBooks class is left alone — it is why it looked like the store\'s money',
+     got[0].class === 'PORTLAND RD');
+}
+ok('no strays anywhere yields an empty list', C.reconStraysFrom([{ store: 'A', win: { start: 'x' } }]).length === 0);
+ok('reconStraysFrom tolerates no rows at all', C.reconStraysFrom(null).length === 0);
+{
+  const rows = [
+    { store: 'A', win: { start: 'w' }, strays: [{ id: '2', date: '2026-06-09', amount: 2 }] },
+    { store: 'B', win: { start: 'w' }, strays: [{ id: '1', date: '2026-06-02', amount: 1 }] },
+  ];
+  ok('strays from several stores come back oldest first',
+     C.reconStraysFrom(rows).map(d => d.id).join(',') === '1,2');
+}
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

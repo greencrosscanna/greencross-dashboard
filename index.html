@@ -719,11 +719,9 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .recon-dep-move button{background:none;border:0.5px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer;font-size:11px;line-height:1;padding:2px 5px;font-family:inherit}
 .recon-dep-move button:hover{color:var(--text);border-color:var(--border-strong)}
 .recon-dep-note{font-size:10px;color:var(--muted)}
-/* Deposits carrying the store's class that are NOT part of its weekly banking — set aside so they
-   stop inflating the variance, but kept on the card. Dimmed and rule-separated so they read as
-   context rather than as part of the week's total; never hidden. */
-.recon-strays{margin-top:8px;padding-top:7px;border-top:1px dashed var(--line);opacity:.72}
-.recon-strays-hd{font-size:10px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+/* A deposit that was set aside from a store's week carries its store and window into the
+   not-included list, so the row can say WHERE it came from rather than just sitting there. */
+.recon-unatt-from{opacity:.7;font-size:11px}
 /* QuickBooks breaks each deposit out by revenue category, so the joined memos are usually
    "Sales 3% Tax · Sales 17% Tax · Med Sales · Rec Sales · Non MJ Sales" — noise on a card, but the
    line earns its place on the deposits that are NOT that. The live route returned a $12,662.91
@@ -1077,7 +1075,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.516';
+const APP_VERSION = 'v2.517';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -4726,6 +4724,24 @@ function reconSplitStrays(deps, expected) {
   };
 }
 
+// Every deposit that reconSplitStrays set aside, across all the store-weeks in the period, shaped
+// like an unattributed deposit so the two can be listed together.
+//
+// They belong in that list rather than on the store's card. A deposit that is not part of a week's
+// banking is not that week's business — leaving it on the card is the same "money in the wrong
+// place" the split was meant to fix, just quieter. It carries its store and window so the row can
+// say where it came from; the class stays whatever QuickBooks said, since that class is exactly why
+// it looked like the store's money in the first place.
+function reconStraysFrom(rows) {
+  const out = [];
+  for (const r of rows || []) {
+    for (const d of r.strays || []) {
+      out.push(Object.assign({}, d, { from_store: r.store, from_win: r.win.start }));
+    }
+  }
+  return out.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+}
+
 function reconStateKey(store, win) { return store + '|' + win.start; }
 function reconIsDone(store, win) {
   return !!(reconData && reconData.state || {})[reconStateKey(store, win)];
@@ -4965,7 +4981,12 @@ function renderReconcile(nocache) {
   const readyCount = shown.filter(r => r.ties).length;
   const offCount   = shown.filter(r => r.reconcilable && !r.ties).length;
 
-  const unatt = reconUnattributedIn(reconData.unattributed, want.start, want.end);
+  // Two ways a deposit ends up outside a store's week, listed together because the question they
+  // raise is the same one: no class that maps to a store, or a class that does but an amount that
+  // is not part of that week's banking. Strays come from every open week in the period, not just
+  // the ones on screen — a hidden week's stray must not become invisible money.
+  const unatt = reconUnattributedIn(reconData.unattributed, want.start, want.end)
+    .concat(reconStraysFrom(open));
 
   host.innerHTML = `
     <div class="sec-lbl">Deposit reconciliation</div>
@@ -4994,17 +5015,17 @@ function renderReconcile(nocache) {
 
     ${unatt.length ? (reconIgnoreUnatt ? `
       <div class="recon-hidden-note">
-        Ignoring ${unatt.length} deposit${unatt.length === 1 ? '' : 's'} not attributed to a store
+        Ignoring ${unatt.length} deposit${unatt.length === 1 ? '' : 's'} not included in a store's week
         (${reconFmtMoney(unatt.reduce((a, d) => a + d.amount, 0))}).
         <button class="toggle-btn recon-linkish" onclick="toggleReconUnatt()">Show</button>
       </div>` : `
       <div class="card recon-unatt">
         <div class="recon-unatt-hd">
-          ${unatt.length} deposit${unatt.length === 1 ? '' : 's'} not attributed to a store
+          ${unatt.length} deposit${unatt.length === 1 ? '' : 's'} not included in a store's week
           <button class="toggle-btn recon-linkish" onclick="toggleReconUnatt()">Ignore these</button>
         </div>
-        <div class="recon-unatt-note">These carry a QuickBooks class that maps to no store. They are listed rather than dropped — money that disappears from a reconciliation screen is the failure this tab exists to prevent.</div>
-        ${unatt.map(d => `<div class="recon-unatt-row"><span>${escHtml(d.date)}</span><span>${escHtml(d.class || '(no class)')}</span><span>${reconFmtMoney(d.amount)}</span></div>`).join('')}
+        <div class="recon-unatt-note">Either the QuickBooks class maps to no store, or it maps to one but the amount is not part of that week's banking — the rest of the week ties to the expected figure exactly without it. They are listed rather than dropped: money that disappears from a reconciliation screen is the failure this tab exists to prevent.</div>
+        ${unatt.map(d => `<div class="recon-unatt-row"><span>${escHtml(d.date)}</span><span>${escHtml(d.class || '(no class)')}${d.from_store ? `<span class="recon-unatt-from"> · set aside from ${escHtml((STORE_MAP.get(d.from_store) || {}).display || d.from_store)}</span>` : ''}</span><span>${reconFmtMoney(d.amount)}</span></div>`).join('')}
       </div>`) : ''}
 
     ${renderReconConfig(stores)}
@@ -5103,17 +5124,6 @@ function renderReconCard(row) {
           ${row.deps.length > 1 ? `<div class="recon-dep-note">${row.deps.length} deposits this week</div>` : ''}
         </div>` : ''}
 
-      ${row.strays && row.strays.length ? `
-        <div class="recon-strays">
-          <div class="recon-strays-hd">Set aside — not part of this week's banking</div>
-          ${row.strays.map(d => `
-            <div class="recon-dep">
-              <span class="recon-dep-date">${escHtml(d.date)}</span>
-              <span class="recon-dep-amt">${reconFmtMoney(d.amount)}</span>
-            </div>
-            ${d.memo ? `<div class="recon-dep-memo" title="${escHtml(d.memo)}">${escHtml(d.memo)}</div>` : ''}`).join('')}
-          <div class="recon-dep-note">The deposits above tie to the expected figure exactly, so ${row.strays.length === 1 ? 'this one is' : 'these are'} something else carrying the store's class. Shown, never dropped.</div>
-        </div>` : ''}
 
       <div class="recon-foot">
         ${row.done
