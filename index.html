@@ -1102,7 +1102,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.530';
+const APP_VERSION = 'v2.531';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1695,6 +1695,11 @@ const CACHE_TTL = {
   // worse than a two-second wait. A miss is cheap anyway — the proxy caches the same range for
   // 30 minutes of its own, so the round trip usually never reaches QuickBooks.
   recon:       30 * 60 * 1000,       // 30 min  — per range, localStorage
+  // Dutchie COGS for the trailing 28 days, behind the Gross Profit card. Keyed by the window's
+  // start date, so it rotates daily by design. The TTL was resolving to the 1h default through
+  // CACHE_TTL['inv'], which is not a key that exists — named here so it is chosen rather than
+  // inherited. The proxy now caches this too, so a client miss is cheap.
+  inv:         2 * 60 * 60 * 1000,   // 2 hours — trailing COGS window, localStorage
 };
 
 // Large caches that must NOT go in localStorage (costs ~100KB, velocity can be 1-2MB).

@@ -1767,6 +1767,18 @@ function getCogsDutchie(params) {
   const rawTo        = (params.to   || '').slice(0, 10);
   const includesToday = !rawTo || rawTo >= todayPT;
   const settledTo    = includesToday ? dayBefore_(todayPT) : rawTo;
+
+  // This route was the only uncached one on the Income tab, and it is the most expensive: six
+  // getSalesDaily reads PLUS six live dutchieClosingReport calls, one per store, in sequence. The
+  // Gross Profit card is what waits on it, which is why that card is the last thing to fill in on a
+  // phone. Everything about the settled half is immutable — yesterday's COGS does not change — and
+  // even today's only moves as sales happen.
+  const cacheKey = 'cogsd_' + from + '_' + (rawTo || 'now') + '_v1';
+  if (!params.nocache) {
+    const hit = cacheGet_(cacheKey);
+    if (hit) { try { return JSON.parse(hit); } catch (e) {} }
+  }
+
   const results      = [];
   for (const { dutchie, sales } of STORES) {
     try {
@@ -1789,7 +1801,12 @@ function getCogsDutchie(params) {
       Logger.log('getCogsDutchie: getSalesDaily failed for ' + dutchie + ': ' + e.message);
     }
   }
-  return { data: results };
+  const out = { data: results };
+  // 10 minutes while today is in range, 6 hours once the whole window is settled. A range that ends
+  // in the past cannot change at all, so the only reason not to cache it forever is the sheet being
+  // corrected behind us.
+  try { cacheSet_(cacheKey, JSON.stringify(out), includesToday ? 600 : 21600); } catch (e) {}
+  return out;
 }
 
 // Returns monthly expense budgets from the Annual Budget sheet
