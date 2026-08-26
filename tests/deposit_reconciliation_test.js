@@ -59,12 +59,21 @@ const FALLBACK_SRC = /const RECON_WEEK_START_FALLBACK = Object\.freeze\(\{[\s\S]
 if (!FALLBACK_SRC) { console.log('RECON_WEEK_START_FALLBACK is gone from index.html');
                      console.log('\n0 passed, 1 failed'); process.exit(1); }
 vm.runInContext(FALLBACK_SRC[0], ctx);
+const SALES_MEMOS_SRC = /const RECON_SALES_MEMOS = Object\.freeze\(\[[\s\S]*?\]\);/.exec(HTML);
+if (!SALES_MEMOS_SRC) { console.log('RECON_SALES_MEMOS is gone from index.html');
+                        console.log('\n0 passed, 1 failed'); process.exit(1); }
+vm.runInContext(SALES_MEMOS_SRC[0], ctx);
 for (const fn of ['reconAddDays', 'reconDow', 'reconWindowStart', 'reconWindows',
                   'reconWeekStartFor', 'reconWindowForDeposit', 'reconExpectedFor',
-                  'reconIsPending', 'reconUnattributedIn', 'reconSplitStrays', 'reconStraysFrom',
+                  'reconIsPending', 'reconUnattributedIn', 'reconIsSalesDeposit', 'reconSplitStrays', 'reconStraysFrom',
                   'reconStateKey', 'reconIsDone', 'reconBuildRow']) {
   vm.runInContext(grab(HTML, fn, 'index.html'), ctx);
 }
+
+// Every real store deposit carries the five Dutchie sales memo lines — measured, 103 of 103 over
+// 2026-05-25..08-31. Fixtures standing in for one must too, or reconIsSalesDeposit correctly
+// refuses to count them as banking.
+const SALES_MEMO = 'Sales 3% Tax · Sales 17% Tax · Med Sales · Rec Sales · Non MJ Sales';
 
 // State the shipped functions read off the page globals.
 let reconData = null, allDailyData = {};
@@ -205,7 +214,7 @@ ok('a missing day is reported, not silently skipped', exp.missing.length === 1
 
 // A gap must block the verdict: with 6 of 7 days loaded and a full week's deposit, a naive
 // implementation reports "over by a day's takings" and sends someone hunting.
-reconData.deposits = { Commercial: [{ id: 'd1', date: '2026-08-25', amount: 8400 }] };
+reconData.deposits = { Commercial: [{ id: 'd1', date: '2026-08-25', amount: 8400, memo: SALES_MEMO }] };
 let row = C.reconBuildRow('Commercial', week);
 ok('an incomplete week does not tie',           row.ties === false);
 ok('an incomplete week cannot be reconciled',   row.reconcilable === false);
@@ -214,8 +223,8 @@ ok('an incomplete week names the missing day',  row.missing.length === 1);
 // ── Split deposits: several in one week must SUM, not last-one-wins ────────────────────────────
 allDailyData.Commercial['2026-08-20'] = { netSales: 1000, tax: 200 };
 reconData.deposits = { Commercial: [
-  { id: 'd1', date: '2026-08-25', amount: 3600 },   // the 3-day half
-  { id: 'd2', date: '2026-08-26', amount: 4800 },   // the 4-day half
+  { id: 'd1', date: '2026-08-25', amount: 3600, memo: SALES_MEMO },   // the 3-day half
+  { id: 'd2', date: '2026-08-26', amount: 4800, memo: SALES_MEMO },   // the 4-day half
 ]};
 reconData.assign = { d2: '2026-08-18' };            // both halves pay for the same week
 row = C.reconBuildRow('Commercial', week);
@@ -236,7 +245,7 @@ ok('a short week reports a negative diff',  row.diff === -100);
 // exact tie would have blocked five stores every week and made the tab unusable.
 ok('a week with a variance is still reconcilable', row.reconcilable === true);
 for (const v of [1.90, -0.33, -24.77, -0.42, 0.01]) {
-  reconData.deposits.Commercial = [{ id: 'v1', date: '2026-08-25', amount: 8400 + v }];
+  reconData.deposits.Commercial = [{ id: 'v1', date: '2026-08-25', amount: 8400 + v, memo: SALES_MEMO }];
   reconData.assign = {};
   const r = C.reconBuildRow('Commercial', week);
   ok(`a real-world variance of ${v} reconciles, and is reported`,
@@ -244,9 +253,9 @@ for (const v of [1.90, -0.33, -24.77, -0.42, 0.01]) {
 }
 
 // Only an exact tie counts as a tie — the cent is not rounded away.
-reconData.deposits.Commercial = [{ id: 'v2', date: '2026-08-25', amount: 8400 }];
+reconData.deposits.Commercial = [{ id: 'v2', date: '2026-08-25', amount: 8400, memo: SALES_MEMO }];
 ok('an exact match ties', C.reconBuildRow('Commercial', week).ties === true);
-reconData.deposits.Commercial = [{ id: 'v3', date: '2026-08-25', amount: 8400.01 }];
+reconData.deposits.Commercial = [{ id: 'v3', date: '2026-08-25', amount: 8400.01, memo: SALES_MEMO }];
 ok('one cent out does not tie', C.reconBuildRow('Commercial', week).ties === false);
 
 // A week with sales and no deposit at all is "awaiting" — never a tie, and not reconcilable.
@@ -255,48 +264,65 @@ row = C.reconBuildRow('Commercial', week);
 ok('no deposit is never a tie',             row.ties === false && row.deposited === 0);
 ok('no deposit is not reconcilable',        row.reconcilable === false);
 
-// ── Stray deposits (bug_mt98gwt3_dg96) ────────────────────────────────────────────────────────
-// Sky's actual case: 54,996.77 expected, an exact 54,996.77 deposit, and a 36.99 that turned a
-// perfect week into a variance.
-{
-  const exact = { id: 's1', date: '2026-08-25', amount: 54996.77 };
-  const stray = { id: 's2', date: '2026-08-26', amount: 36.99 };
-  const s = C.reconSplitStrays([exact, stray], 54996.77);
-  ok('the exact deposit is kept and the stray set aside',
-     s.kept.length === 1 && s.kept[0].id === 's1' && s.strays.length === 1 && s.strays[0].id === 's2');
-}
-// A legitimately split week (Commercial banks 3 days + 4 days) must survive untouched.
-{
-  const s = C.reconSplitStrays([{ id: 'a', amount: 3000 }, { id: 'b', amount: 5400 }], 8400);
-  ok('a split week that already ties is never carved up', s.strays.length === 0 && s.kept.length === 2);
-}
-// Ambiguity must not be guessed at: two different subsets hit 100, so nothing is set aside.
-{
-  const s = C.reconSplitStrays([{ id: 'a', amount: 100 }, { id: 'b', amount: 100 }, { id: 'c', amount: 7 }], 100);
-  ok('two subsets tying leaves the variance alone', s.strays.length === 0);
-}
-ok('no subset tying leaves the variance alone',
-   C.reconSplitStrays([{ id: 'a', amount: 10 }, { id: 'b', amount: 20 }], 999).strays.length === 0);
-ok('a single deposit is never split', C.reconSplitStrays([{ id: 'a', amount: 5 }], 999).strays.length === 0);
+// ── What counts as the week's banking (bug_mt98gwt3_dg96) ─────────────────────────────────────
+// Reconcile measures one thing: did the store bank what it SOLD. The memo vocabulary below is
+// MEASURED off the live route over 2026-05-25..08-31 — 103 store-classed deposits.
+// A `const` inside the vm is a lexical binding, not a property of the sandbox — read it by
+// evaluating the name rather than reaching for ctx.RECON_SALES_MEMOS, which is undefined.
+ok('the five measured sales memos are the shipped list',
+   vm.runInContext('RECON_SALES_MEMOS.join("|")', ctx)
+     === 'Sales 3% Tax|Sales 17% Tax|Med Sales|Rec Sales|Non MJ Sales');
+ok('a standard 5-line deposit is the banking',   C.reconIsSalesDeposit({ memo: SALES_MEMO }) === true);
+ok('Printer Ink (refund) is not the banking',    C.reconIsSalesDeposit({ memo: 'Printer Ink (refund)' }) === false);
+// The real Commercial deposit: five sales lines plus someone's annotation. ANY sales line is
+// enough — an all-lines rule would throw a genuine banking out of its week.
+ok('an annotated sales deposit is still the banking',
+   C.reconIsSalesDeposit({ memo: SALES_MEMO + ' · Report does not match' }) === true);
+ok('the annotation alone is not the banking',
+   C.reconIsSalesDeposit({ memo: 'Report does not match' }) === false);
+ok('no memo is not positive evidence of sales', C.reconIsSalesDeposit({ memo: '' }) === false);
+ok('a missing memo field does not throw',       C.reconIsSalesDeposit({}) === false);
+// If QuickBooks renames a category, exact-match-only would classify EVERY deposit as non-sales at
+// once and silently empty every week. A memo naming sales or tax still counts.
+ok('an unseen sales category still counts',      C.reconIsSalesDeposit({ memo: 'Delivery Sales' }) === true);
+ok('an unseen tax line still counts',            C.reconIsSalesDeposit({ memo: 'Cannabis Tax' }) === true);
 
-// End to end through reconBuildRow: the stray must not reach the variance.
+// Sky's Portland week, end to end: 23,175.29 of banking and a 69.89 printer-ink refund.
+{
+  const s2 = C.reconSplitStrays([
+    { id: 'ink', date: '2026-06-08', amount: 69.89, memo: 'Printer Ink (refund)' },
+    { id: 'bank', date: '2026-06-09', amount: 23175.29, memo: SALES_MEMO },
+  ]);
+  ok('the refund is set aside and the banking kept',
+     s2.kept.length === 1 && s2.kept[0].id === 'bank' && s2.strays[0].id === 'ink');
+}
+// A legitimately split week (Commercial banks 3 days + 4 days) keeps both halves.
+{
+  const s2 = C.reconSplitStrays([{ id: 'a', amount: 3000, memo: SALES_MEMO },
+                                 { id: 'b', amount: 5400, memo: SALES_MEMO }]);
+  ok('a split week keeps both deposits', s2.kept.length === 2 && s2.strays.length === 0);
+}
+ok('no deposits at all is handled', C.reconSplitStrays([]).kept.length === 0);
+ok('undefined deposits is handled',  C.reconSplitStrays(undefined).strays.length === 0);
+
+// End to end through reconBuildRow: the refund must not reach the variance. Note the week does NOT
+// tie — 8400 expected against 8402 banked — which is the case the old subset rule could not handle.
 allDailyData = { Commercial: {} };
 for (let d = '2026-08-19'; d <= '2026-08-25'; d = C.reconAddDays(d, 1)) {
   allDailyData.Commercial[d] = { netSales: 1200, tax: 0 };      // 7 x 1200 = 8400
 }
 reconData = { config: { Commercial: 3 }, state: {}, assign: {},
-              deposits: { Commercial: [{ id: 'k', date: '2026-08-26', amount: 8400 },
-                                       { id: 'x', date: '2026-08-26', amount: 36.99 }] } };
+              deposits: { Commercial: [{ id: 'k', date: '2026-08-26', amount: 8402, memo: SALES_MEMO },
+                                       { id: 'x', date: '2026-08-26', amount: 36.99, memo: 'Printer Ink (refund)' }] } };
 {
   const r = C.reconBuildRow('Commercial', { start: '2026-08-19', end: '2026-08-25' });
-  ok('a stray does not create a phantom variance', r.ties === true && Math.abs(r.diff) < 0.005);
-  ok('the stray is still carried on the row, not dropped',
-     r.strays.length === 1 && r.strays[0].id === 'x');
+  ok('a non-sales deposit stays out of the variance on a week that does NOT tie',
+     Math.abs(r.diff - 2) < 0.005 && r.strays.length === 1 && r.strays[0].id === 'x');
 }
-// Against an incomplete week the expected figure is partial, so nothing may be set aside.
+// And an incomplete week classifies just the same — nothing here needs the expected figure.
 delete allDailyData.Commercial['2026-08-21'];
-ok('an incomplete week is never split',
-   C.reconBuildRow('Commercial', { start: '2026-08-19', end: '2026-08-25' }).strays.length === 0);
+ok('an incomplete week still separates non-sales money',
+   C.reconBuildRow('Commercial', { start: '2026-08-19', end: '2026-08-25' }).strays.length === 1);
 
 // ── Weeks that have not happened yet (bug_mt98qw8l_4405) ──────────────────────────────────────
 ok('a week missing only future days is pending, not incomplete',

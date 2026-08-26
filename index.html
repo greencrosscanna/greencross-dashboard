@@ -1078,7 +1078,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.518';
+const APP_VERSION = 'v2.519';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -4690,51 +4690,57 @@ function reconUnattributedIn(list, from, to) {
   return (list || []).filter(d => d && d.date >= from && d.date <= to);
 }
 
-// Split a window's deposits into the ones that make up the weekly banking and the strays.
+// The five memo lines a Dutchie sales deposit is made of. MEASURED off the live qb_deposits route
+// over 2026-05-25..08-31: 103 store-classed deposits, and 102 of them carry all five of these.
+const RECON_SALES_MEMOS = Object.freeze([
+  'Sales 3% Tax', 'Sales 17% Tax', 'Med Sales', 'Rec Sales', 'Non MJ Sales',
+]);
+
+// Is this deposit the store's Dutchie sales banking, or something else that happens to carry the
+// store's QuickBooks class?
 //
-// A week legitimately holds several deposits — Commercial is routinely split 3 days + 4 days — so
-// "more than one deposit" says nothing. What DOES say something is an exact tie: when some subset of
-// the deposits equals the expected figure to the cent, that subset is the week's banking and
-// whatever is left over is something else that happened to carry the store's class. Sky's case: a
-// 54,996.77 deposit against 54,996.77 expected, plus a 36.99 that turned a perfect week into a
-// variance.
+// Reconcile answers exactly one question — did this store bank what it SOLD that week — so only the
+// sales banking belongs in the total. A "Printer Ink (refund)" line classed to Portland Rd is real
+// money and real to the business, but it is not what the week is being measured against.
 //
-// Deliberately conservative. It only splits when EXACTLY ONE subset ties — if two different subsets
-// both hit the number there is no way to know which is the banking, so nothing is set aside and the
-// variance stands. It also never splits when the whole set already ties. Guessing wrong here moves
-// real money off a store's week, which is the failure this tab exists to prevent, so when in doubt
-// it does nothing and lets a human read the variance.
-function reconSplitStrays(deps, expected) {
-  const none = { kept: deps, strays: [] };
-  // 2^n subsets: fine for a real week (2-4 deposits), refuses to melt on absurd input.
-  if (!Array.isArray(deps) || deps.length < 2 || deps.length > 12) return none;
-  const cents = deps.map(d => Math.round((d.amount || 0) * 100));
-  const want  = Math.round(expected * 100);
-  const total = cents.reduce((a, c) => a + c, 0);
-  if (total === want) return none;               // the week already ties; nothing is stray
-  let hit = -1;
-  for (let mask = 1; mask < (1 << deps.length) - 1; mask++) {   // skip empty and full sets
-    let sum = 0;
-    for (let i = 0; i < deps.length; i++) if (mask & (1 << i)) sum += cents[i];
-    if (sum !== want) continue;
-    if (hit !== -1) return none;                 // ambiguous — two subsets tie, so do not guess
-    hit = mask;
-  }
-  if (hit === -1) return none;
-  return {
-    kept:   deps.filter((_, i) => hit & (1 << i)),
-    strays: deps.filter((_, i) => !(hit & (1 << i))),
-  };
+// ANY sales line is enough, not ALL of them. In the same window Commercial has a deposit of SIX
+// lines: the usual five plus "Report does not match", someone's annotation on a real banking. A
+// rule of "every line must be a sales line" would have thrown that whole deposit out of its week.
+//
+// The exact list is backed up by a shape test rather than relied on alone. If QuickBooks ever
+// renames a category, an exact-match-only rule would classify EVERY deposit as non-sales at once
+// and silently empty every week — so a memo naming sales or tax counts too. Both known outliers
+// name neither.
+function reconIsSalesDeposit(dep) {
+  const parts = String((dep && dep.memo) || '').split(' · ').map(m => m.trim()).filter(Boolean);
+  if (!parts.length) return false;              // no memo at all is not positive evidence of sales
+  return parts.some(m => RECON_SALES_MEMOS.indexOf(m) !== -1 || /\b(sales|tax)\b/i.test(m));
+}
+
+// Split a window's deposits into the week's banking and everything else.
+//
+// This used to look for a subset that tied to the expected figure exactly, and infer that the
+// remainder was stray. That only works on a week that ties, and most weeks do not — measured on
+// Shawn's 08.17.26 slips, five of six stores carried a variance. Classifying a deposit by WHAT IT
+// IS needs no tie, no complete week, and no guessing between two subsets that both happen to hit
+// the number.
+function reconSplitStrays(deps) {
+  const kept = [], strays = [];
+  for (const d of deps || []) (reconIsSalesDeposit(d) ? kept : strays).push(d);
+  return { kept, strays };
 }
 
 // Every deposit that reconSplitStrays set aside, across all the store-weeks in the period, shaped
 // like an unattributed deposit so the two can be listed together.
 //
-// They belong in that list rather than on the store's card. A deposit that is not part of a week's
+// They belong in that list rather than on the store's card. A deposit that is not the week's sales
 // banking is not that week's business — leaving it on the card is the same "money in the wrong
 // place" the split was meant to fix, just quieter. It carries its store and window so the row can
-// say where it came from; the class stays whatever QuickBooks said, since that class is exactly why
-// it looked like the store's money in the first place.
+// say where it came from, and its memo, which is what identifies it. The QuickBooks class stays
+// untouched: that class is the whole reason it looked like the store's money.
+//
+// Collected from reconciled weeks as well as open ones. The money did not stop existing when the
+// week was ticked off.
 function reconStraysFrom(rows) {
   const out = [];
   for (const r of rows || []) {
@@ -4755,9 +4761,7 @@ function reconBuildRow(store, win) {
   const exp     = reconExpectedFor(store, win);
   const inWin   = ((reconData && reconData.deposits || {})[store] || [])
     .filter(d => reconWindowForDeposit(store, d) === win.start);
-  // Only split once the expected figure is trustworthy. Against an incomplete week the "expected"
-  // is a partial sum, so a subset could tie it by coincidence and set aside a real deposit.
-  const split  = exp.missing.length ? { kept: inWin, strays: [] } : reconSplitStrays(inWin, exp.total);
+  const split  = reconSplitStrays(inWin);
   const deps   = split.kept;
   const strays = split.strays;
   const deposited = Math.round(deps.reduce((a, d) => a + (d.amount || 0), 0) * 100) / 100;

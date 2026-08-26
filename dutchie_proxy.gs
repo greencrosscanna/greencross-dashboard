@@ -493,6 +493,24 @@ function doGet(e) {
           last:  list.length ? list[list.length - 1].date : null
         };
       }).sort(function (a, b) { return a.store < b.store ? -1 : 1; });
+      // The MEMO VOCABULARY, counted over the window. Reconcile only wants the Dutchie sales
+      // banking; a "Printer Ink (refund)" line carrying the store's class is not that. Deciding
+      // which memos mean sales has to be READ OFF THE REAL DATA rather than guessed, because
+      // guessing wrong in the generous direction quietly folds non-sales money into a store's week,
+      // and guessing wrong the other way strands real banking on the not-included list. Reports
+      // memo strings and how often each occurs — no amounts.
+      const memoTally = {};
+      Object.keys(byStore).forEach(function (k) {
+        byStore[k].forEach(function (r) {
+          String(r.memo || '(none)').split(' · ').forEach(function (m) {
+            const key = m.trim() || '(none)';
+            memoTally[key] = (memoTally[key] || 0) + 1;
+          });
+        });
+      });
+      const memos = Object.keys(memoTally)
+        .map(function (m) { return { memo: m, seen: memoTally[m] }; })
+        .sort(function (a, b) { return b.seen - a.seen; });
       // The SALES half, sampled in the same breath. The expected figure on every card is
       // Net Sales + TAX, and per-day tax was only added to the daily records for this feature — it
       // used to be summed into the store-month total and dropped from the rows. That change touches
@@ -526,6 +544,7 @@ function doGet(e) {
         unattributed: (data.unattributed || []).map(function (u) {
           return { date: u.date, class: u.class, amount: u.amount, memo: u.memo };
         }),
+        memos: memos,
         week_starts: data.config
       });
     } catch (e) {
