@@ -132,6 +132,39 @@ the two and the render reloads on a mismatch; visited ranges come back from a 30
 Failures are deliberately never cached, but ARE tagged with their range so an error renders once
 instead of re-fetching forever.
 
+**The pacing section renders ALL six stores from the first frame — don't filter it back down.**
+`_storeBreakdownRows` deliberately does *not* filter to `liveData[s]`. A store with no data yet is a
+row carrying its name, its bar track and shimmer placeholders, so the card is **245px at every
+stage** — nothing loaded, half loaded, fully loaded. Filtering meant six height changes per load,
+and `loadAllStores` clears `liveData` before refetching, so a re-poll tore the list down and rebuilt
+it under the reader. It also made a straggler *invisible*: a store that never answered had no row,
+which reads as "no such store" rather than "still waiting".
+
+Sorting is the other half and breaks the same way if touched. **Sort only when every store has
+landed**, remember that order in `_bdOrder`, and reuse it while anything is pending — that is what
+makes a re-poll refresh numbers in place instead of reshuffling. Sorting by value while values are
+still arriving is precisely what makes rows jump.
+
+**`getCogsDutchie` is cached at the proxy — leave it that way.** It was the only route the Income tab
+touches with no server-side cache, and the most expensive: six `getSalesDaily` reads plus **six live
+`dutchieClosingReport` calls, one per store, in sequence**. The Gross Profit card waits on it, which
+is why that card was always the last to fill in. Cached by range: 10 min while today is in the
+window, 6 hours once the range is settled. The client key `inv_gm2_<today-28>` rotates daily by
+design; its TTL used to resolve through `CACHE_TTL['inv']`, *a key that did not exist*, to the 1-hour
+default — so a phone re-triggered twelve backend calls hourly.
+
+**A stale tab now says so.** `gcCheckVersion` compares `APP_VERSION` against the newest row in GX
+Core `version_history` and offers a cache-busting reload. It never reloads on its own, is suppressed
+while signed out and for a version already dismissed or already attempted (Pages can serve a stale
+copy for a minute after `deploy.sh` records the release — without that guard the reload loops).
+There is no `?v=` cache-buster to check instead: this is a monolith with inline JS, so the HTML *is*
+the bundle.
+
+*When GX Core's two-hop flakes it can return a TRUNCATED body, which fails JSON parsing as an
+"invalid control character" mid-string. That is the documented ~6% flake, not malformed output —
+**retry until it parses**, and don't reach for a lenient parser, which turns a cut-off payload into
+one you'll treat as complete.*
+
 **The write guard is LIVE BUT DARK — don't mistake it for enforcing.** All four writes
 (`save_expense_mapping` GET+POST, `set_otherrev`, `set_revenue`, `clear_atm_cache`) call `writeGuard_`,
 which asks `GXCore.roleForApp(user, 'sales')` and **records what it would have decided without acting on
