@@ -66,7 +66,8 @@ vm.runInContext(SALES_MEMOS_SRC[0], ctx);
 for (const fn of ['reconAddDays', 'reconDow', 'reconWindowStart', 'reconWindows',
                   'reconWeekStartFor', 'reconWindowForDeposit', 'reconExpectedFor',
                   'reconIsPending', 'reconUnattributedIn', 'reconIsSalesDeposit', 'reconSplitStrays', 'reconStraysFrom',
-                  'reconStateKey', 'reconIsDone', 'reconBuildRow']) {
+                  'reconStateKey', 'reconIsDone', 'reconBuildRow',
+                  'reconRangeKey', 'reconDataStale_']) {
   vm.runInContext(grab(HTML, fn, 'index.html'), ctx);
 }
 
@@ -389,6 +390,31 @@ ok('reconStraysFrom tolerates no rows at all', C.reconStraysFrom(null).length ==
   ok('the QuickBooks memo survives into the not-included list',
      got[0].memo === 'Printer Ink (refund)');
 }
+
+// ── Staleness: the tab must notice the period moved ───────────────────────────────────────────
+// reconData was a single global with no idea which period it held, and the render only loaded when
+// it was null — so changing the period drew the OLD range's deposits against the NEW period's week
+// windows until someone hit Refresh. Between those two moments the tab showed a wrong answer, which
+// is worse than the friction that got it reported.
+let wanted = { start: '2026-06-01', end: '2026-06-30' };
+vm.runInContext('function reconWantedRange() { return WANTED; }', ctx);
+Object.defineProperty(ctx, 'WANTED', { get: () => wanted });
+
+ok('the key is the FETCHED range — the period plus a week of slack either side',
+   C.reconRangeKey() === '2026-05-25_2026-07-07');
+
+reconData = { _range: C.reconRangeKey(), deposits: {} };
+ok('data matching the current range is not stale', C.reconDataStale_() === false);
+
+wanted = { start: '2026-07-01', end: '2026-07-31' };
+ok('stepping to another month makes it stale',     C.reconDataStale_() === true);
+ok('and the key moves with the selection',         C.reconRangeKey() === '2026-06-24_2026-08-07');
+
+reconData = null;
+ok('nothing loaded yet is stale',                  C.reconDataStale_() === true);
+// An error payload still carries its range, so it renders once instead of re-fetching forever.
+reconData = { ok: false, error: 'boom', _range: C.reconRangeKey() };
+ok('a tagged error is not stale, so it cannot loop', C.reconDataStale_() === false);
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

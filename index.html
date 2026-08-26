@@ -1078,7 +1078,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.519';
+const APP_VERSION = 'v2.520';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1666,6 +1666,11 @@ const CACHE_TTL = {
   rev_detail:  60 * 60 * 1000,       // 1 hour  — revenue detail per year, localStorage
   inventory:   30 * 60 * 1000,       // 30 min  — per-store, localStorage
   velocity:    2 * 60 * 60 * 1000,   // 2 hours — large, stored in sessionMemCache only
+  // Deposits per fetched range. Short on purpose: a past month is settled, but the CURRENT one
+  // gains deposits through the week and a reconciliation screen showing yesterday's banking is
+  // worse than a two-second wait. A miss is cheap anyway — the proxy caches the same range for
+  // 30 minutes of its own, so the round trip usually never reaches QuickBooks.
+  recon:       30 * 60 * 1000,       // 30 min  — per range, localStorage
 };
 
 // Large caches that must NOT go in localStorage (costs ~100KB, velocity can be 1-2MB).
@@ -4564,8 +4569,22 @@ function setExpSection(s) {
 //   4. A deposit is made AFTER the week it covers, so a deposit's own date does not say which week
 //      it belongs to. See reconWindowForDeposit — that rule is a DEFAULT and is overridable.
 
-let reconData    = null;   // { deposits:{store:[…]}, unattributed, config, state, assign }
-let reconLoading = false;
+let reconData    = null;   // { deposits:{store:[…]}, unattributed, config, state, assign, _range }
+let reconLoadingRange = null;   // the range in flight, so a re-render mid-fetch cannot stack fetches
+
+// The range actually FETCHED — the selected period plus the week of slack either side. It is what
+// identifies a payload, so it is both the cache key and the staleness test.
+function reconRangeKey() {
+  const w = reconWantedRange();
+  return reconAddDays(w.start, -7) + '_' + reconAddDays(w.end, 7);
+}
+
+// reconData used to be a single global with no idea which period it held, and renderReconcile only
+// loaded when it was null. So changing the period re-rendered immediately with the OLD range's
+// deposits laid against the NEW period's week windows — cards reading "Awaiting deposit" for weeks
+// that had been banked months ago — until you hit Refresh. That is not just friction; between the
+// change and the refresh the tab was quietly showing the wrong answer.
+function reconDataStale_() { return !reconData || reconData._range !== reconRangeKey(); }
 let reconShowHistory = false;
 
 // Show only the week you are actually about to reconcile, rather than every week in the period.
@@ -4792,24 +4811,41 @@ function reconWantedRange() {
 }
 
 async function loadRecon(nocache) {
-  const want = reconWantedRange();
+  const range = reconRangeKey();
+  const from  = range.split('_')[0], to = range.split('_')[1];
+
+  // Ranges you have already looked at come back instantly, which is the whole point: stepping back
+  // through the months should not re-fetch each one every time you pass it.
+  if (!nocache) {
+    const cached = readCache('recon_' + range);
+    // The range is re-checked even though it is the key. renderReconcile calls this whenever what
+    // it holds is the wrong range, so an entry disagreeing with its own key would hand back the
+    // same payload forever — a synchronous render→load→render loop, not merely a stale figure.
+    if (cached && cached._range === range) { reconData = cached; return; }
+  }
+
   const url = `${getProxyUrl()}?action=deposits`
-            + `&start=${encodeURIComponent(reconAddDays(want.start, -7))}`
-            + `&end=${encodeURIComponent(reconAddDays(want.end, 7))}`
+            + `&start=${encodeURIComponent(from)}&end=${encodeURIComponent(to)}`
             + `&token=${encodeURIComponent(getToken())}${nocache ? '&nocache=1' : ''}`;
   try {
     const res  = await fetch(url);
     const data = await res.json();
+    data._range = range;
     reconData = data;
+    // Never cache a failure. A cached error would survive the outage that caused it and keep the
+    // tab broken for the whole TTL, with Refresh as the only way out.
+    if (data.ok !== false && !data.error) writeCache('recon_' + range, data);
   } catch (e) {
     console.warn('deposits fetch failed:', e.message);
-    reconData = { ok: false, error: e.message };
+    // Tagged with the range regardless, so the error renders once instead of re-fetching forever.
+    reconData = { ok: false, error: e.message, _range: range };
   }
 }
 
+// Refresh means refresh: past BOTH caches, this page's and the proxy's, not just re-render.
 function reloadRecon() {
-  reconData    = null;
-  reconLoading = false;
+  reconData         = null;
+  reconLoadingRange = null;
   renderReconcile(true);
 }
 
@@ -4902,14 +4938,15 @@ async function reconMoveDeposit(store, depId, dir) {
 function renderReconcile(nocache) {
   const host = document.getElementById('main-content');
 
-  if (!reconData) {
-    if (!reconLoading) {
-      reconLoading = true;
+  if (reconDataStale_()) {
+    const range = reconRangeKey();
+    if (reconLoadingRange !== range) {
+      reconLoadingRange = range;
       host.innerHTML = `
         <div class="sec-lbl">Deposit reconciliation</div>
         <div class="card"><div class="empty-state"><span class="spinner-inline"></span>Loading deposits from QuickBooks…</div></div>`;
       loadRecon(nocache).finally(() => {
-        reconLoading = false;
+        reconLoadingRange = null;
         if (section === 'reconcile') renderReconcile();
       });
     }
