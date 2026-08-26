@@ -719,6 +719,11 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .recon-dep-move button{background:none;border:0.5px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer;font-size:11px;line-height:1;padding:2px 5px;font-family:inherit}
 .recon-dep-move button:hover{color:var(--text);border-color:var(--border-strong)}
 .recon-dep-note{font-size:10px;color:var(--muted)}
+/* Deposits carrying the store's class that are NOT part of its weekly banking — set aside so they
+   stop inflating the variance, but kept on the card. Dimmed and rule-separated so they read as
+   context rather than as part of the week's total; never hidden. */
+.recon-strays{margin-top:8px;padding-top:7px;border-top:1px dashed var(--line);opacity:.72}
+.recon-strays-hd{font-size:10px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
 /* QuickBooks breaks each deposit out by revenue category, so the joined memos are usually
    "Sales 3% Tax · Sales 17% Tax · Med Sales · Rec Sales · Non MJ Sales" — noise on a card, but the
    line earns its place on the deposits that are NOT that. The live route returned a $12,662.91
@@ -1072,7 +1077,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.515';
+const APP_VERSION = 'v2.516';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -4659,6 +4664,68 @@ function reconExpectedFor(store, win) {
   return { total: Math.round(total * 100) / 100, missing };
 }
 
+// Today as YYYY-MM-DD, same idiom the rest of the page uses for activeDay. Deposit dates are TEXT,
+// so comparing them as text is exact — no Date object ever gets near this.
+function reconToday() { return new Date().toLocaleDateString('en-CA'); }
+
+// A week that is missing sales data ONLY for days that have not happened yet is not incomplete, it
+// is unstarted. There is nothing to chase and nothing to fix; it fills itself in as the days pass.
+// Drawing it as an "Incomplete" card puts a permanent non-answer on the board — and every store has
+// one every week, so it is six of them — while the genuinely incomplete weeks (a real gap in a past
+// week, which someone must go and look at) read identically. Those are different situations and the
+// tab must not use one word for both.
+function reconIsPending(row, today) {
+  return row.missing.length > 0 && row.missing.every(d => d >= today);
+}
+
+// Unattributed deposits within the SELECTED period.
+//
+// loadRecon deliberately fetches a week of slack either side, because a deposit paying for the last
+// window of a month is dated after that month ends. That slack is for ATTRIBUTION: a store deposit
+// gets pulled back to the window it pays for, so its own date not being in the period is fine. An
+// unattributed deposit has no such rule — nothing moves it — so it belongs to the period its date
+// falls in, and showing July a CORPORATE deposit dated 2026-08-04 is just wrong.
+function reconUnattributedIn(list, from, to) {
+  return (list || []).filter(d => d && d.date >= from && d.date <= to);
+}
+
+// Split a window's deposits into the ones that make up the weekly banking and the strays.
+//
+// A week legitimately holds several deposits — Commercial is routinely split 3 days + 4 days — so
+// "more than one deposit" says nothing. What DOES say something is an exact tie: when some subset of
+// the deposits equals the expected figure to the cent, that subset is the week's banking and
+// whatever is left over is something else that happened to carry the store's class. Sky's case: a
+// 54,996.77 deposit against 54,996.77 expected, plus a 36.99 that turned a perfect week into a
+// variance.
+//
+// Deliberately conservative. It only splits when EXACTLY ONE subset ties — if two different subsets
+// both hit the number there is no way to know which is the banking, so nothing is set aside and the
+// variance stands. It also never splits when the whole set already ties. Guessing wrong here moves
+// real money off a store's week, which is the failure this tab exists to prevent, so when in doubt
+// it does nothing and lets a human read the variance.
+function reconSplitStrays(deps, expected) {
+  const none = { kept: deps, strays: [] };
+  // 2^n subsets: fine for a real week (2-4 deposits), refuses to melt on absurd input.
+  if (!Array.isArray(deps) || deps.length < 2 || deps.length > 12) return none;
+  const cents = deps.map(d => Math.round((d.amount || 0) * 100));
+  const want  = Math.round(expected * 100);
+  const total = cents.reduce((a, c) => a + c, 0);
+  if (total === want) return none;               // the week already ties; nothing is stray
+  let hit = -1;
+  for (let mask = 1; mask < (1 << deps.length) - 1; mask++) {   // skip empty and full sets
+    let sum = 0;
+    for (let i = 0; i < deps.length; i++) if (mask & (1 << i)) sum += cents[i];
+    if (sum !== want) continue;
+    if (hit !== -1) return none;                 // ambiguous — two subsets tie, so do not guess
+    hit = mask;
+  }
+  if (hit === -1) return none;
+  return {
+    kept:   deps.filter((_, i) => hit & (1 << i)),
+    strays: deps.filter((_, i) => !(hit & (1 << i))),
+  };
+}
+
 function reconStateKey(store, win) { return store + '|' + win.start; }
 function reconIsDone(store, win) {
   return !!(reconData && reconData.state || {})[reconStateKey(store, win)];
@@ -4666,9 +4733,14 @@ function reconIsDone(store, win) {
 
 // One store-week, everything the card needs, computed once.
 function reconBuildRow(store, win) {
-  const exp  = reconExpectedFor(store, win);
-  const deps = ((reconData && reconData.deposits || {})[store] || [])
+  const exp     = reconExpectedFor(store, win);
+  const inWin   = ((reconData && reconData.deposits || {})[store] || [])
     .filter(d => reconWindowForDeposit(store, d) === win.start);
+  // Only split once the expected figure is trustworthy. Against an incomplete week the "expected"
+  // is a partial sum, so a subset could tie it by coincidence and set aside a real deposit.
+  const split  = exp.missing.length ? { kept: inWin, strays: [] } : reconSplitStrays(inWin, exp.total);
+  const deps   = split.kept;
+  const strays = split.strays;
   const deposited = Math.round(deps.reduce((a, d) => a + (d.amount || 0), 0) * 100) / 100;
   const diff = Math.round((deposited - exp.total) * 100) / 100;
   const ties = deps.length > 0 && Math.abs(diff) < 0.005;
@@ -4682,7 +4754,7 @@ function reconBuildRow(store, win) {
   // prints a VARIANCE column and leaves him to read it. Reconciling a week that does not tie takes
   // a confirmation naming the amount, so accepting a variance is deliberate rather than a slip.
   const reconcilable = deps.length > 0 && exp.missing.length === 0;
-  return { store, win, expected: exp.total, missing: exp.missing, deps, deposited, diff,
+  return { store, win, expected: exp.total, missing: exp.missing, deps, strays, deposited, diff,
            ties, reconcilable, done: reconIsDone(store, win) };
 }
 
@@ -4846,7 +4918,7 @@ function renderReconcile(nocache) {
 
   // Build every store-week in the period, then split by state. A week is "open" until it is ticked
   // off; reconciled weeks move to the history list and are hidden unless you ask for them.
-  const open = [], done = [];
+  let open = [], done = [];
   for (const store of stores) {
     for (const win of reconWindows(store, want.start, want.end)) {
       const row = reconBuildRow(store, win);
@@ -4868,7 +4940,15 @@ function renderReconcile(nocache) {
   // Then only the LATEST complete week per store survives. Deposits lag about a week, so that is
   // precisely the one whose money has just landed. Any older week still unreconciled is counted too
   // and reachable through the toggle — being behind must never be invisible.
+  // A week whose only missing days are still to come is dropped in BOTH modes — "All weeks" means
+  // every week you could act on, not every week on the calendar. It is reported separately from the
+  // genuinely incomplete ones, because "not yet" and "there is a hole in this" are different jobs.
+  const today   = reconToday();
+  const pending = open.filter(r => reconIsPending(r, today));
+  open = open.filter(r => !reconIsPending(r, today));
+
   const incompleteCount = open.filter(r => r.missing.length).length;
+  const pendingCount    = pending.length;
 
   let shown = open;
   let earlierCount = 0;
@@ -4885,7 +4965,7 @@ function renderReconcile(nocache) {
   const readyCount = shown.filter(r => r.ties).length;
   const offCount   = shown.filter(r => r.reconcilable && !r.ties).length;
 
-  const unatt = reconData.unattributed || [];
+  const unatt = reconUnattributedIn(reconData.unattributed, want.start, want.end);
 
   host.innerHTML = `
     <div class="sec-lbl">Deposit reconciliation</div>
@@ -4903,12 +4983,13 @@ function renderReconcile(nocache) {
       </div>
     </div>
 
-    ${!reconAllWeeks && (earlierCount || incompleteCount) ? `
+    ${(!reconAllWeeks && (earlierCount || incompleteCount)) || pendingCount ? `
       <div class="recon-hidden-note">
-        Showing the latest complete week per store.
-        ${earlierCount ? `<strong>${earlierCount} earlier week${earlierCount === 1 ? '' : 's'} still unreconciled.</strong>` : ''}
-        ${incompleteCount ? `${incompleteCount} week${incompleteCount === 1 ? '' : 's'} hidden for incomplete sales data.` : ''}
-        <button class="toggle-btn recon-linkish" onclick="toggleReconAllWeeks()">Show all</button>
+        ${!reconAllWeeks ? 'Showing the latest complete week per store.' : ''}
+        ${earlierCount && !reconAllWeeks ? `<strong>${earlierCount} earlier week${earlierCount === 1 ? '' : 's'} still unreconciled.</strong>` : ''}
+        ${incompleteCount && !reconAllWeeks ? `${incompleteCount} week${incompleteCount === 1 ? '' : 's'} hidden for incomplete sales data.` : ''}
+        ${pendingCount ? `${pendingCount} week${pendingCount === 1 ? '' : 's'} still in progress — not yet reconcilable.` : ''}
+        ${!reconAllWeeks ? `<button class="toggle-btn recon-linkish" onclick="toggleReconAllWeeks()">Show all</button>` : ''}
       </div>` : ''}
 
     ${unatt.length ? (reconIgnoreUnatt ? `
@@ -5020,6 +5101,18 @@ function renderReconCard(row) {
             </div>
             ${d.memo ? `<div class="recon-dep-memo" title="${escHtml(d.memo)}">${escHtml(d.memo)}</div>` : ''}`).join('')}
           ${row.deps.length > 1 ? `<div class="recon-dep-note">${row.deps.length} deposits this week</div>` : ''}
+        </div>` : ''}
+
+      ${row.strays && row.strays.length ? `
+        <div class="recon-strays">
+          <div class="recon-strays-hd">Set aside — not part of this week's banking</div>
+          ${row.strays.map(d => `
+            <div class="recon-dep">
+              <span class="recon-dep-date">${escHtml(d.date)}</span>
+              <span class="recon-dep-amt">${reconFmtMoney(d.amount)}</span>
+            </div>
+            ${d.memo ? `<div class="recon-dep-memo" title="${escHtml(d.memo)}">${escHtml(d.memo)}</div>` : ''}`).join('')}
+          <div class="recon-dep-note">The deposits above tie to the expected figure exactly, so ${row.strays.length === 1 ? 'this one is' : 'these are'} something else carrying the store's class. Shown, never dropped.</div>
         </div>` : ''}
 
       <div class="recon-foot">

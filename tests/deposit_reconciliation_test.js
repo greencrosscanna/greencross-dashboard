@@ -61,6 +61,7 @@ if (!FALLBACK_SRC) { console.log('RECON_WEEK_START_FALLBACK is gone from index.h
 vm.runInContext(FALLBACK_SRC[0], ctx);
 for (const fn of ['reconAddDays', 'reconDow', 'reconWindowStart', 'reconWindows',
                   'reconWeekStartFor', 'reconWindowForDeposit', 'reconExpectedFor',
+                  'reconIsPending', 'reconUnattributedIn', 'reconSplitStrays',
                   'reconStateKey', 'reconIsDone', 'reconBuildRow']) {
   vm.runInContext(grab(HTML, fn, 'index.html'), ctx);
 }
@@ -253,6 +254,69 @@ reconData.deposits = { Commercial: [] };
 row = C.reconBuildRow('Commercial', week);
 ok('no deposit is never a tie',             row.ties === false && row.deposited === 0);
 ok('no deposit is not reconcilable',        row.reconcilable === false);
+
+// ── Stray deposits (bug_mt98gwt3_dg96) ────────────────────────────────────────────────────────
+// Sky's actual case: 54,996.77 expected, an exact 54,996.77 deposit, and a 36.99 that turned a
+// perfect week into a variance.
+{
+  const exact = { id: 's1', date: '2026-08-25', amount: 54996.77 };
+  const stray = { id: 's2', date: '2026-08-26', amount: 36.99 };
+  const s = C.reconSplitStrays([exact, stray], 54996.77);
+  ok('the exact deposit is kept and the stray set aside',
+     s.kept.length === 1 && s.kept[0].id === 's1' && s.strays.length === 1 && s.strays[0].id === 's2');
+}
+// A legitimately split week (Commercial banks 3 days + 4 days) must survive untouched.
+{
+  const s = C.reconSplitStrays([{ id: 'a', amount: 3000 }, { id: 'b', amount: 5400 }], 8400);
+  ok('a split week that already ties is never carved up', s.strays.length === 0 && s.kept.length === 2);
+}
+// Ambiguity must not be guessed at: two different subsets hit 100, so nothing is set aside.
+{
+  const s = C.reconSplitStrays([{ id: 'a', amount: 100 }, { id: 'b', amount: 100 }, { id: 'c', amount: 7 }], 100);
+  ok('two subsets tying leaves the variance alone', s.strays.length === 0);
+}
+ok('no subset tying leaves the variance alone',
+   C.reconSplitStrays([{ id: 'a', amount: 10 }, { id: 'b', amount: 20 }], 999).strays.length === 0);
+ok('a single deposit is never split', C.reconSplitStrays([{ id: 'a', amount: 5 }], 999).strays.length === 0);
+
+// End to end through reconBuildRow: the stray must not reach the variance.
+allDailyData = { Commercial: {} };
+for (let d = '2026-08-19'; d <= '2026-08-25'; d = C.reconAddDays(d, 1)) {
+  allDailyData.Commercial[d] = { netSales: 1200, tax: 0 };      // 7 x 1200 = 8400
+}
+reconData = { config: { Commercial: 3 }, state: {}, assign: {},
+              deposits: { Commercial: [{ id: 'k', date: '2026-08-26', amount: 8400 },
+                                       { id: 'x', date: '2026-08-26', amount: 36.99 }] } };
+{
+  const r = C.reconBuildRow('Commercial', { start: '2026-08-19', end: '2026-08-25' });
+  ok('a stray does not create a phantom variance', r.ties === true && Math.abs(r.diff) < 0.005);
+  ok('the stray is still carried on the row, not dropped',
+     r.strays.length === 1 && r.strays[0].id === 'x');
+}
+// Against an incomplete week the expected figure is partial, so nothing may be set aside.
+delete allDailyData.Commercial['2026-08-21'];
+ok('an incomplete week is never split',
+   C.reconBuildRow('Commercial', { start: '2026-08-19', end: '2026-08-25' }).strays.length === 0);
+
+// ── Weeks that have not happened yet (bug_mt98qw8l_4405) ──────────────────────────────────────
+ok('a week missing only future days is pending, not incomplete',
+   C.reconIsPending({ missing: ['2026-08-26', '2026-08-27'] }, '2026-08-25') === true);
+ok('a week missing a PAST day is genuinely incomplete',
+   C.reconIsPending({ missing: ['2026-08-20', '2026-08-26'] }, '2026-08-25') === false);
+ok('today itself counts as not-yet-in',
+   C.reconIsPending({ missing: ['2026-08-25'] }, '2026-08-25') === true);
+ok('a complete week is never pending', C.reconIsPending({ missing: [] }, '2026-08-25') === false);
+
+// ── Unattributed deposits outside the period (bug_mt98squt_hzsw) ──────────────────────────────
+// loadRecon fetches a week of slack either side; that slack must not reach the unattributed list.
+{
+  const list = [{ date: '2026-07-15', amount: 10 }, { date: '2026-08-04', amount: 20 },
+                { date: '2026-06-28', amount: 30 }];
+  const got = C.reconUnattributedIn(list, '2026-07-01', '2026-07-31');
+  ok('an August deposit does not show under a July filter',
+     got.length === 1 && got[0].date === '2026-07-15');
+}
+ok('an empty list is handled', C.reconUnattributedIn(null, '2026-07-01', '2026-07-31').length === 0);
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
