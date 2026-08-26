@@ -100,6 +100,21 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
    bottom bar and trays, which are a different design and are deliberately untouched. */
 .dsk-chrome{display:none}
 .main-col{padding-bottom:112px}
+/* Update toast. Sits ABOVE the bottom bar rather than at the top of the screen: the top is the
+   notch, and a banner there either fights the safe area or covers the figure you opened the app
+   to read. Never auto-reloads — a reload mid-task on a phone loses your place. */
+.gc-upd{position:fixed;left:12px;right:12px;bottom:calc(118px + env(safe-area-inset-bottom));z-index:400;
+  display:none;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;
+  background:var(--card-2,#16201c);border:.5px solid rgba(74,222,128,.35);
+  box-shadow:0 6px 20px rgba(0,0,0,.4);font-size:13px;color:var(--text)}
+.gc-upd.show{display:flex}
+.gc-upd-txt{flex:1;min-width:0}
+.gc-upd-btn{flex-shrink:0;border:none;border-radius:7px;padding:7px 12px;font-family:inherit;font-size:13px;
+  font-weight:600;background:var(--green,#4ade80);color:#07130d;cursor:pointer}
+.gc-upd-x{flex-shrink:0;border:none;background:none;color:var(--muted);font-size:16px;cursor:pointer;padding:0 2px}
+@media(min-width:768px) and (hover:hover) and (pointer:fine){
+  .gc-upd{left:auto;right:20px;bottom:20px;max-width:380px}
+}
 /* Mobile hero */
 .mob-hero{padding:18px 0 14px}
 .mh-label{font-size:11px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;display:flex;align-items:center;gap:5px;line-height:1}
@@ -867,6 +882,11 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 </div>
 
 <!-- 1c: pinned mobile bottom bar — two-row design -->
+<div class="gc-upd" id="gc-upd" role="status">
+  <span class="gc-upd-txt" id="gc-upd-txt">A newer version is available.</span>
+  <button class="gc-upd-btn" onclick="gcApplyUpdate()">Reload</button>
+  <button class="gc-upd-x" onclick="gcDismissUpdate()" title="Not now" aria-label="Dismiss">&times;</button>
+</div>
 <div class="mob-bottom-bar" id="mob-bottom-bar">
   <!-- Row 1: filter buttons -->
   <div class="mbb-filter-row">
@@ -1082,7 +1102,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.526';
+const APP_VERSION = 'v2.527';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -6171,6 +6191,89 @@ if (window.GXBugReport) {
     else { var i = RELEASES.findIndex(function (r) { return r.version === seen; }); unseen = i > 0 ? RELEASES.slice(0, i) : (i === 0 ? [] : RELEASES.slice(0, 1)); }
     if (unseen.length) show(unseen); else mark();
   };
+// ── Is this tab running the version that is actually deployed? ────────────────────────────────
+// A phone can sit on a cached copy for days. There is no ?v= cache-buster to hang this on — this app
+// is a monolith with inline JS, so the HTML itself IS the bundle — and the page cannot read its own
+// deployed source without re-downloading a quarter-megabyte to sniff one constant. So it asks GX
+// Core instead: deploy.sh records every release to version_history, and the newest row there is by
+// definition what was last shipped. The call is already made for What's New, and version_history is
+// already in GX_DEV_READS, so this adds a comparison rather than a request.
+//
+// It never reloads on its own. A reload mid-task on a phone loses your scroll position and any tray
+// you had open, and the cost of being one version behind is almost always lower than that.
+window.gcLatestVersion = null;
+
+// 'v2.526' -> [2,526]. Compares segment by segment so v2.9 < v2.10, which a string compare gets
+// backwards, and so a bare 'v39' from the old scheme still orders sanely against it.
+function gcVerParts(v) {
+  return String(v || '').replace(/^v/i, '').split('.').map(function (n) { return parseInt(n, 10) || 0; });
+}
+function gcVerNewer(a, b) {            // is a strictly newer than b?
+  var x = gcVerParts(a), y = gcVerParts(b);
+  for (var i = 0; i < Math.max(x.length, y.length); i++) {
+    var d = (x[i] || 0) - (y[i] || 0);
+    if (d) return d > 0;
+  }
+  return false;
+}
+
+function gcShowUpdate(latest) {
+  // Suppressed for a version the user already dismissed, and for one they already tried to load.
+  // Pages can serve a stale copy for a minute after deploy.sh records the release, so without this
+  // second guard a reload would come back on the old version and re-prompt immediately — a loop.
+  try {
+    if (sessionStorage.getItem('gc_upd_dismissed') === latest) return;
+    if (sessionStorage.getItem('gc_upd_tried') === latest) return;
+  } catch (e) {}
+  var el = document.getElementById('gc-upd'), txt = document.getElementById('gc-upd-txt');
+  if (!el || !txt) return;
+  txt.textContent = 'Version ' + latest + ' is available — you are on ' + APP_VERSION + '.';
+  el.classList.add('show');
+}
+window.gcDismissUpdate = function () {
+  var el = document.getElementById('gc-upd');
+  if (el) el.classList.remove('show');
+  try { sessionStorage.setItem('gc_upd_dismissed', window.gcLatestVersion || ''); } catch (e) {}
+};
+window.gcApplyUpdate = function () {
+  var v = window.gcLatestVersion || String(Date.now());
+  try { sessionStorage.setItem('gc_upd_tried', v); } catch (e) {}
+  // A plain reload() can be served from cache, which is the whole problem. A URL the browser has
+  // never seen cannot be.
+  location.replace(location.pathname + '?v=' + encodeURIComponent(v));
+};
+
+// Checked on boot and whenever the tab comes back to the foreground — waking the phone is exactly
+// when a days-old copy surfaces. Throttled so backgrounding and foregrounding does not hammer Core.
+var _gcVerCheckedAt = 0;
+function gcCheckVersion(force) {
+  if (typeof GXClient === 'undefined') return;
+  // Not while signed out. The login overlay covers the toast anyway, so the prompt would be
+  // invisible noise — and a version check is not worth a call to Core before anyone is looking.
+  try { if (!GC_SALES_AUTH.isAuthed()) return; } catch (e) { return; }
+  var now = Date.now();
+  if (!force && now - _gcVerCheckedAt < 5 * 60 * 1000) return;
+  _gcVerCheckedAt = now;
+  GXClient(GXCORE).jsonp('version_history', { app: 'sales' }).then(function (d) {
+    var rel = (d && d.ok && (d.releases || d.history)) || [];
+    if (!rel.length) return;
+    // Newest first by contract, but do not trust the order — take the max.
+    var latest = rel[0].version;
+    rel.forEach(function (r) { if (gcVerNewer(r.version, latest)) latest = r.version; });
+    window.gcLatestVersion = latest;
+    if (gcVerNewer(latest, APP_VERSION)) gcShowUpdate(latest);
+  }).catch(function () {});
+}
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState === 'visible') gcCheckVersion(false);
+});
+setTimeout(function () { gcCheckVersion(true); }, 4000);
+
+// This block sits inside the What's New IIFE, so these are local by default. Exported deliberately:
+// the comparator is the part with edge cases worth checking from a console or a test.
+window.gcVerParts = gcVerParts; window.gcVerNewer = gcVerNewer;
+window.gcShowUpdate = gcShowUpdate; window.gcCheckVersion = gcCheckVersion;
+
   window.loadWhatsNewSales = function () {
     if (typeof GXClient === 'undefined') return;
     GXClient(GXCORE).jsonp('version_history', { app: 'sales' }).then(function (d) {
