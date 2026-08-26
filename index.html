@@ -342,7 +342,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 
 /* ── Income 2.0 layout ─────────────────────────────────────────────────────── */
 /* Mobile (ic-mob): shown by default; Desktop (ic-dsk): hidden until @media     */
-.ic-mob{display:flex;flex-direction:column;gap:12px;margin-bottom:8px}
+.ic-mob{display:flex;flex-direction:column;gap:10px;margin-bottom:8px}
 .ic-dsk{display:none}
 /* Hero card */
 .ic-hero-card{background:var(--card);border-radius:12px;padding:18px 16px;position:relative}
@@ -371,6 +371,22 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .ic-mob-bd{background:var(--card);border-radius:10px;padding:6px 12px}
 .ic-bd-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:.5px solid var(--border)}
 .ic-bd-row:last-child{border-bottom:none}
+/* A store whose data has not arrived. The row is already the right SIZE — these only stand in for
+   the two numbers, so nothing moves when the real ones land. Reuses storeShimmer, the same sweep the
+   store pills use while loading, so "waiting" looks the same everywhere in the app. */
+.bd-skel{display:inline-block;border-radius:4px;vertical-align:middle;
+  background-color:rgba(230,236,233,.06);
+  background-image:linear-gradient(90deg,transparent 20%,rgba(230,236,233,.13) 50%,transparent 80%);
+  background-size:200% 100%;animation:storeShimmer 1.15s ease-in-out infinite}
+.bd-skel-val{width:54px;height:14px}
+.bd-skel-diff{width:34px;height:9px}
+/* The bar animates from 0 to its real width when the store lands — the fill already transitions,
+   so a pending row simply starts at 0 and grows rather than appearing at full length. */
+.bd-pending .sbar-fill{transition:width .45s cubic-bezier(.2,.8,.3,1)}
+@media(prefers-reduced-motion:reduce){
+  .bd-skel{animation:none}
+  .bd-pending .sbar-fill{transition:none}
+}
 .ic-bd-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
 .ic-bd-name-col{flex:1;min-width:0}
 .ic-bd-name{font-size:13px;color:var(--text);line-height:1.1;margin-bottom:6px}
@@ -1102,7 +1118,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.531';
+const APP_VERSION = 'v2.532';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -3460,9 +3476,19 @@ function animateStorePacingBars(animate) {
   });
 }
 
+// The order the rows were in the last time every store had landed. Held so that a re-poll — which
+// empties liveData and refills it store by store — refreshes the numbers in place instead of
+// resorting the list under the reader's eyes.
+let _bdOrder = null;
+
 function _storeBreakdownRows(stores, storeNets, isClosed, pacingPct, yr, daysInMo) {
   const today = toDateStr(new Date());
-  return stores.filter(s => liveData[s]).map(s => {
+  // NOT filtered to the stores that have arrived. Every store is a row immediately, pending or not.
+  // Building the list as data came in meant the section changed height six times per load, and
+  // loadAllStores clears liveData first, so a re-poll tore the whole thing down and rebuilt it. It
+  // also hid a straggler: a store that never answered simply had no row, which reads as "no such
+  // store" rather than "still waiting".
+  return stores.map(s => {
     const st          = STORE_MAP.get(s);
     const col         = st?.color || '#888';
     const snet        = storeNets[s];
@@ -3485,33 +3511,55 @@ function _storeBreakdownRows(stores, storeNets, isClosed, pacingPct, yr, daysInM
     const markInFill   = sOnPace && sBarW > 0 ? (sPacePos / sBarW * 100).toFixed(1) : 100;
     const sFillCls     = sPaceRatio >= PACE_GREEN ? 'green over' : sPaceRatio >= PACE_AMBER ? 'amber' : 'red';
     const sFillStyle   = sOnPace ? `--mark-in-fill:${markInFill}%` : '';
-    return { s, st, col, snet, sPeriodGoal, sGoalPct, sFillCls, sFillStyle, sBarW, sPacePos, diff };
-  }).sort((a, b) => b.snet - a.snet);
+    return { s, st, col, snet, sPeriodGoal, sGoalPct, sFillCls, sFillStyle, sBarW, sPacePos, diff,
+             pending: !liveData[s] };
+  });
+}
+
+// Sorting by value while values are still arriving is what makes rows jump. Re-sort only once every
+// store has landed, and remember that order; while anything is pending, reuse it so the list holds
+// still. On a cold start there is nothing to reuse, so loaded stores sort by value and pending ones
+// wait at the bottom in registry order — that is the only moment rows are allowed to move.
+function _bdApplyOrder(rows) {
+  if (rows.every(r => !r.pending)) {
+    rows.sort((a, b) => b.snet - a.snet);
+    _bdOrder = rows.map(r => r.s);
+    return rows;
+  }
+  if (_bdOrder) {
+    const ix = s => { const i = _bdOrder.indexOf(s); return i === -1 ? 1e6 : i; };
+    return rows.sort((a, b) => ix(a.s) - ix(b.s));
+  }
+  return rows.sort((a, b) => (a.pending - b.pending) || (b.snet - a.snet));
 }
 
 function _incomeBreakdownMobHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo) {
-  const rows = _storeBreakdownRows(stores, storeNets, isClosed, pacingPct, yr, daysInMo);
-  return rows.map(({s, st, col, snet, sPeriodGoal, sGoalPct, sFillCls, sFillStyle, sBarW, sPacePos, diff}) =>
-    `<div class="ic-bd-row">
+  const rows = _bdApplyOrder(_storeBreakdownRows(stores, storeNets, isClosed, pacingPct, yr, daysInMo));
+  return rows.map(({s, st, col, snet, sPeriodGoal, sGoalPct, sFillCls, sFillStyle, sBarW, sPacePos, diff, pending}) =>
+    `<div class="ic-bd-row${pending ? ' bd-pending' : ''}">
       <div class="swatch" style="background:${col}"></div>
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;font-weight:500;color:var(--text)">${st?.display||s}</div>
         ${sPeriodGoal > 0 ? `<div class="sbar-wrap" style="margin-top:5px">
           <div class="sbar-track"></div>
-          <div class="sbar-fill ${sFillCls}" data-final="${sBarW}%" style="${sFillStyle}"></div>
-          <div class="sbar-mark" style="left:${sPacePos}%"></div>
+          <div class="sbar-fill ${sFillCls}" data-final="${pending ? '0%' : sBarW + '%'}" style="${sFillStyle}"></div>
+          ${pending ? '' : `<div class="sbar-mark" style="left:${sPacePos}%"></div>`}
         </div>` : ''}
       </div>
       <div style="text-align:right;flex-shrink:0">
-        <div class="sval">${fmtK(snet)}</div>
-        ${sPeriodGoal > 0 ? `<div class="sdiff ${diff>=0?'good':'bad'}" style="font-size:10px">${diff>=0?'+':''}${fmtK(diff)}</div>` : ''}
+        <div class="sval">${pending ? '<span class="bd-skel bd-skel-val"></span>' : fmtK(snet)}</div>
+        ${sPeriodGoal > 0
+          ? (pending
+              ? `<div class="sdiff" style="font-size:10px"><span class="bd-skel bd-skel-diff"></span></div>`
+              : `<div class="sdiff ${diff>=0?'good':'bad'}" style="font-size:10px">${diff>=0?'+':''}${fmtK(diff)}</div>`)
+          : ''}
       </div>
     </div>`
   ).join('');
 }
 
 function _incomeBreakdownDskHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo) {
-  const rows = _storeBreakdownRows(stores, storeNets, isClosed, pacingPct, yr, daysInMo);
+  const rows = _bdApplyOrder(_storeBreakdownRows(stores, storeNets, isClosed, pacingPct, yr, daysInMo));
   // The compare column exists only while compare is on, so the grid gains a 4th track with it.
   const cmp = compareOn() ? ' cmp' : '';
   const cmpCell = (s, snet) => {
@@ -3527,8 +3575,8 @@ function _incomeBreakdownDskHtml(stores, storeNets, isClosed, pacingPct, yr, day
   return `<div class="ic-dsk-bd-hdr${cmp}">
       <span>Store</span><span>Sales</span><span>${isClosed?'Goal':'vs Pace'}</span>${cmp ? `<span>vs ${compareShort()}</span>` : ''}
     </div>
-    ${rows.map(({s, st, col, snet, sPeriodGoal, sGoalPct, sFillCls, sFillStyle, sBarW, sPacePos, diff}) =>
-      `<div class="ic-dsk-bd-row${cmp}">
+    ${rows.map(({s, st, col, snet, sPeriodGoal, sGoalPct, sFillCls, sFillStyle, sBarW, sPacePos, diff, pending}) =>
+      `<div class="ic-dsk-bd-row${cmp}${pending ? ' bd-pending' : ''}">
         <div class="ic-dsk-bd-store">
           <div class="swatch" style="background:${col};flex-shrink:0"></div>
           <span>${st?.display||s}</span>
@@ -3536,13 +3584,17 @@ function _incomeBreakdownDskHtml(stores, storeNets, isClosed, pacingPct, yr, day
         <div class="ic-dsk-bd-bar-col">
           ${sPeriodGoal > 0 ? `<div class="sbar-wrap">
             <div class="sbar-track"></div>
-            <div class="sbar-fill ${sFillCls}" data-final="${sBarW}%" style="${sFillStyle}"></div>
-            <div class="sbar-mark" style="left:${sPacePos}%"></div>
+            <div class="sbar-fill ${sFillCls}" data-final="${pending ? '0%' : sBarW + '%'}" style="${sFillStyle}"></div>
+            ${pending ? '' : `<div class="sbar-mark" style="left:${sPacePos}%"></div>`}
           </div>` : ''}
         </div>
         <div class="ic-dsk-bd-nums">
-          <span class="sval">${fmtK(snet)}</span>
-          ${sPeriodGoal > 0 ? `<span class="sdiff ${diff>=0?'good':'bad'}">${diff>=0?'+':''}${fmtK(diff)}</span>` : ''}
+          <span class="sval">${pending ? '<span class="bd-skel bd-skel-val"></span>' : fmtK(snet)}</span>
+          ${sPeriodGoal > 0
+            ? (pending
+                ? `<span class="sdiff"><span class="bd-skel bd-skel-diff"></span></span>`
+                : `<span class="sdiff ${diff>=0?'good':'bad'}">${diff>=0?'+':''}${fmtK(diff)}</span>`)
+            : ''}
         </div>
         ${cmpCell(s, snet)}
       </div>`
