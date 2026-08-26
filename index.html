@@ -56,7 +56,7 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html{background:var(--bg)}
 body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif);background:var(--bg);color:var(--text);min-height:100vh;min-height:100dvh;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
-.w{padding:10px 14px 16px;max-width:480px;margin:0 auto}
+.w{padding:4px 14px 16px;max-width:480px;margin:0 auto}
 .logo-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding-top:8px}
 .logo-text{font-size:17px;font-weight:500;color:var(--text)}
 .logo-sub{font-size:11px;color:var(--muted)}
@@ -1082,7 +1082,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.521';
+const APP_VERSION = 'v2.522';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -3334,8 +3334,11 @@ function _incomeKpiDskHtml(net, gross, orders, disc, cost, aov, dnet, dcost) {
 // every full income mount — per-render binding would leak a listener set per view change.
 
 const P_SWIPE_COMMIT = 56;   // px of travel that counts as a step
-const P_SWIPE_TRAVEL = 0.6;  // the card follows the finger at 60%, so the drag reads as a nudge
+const P_SWIPE_TRAVEL = 0.92; // the card tracks the finger almost 1:1 — at 0.6 the drag read as a
+                             // twitch rather than as dragging the card
 const P_SWIPE_DAMP   = 0.25; // rubber-band, not travel, when the neighbour is in the future
+const P_SWIPE_OUT_MS = 150;  // the throw. Short — this is dead time before the new figure appears
+const P_SWIPE_IN_MS  = 260;  // the arrival. Longer, so the eye follows the card in and lands on it
 let _pDrag = null;           // { x, y, dx } while a drag is live
 
 // Painted straight onto the node rather than through render() — a re-render per pointermove would
@@ -3356,13 +3359,51 @@ function _pDragEnd() {
   if (!_pDrag) return;
   const dx = _pDrag.dx;
   _pDrag = null;
-  _pDragPaint(0, true);
-  if (Math.abs(dx) > P_SWIPE_COMMIT) {
-    // A no-op on iOS Safari — there is no web haptics API on iPhone, so this is silent on the
-    // target device. Kept because it does fire on Android.
-    if (navigator.vibrate) navigator.vibrate(8);
-    periodStep(dx < 0 ? 1 : -1);
-  }
+  if (Math.abs(dx) <= P_SWIPE_COMMIT) return _pDragPaint(0, true);   // under the threshold: spring back
+  // A no-op on iOS Safari — there is no web haptics API on iPhone, so this is silent on the
+  // target device. Kept because it does fire on Android.
+  if (navigator.vibrate) navigator.vibrate(8);
+  _pCommit(dx < 0 ? 1 : -1);
+}
+
+// A committed swipe used to snap the card back to centre and swap the numbers underneath it in the
+// same frame, so the only evidence anything happened was the figures being different — easy to miss
+// entirely, and indistinguishable from a swipe that did not take.
+//
+// The card now LEAVES in the direction of the throw, and the new period arrives from the opposite
+// side. That reads as moving through a series rather than as a value blinking, and it makes a
+// non-commit (spring back) and a commit (fly out) two obviously different animations.
+//
+// Anyone who has asked their phone for less motion gets the old instant swap — for a vestibular
+// trigger, a card flying across the screen is exactly the thing they turned off.
+function _pCommit(dir) {
+  const el = document.getElementById('ic-mob-hero');
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!el || reduce) { _pDragPaint(0, false); return periodStep(dir); }
+
+  const off = dir > 0 ? -1 : 1;   // swiping to the NEXT period throws the card left
+  el.style.transition = `transform ${P_SWIPE_OUT_MS}ms cubic-bezier(.4,0,1,1),opacity ${P_SWIPE_OUT_MS}ms linear`;
+  el.style.transform  = `translateX(${off * 120}px)`;
+  el.style.opacity    = '0';
+
+  setTimeout(() => {
+    periodStep(dir);            // numbers change while the card is off screen and invisible
+    // periodStep re-renders, so the node may be a different element than the one thrown.
+    const next = document.getElementById('ic-mob-hero');
+    if (!next) return;
+    next.style.transition = 'none';
+    next.style.transform  = `translateX(${-off * 120}px)`;
+    next.style.opacity    = '0';
+    // Two frames: one for the browser to accept the start state, one to animate away from it.
+    // A single rAF sometimes coalesces with the style write above and the entry is skipped.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const n = document.getElementById('ic-mob-hero');
+      if (!n) return;
+      n.style.transition = `transform ${P_SWIPE_IN_MS}ms cubic-bezier(.15,.85,.3,1),opacity ${P_SWIPE_IN_MS}ms ease-out`;
+      n.style.transform  = 'translateX(0)';
+      n.style.opacity    = '1';
+    }));
+  }, P_SWIPE_OUT_MS);
 }
 
 document.addEventListener('pointerdown', e => {
