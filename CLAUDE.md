@@ -96,6 +96,42 @@ one that hid the misnamed-secret regression for an unknown stretch. `last_source
 `gxcore@…`; the field stays because it is what made that regression visible, and `null` (nothing has
 missed cache yet) is still meaningfully different from a stale timestamp.
 
+**Reconcile counts the Dutchie sales banking and nothing else — by MEMO, not by arithmetic.**
+`reconIsSalesDeposit` reads the QuickBooks memo, because the tab answers one question: did this
+store bank what it SOLD that week. A `Printer Ink (refund)` line classed to Portland Rd is real
+money and not that. Everything it rejects goes to the **not included in a store's week** list with
+its amount and memo showing — never dropped, and it survives reconciling the week.
+
+The vocabulary is **measured, not guessed** — `?action=reconprobe&start=…&end=…` reports it. Over
+2026-05-25..08-31 the live route gave **103** store-classed deposits: 102 carrying all five of
+`Sales 3% Tax` · `Sales 17% Tax` · `Med Sales` · `Rec Sales` · `Non MJ Sales`, one
+`Printer Ink (refund)`, one `Report does not match`.
+
+Two things about that rule are load-bearing and easy to "simplify" into a bug:
+
+- **ANY sales line qualifies, not ALL of them.** `Report does not match` is not a deposit — it is a
+  SIXTH line on a real Commercial banking, someone's annotation, and it is what Commercial's
+  `max_lines_folded: 6` is. An all-lines rule throws a genuine week's banking onto the not-included
+  list.
+- **A memo naming `sales` or `tax` also counts**, beyond the exact five. Exact-match-only is a bad
+  single point of failure: rename a QuickBooks category and EVERY deposit becomes non-sales at once,
+  so every week silently reads nothing banked. Both known outliers name neither word. A deposit with
+  **no** memo is not counted — no memo is not positive evidence of sales — but it lands on the
+  not-included list with its amount visible rather than silently joining a week.
+
+*This replaced an earlier rule that inferred strays by finding a subset of a week's deposits that
+tied to the expected figure exactly. Don't go back to it: it only works on a week that TIES, and
+most weeks do not — measured on Shawn's 08.17.26 slips, five of six stores carried a variance. It
+also had to refuse whenever two subsets both hit the number, and be switched off entirely on an
+incomplete week. Classifying a deposit by what it IS needs none of that.*
+
+**`reconData` carries the range it was fetched for.** It used to be a bare global that only reloaded
+when null, so changing the period drew the OLD range's deposits against the NEW period's week
+windows until someone hit Refresh — a wrong answer, not just friction. `reconDataStale_` compares
+the two and the render reloads on a mismatch; visited ranges come back from a 30-minute client cache.
+Failures are deliberately never cached, but ARE tagged with their range so an error renders once
+instead of re-fetching forever.
+
 **The write guard is LIVE BUT DARK — don't mistake it for enforcing.** All four writes
 (`save_expense_mapping` GET+POST, `set_otherrev`, `set_revenue`, `clear_atm_cache`) call `writeGuard_`,
 which asks `GXCore.roleForApp(user, 'sales')` and **records what it would have decided without acting on

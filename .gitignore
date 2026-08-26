@@ -11,3 +11,10 @@
 
 # Netlify CLI link state — machine-local (site id, and a .DS_Store). Not repo content.
 .netlify/
+
+# Design handoffs and their source zips. Working artifacts, not repo content: they are spent once
+# the redesign ships (income layout -> 8954c53, period selector -> 6a48c8d). .claspignore already
+# keeps them out of the Apps Script push; this keeps them out of git status too, so a shipped
+# handoff sitting on disk stops reading as work in progress.
+design_handoff_*/
+*redesign*.zip
