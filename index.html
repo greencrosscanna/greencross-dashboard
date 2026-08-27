@@ -6178,6 +6178,11 @@ if (window.GXBugReport) {
     reporter: function () { try { return (GC_SALES_AUTH.load() || {}).user || ''; } catch (e) { return ''; } },
     version:  function () { return APP_VERSION; },
     context:  function () { return { tab: (typeof section !== 'undefined' ? section : '') || '' }; },
+    uploadShot: GXBugReport.gxCoreUploader(GXCORE, function () {
+      // This app's submit is a GET query string, which a ~273KB base64 would not survive — which is
+      // exactly why the image goes up on its own call instead of in the payload.
+      try { return (GC_SALES_AUTH.load() || {}).token || ''; } catch (e) { return ''; }
+    }),
     submit: function (payload) {
       var session = GC_SALES_AUTH.load() || {};
       var params  = new URLSearchParams(Object.assign({}, payload, { token: session.token || '' }));
