@@ -1124,7 +1124,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.535';
+const APP_VERSION = 'v2.536';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1533,6 +1533,7 @@ const DAY_LETTERS = ['S','M','T','W','T','F','S'];
 const THRESHOLDS = Object.freeze({
   STORE_OPEN_HOUR:       8,     // 8 am
   STORE_CLOSE_HOUR:      22,    // 10 pm
+  QUIET_START_HOUR:      22.25, // 10:15 pm — auto-refresh sleeps until STORE_OPEN_HOUR
   DISCOUNT_FLAG_PCT:     0.04,  // 4 % → red
   GOAL_BAR_FILL_RATIO:   0.8,   // bar fills to 80 % of container width
   DOW_MIN_SAMPLES:       4,     // minimum days per DOW for weighted average
@@ -1907,6 +1908,42 @@ function refreshLiveData() {
 const AUTO_REFRESH_MS = 60 * 1000; // 60 seconds
 let _autoRefreshTimer = null;
 
+/* Stores are shut between 22:00 and 08:00, so every overnight tick re-fetched six stores to learn
+ * that nothing had sold — ~580 polls a night, all of them answering the same question.
+ *
+ * 22:15 rather than 22:00 deliberately: the last transactions of a night land after the doors lock,
+ * and a 15-minute tail is 15 polls against losing the final sale of the day off the dashboard until
+ * morning.
+ *
+ * Three things about WHERE this gate sits are load-bearing:
+ *
+ * - It gates the auto-refresh TICK, never refreshLiveData() itself. Hitting Refresh at 2am must
+ *   still fetch, and a page LOAD at 11pm must still load — this is about the unattended poll, not
+ *   about refusing data to someone who is looking at the screen.
+ * - The timer keeps RUNNING through the window instead of being cleared. A skipped tick costs
+ *   nothing, and it means 08:00 resumes on its own with no wake-up timer to get wrong; clearing it
+ *   would need something to restart it, and nothing would have.
+ * - It does NOT touch the 10-minute auth heartbeat. That renews the session token, so pausing it
+ *   overnight would sign out every tab left open — a much worse morning than a stale number.
+ */
+function inQuietHours(now) {
+  const d = now || new Date();
+  const h = d.getHours() + d.getMinutes() / 60;
+  // The window wraps midnight, so this is an OR. An AND is never true and silently disables it.
+  return h >= THRESHOLDS.QUIET_START_HOUR || h < THRESHOLDS.STORE_OPEN_HOUR;
+}
+
+/* A paused poll has to SAY it is paused. The pill is the only thing on screen claiming the numbers
+ * are current, so it is the thing that has to stop claiming it — otherwise a tab left open all night
+ * shows a green "Live · 6/6 stores" over figures that stopped moving at 10:15pm, which is a worse
+ * failure than the polling this saves. Muted, not red: nothing is wrong. */
+function paintQuietPill() {
+  const at = new Date();
+  at.setHours(THRESHOLDS.STORE_OPEN_HOUR, 0, 0, 0);
+  const when = at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  pill('muted', `Paused overnight \u00b7 resumes ${when}`);
+}
+
 function scheduleAutoRefresh() {
   clearAutoRefresh();
   // Only auto-refresh on the current month — historical views are static
@@ -1918,6 +1955,7 @@ function scheduleAutoRefresh() {
     // "Live" pill while polling nothing — pace only moved when a tab switch happened to refresh it.
     if (_loadAllStoresInFlight || document.hidden) return;
     if (activeDay && activeDay !== toDateStr(new Date())) return; // historical days stay static
+    if (inQuietHours()) { paintQuietPill(); return; }             // stores are shut — see above
     refreshLiveData();
   }, AUTO_REFRESH_MS);
 }
@@ -1931,8 +1969,11 @@ document.addEventListener('visibilitychange', function() {
   if (document.hidden) {
     clearAutoRefresh();
   } else if (Object.keys(liveData).length > 0) {
-    refreshLiveData();      // immediate catch-up refresh
-    scheduleAutoRefresh();  // then resume the timer
+    // Returning to the tab overnight is still the unattended poll this pauses — catching up would
+    // just fetch the same closed-store numbers. Say so instead; Refresh is right there if wanted.
+    if (inQuietHours()) paintQuietPill();
+    else refreshLiveData();   // immediate catch-up refresh
+    scheduleAutoRefresh();    // then resume the timer either way, so 08:00 picks itself up
   }
 });
 
