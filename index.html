@@ -32,6 +32,11 @@
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-topnav.js"></script>
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-changelog.js"></script>
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-bugreport.js"></script>
+<!-- Shared maintenance gate — the "out back" screen that covers the app when it is deliberately
+     down. NOT deferred, unlike gx-client.js below: the gate overlays at z-index 10000 (above this
+     app's #gc-login-overlay at 999), and being told the app is down should not wait on the rest of
+     the page. init() is called further down, where GXCORE exists. -->
+<script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-maintenance.js"></script>
 <style>
 :root{
   --bg:var(--gx-bg,#0a0e0d);
@@ -1124,7 +1129,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.536';
+const APP_VERSION = 'v2.537';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1177,6 +1182,27 @@ const STORES = [
 ];
 
 const GXCORE = 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec';
+
+/* Maintenance gate. Two independent levers gate this app, either one alone: gx-maintenance.json on
+ * gx-theme Pages (a plain fetch, so it still works when GX Core is down — which is the outage this
+ * screen usually exists for), and cfg.maint.sales / cfg.maint.all in GX Core kv, flipped instantly
+ * from Master Control. Turning it off means clearing BOTH. Anything unreadable counts as UP, so a
+ * bad minute of GitHub's CDN cannot manufacture an outage. Preview with ?gxmaint=on, bypass with
+ * ?gxmaint=off; both stick for the session.
+ *
+ * Placed HERE rather than beside the <script> tag because it needs GXCORE, which is the line above.
+ * The core-admin note's snippet says `gxcore: GXCORE_URL` — that is the shared doc's placeholder
+ * name; this app calls it GXCORE, and the literal snippet would throw.
+ *
+ * The DOMContentLoaded re-check is this app's own wrinkle, not boilerplate: gx-client.js loads with
+ * `defer`, so GXClient does not exist yet while this inline script runs, and fromCore() skips the kv
+ * lever whenever GXClient is missing — silently, by design. Without the forced re-check the cockpit's
+ * instant lever would do nothing here until something happened to fire a visibilitychange, and the
+ * Pages flag would be the only one that worked. */
+if (window.GXMaintenance) {
+  GXMaintenance.init({ app: 'sales', appName: 'Sales / Cashflow', gxcore: GXCORE });
+  document.addEventListener('DOMContentLoaded', function () { GXMaintenance.check(true); });
+}
 
 // Leaderboard GAS — computed rolling/YoY goals, authoritative for current month
 // URL is kept in GX Core config (key=lbGoals); hardcode is offline fallback only
