@@ -1124,7 +1124,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.534';
+const APP_VERSION = 'v2.535';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -2940,6 +2940,61 @@ function getPacingPct(stores) {
   return Math.round(today.getDate() / daysInMo * 100);
 }
 
+/**
+ * DOW-weighted fraction of ONE month's goal that should have been earned through `throughDay` (0–1).
+ * A flat day/daysInMonth is wrong here: a month that has already run its Fridays is further along
+ * than the date alone says. Deliberately scale-free — the caller multiplies it by the authoritative
+ * monthly goal, so an lbGoals-vs-budget mismatch cannot leak into the answer twice.
+ */
+function monthGoalFrac(stores, month, yr, daysInMo, throughDay) {
+  let paced = 0, full = 0;
+  for (let d = 1; d <= daysInMo; d++) {
+    const dow = new Date(yr, month - 1, d).getDay();
+    const g   = stores.reduce((a, s) => a + getDailyGoal(s, dow, month, yr, daysInMo), 0);
+    full += g;
+    if (d <= throughDay) paced += g;
+  }
+  return full > 0 ? paced / full : 0;
+}
+
+/**
+ * Income's pacing %: how much of the SELECTED PERIOD'S GOAL should have been earned by now.
+ *
+ * Identical to getPacingPct() everywhere except YTD, and that exception is the entire point.
+ * The Income tab's YTD goal is ALREADY a to-date figure — getGoal() sums Jan..current month, not
+ * Jan..Dec — so scaling it by the fraction of the CALENDAR YEAR elapsed discounts an
+ * already-discounted goal. That is what printed "+$1,774,488 over pace" directly under a hero
+ * reading "98% of $5,369,852 goal": 98% of the goal, measured against 65% of it. Two clocks.
+ *
+ * Whole elapsed months count in full; only the current month is pro-rated, by the same DOW
+ * weighting the month view uses — so the hero, the pace marker and the six store rows all move
+ * on one clock.
+ *
+ * The Expenses tab must NOT be switched to this. Its YTD budget IS all twelve months
+ * (`Object.values(expBudgets[name])`), so the plain calendar fraction is the correct multiplier
+ * there. Same word, two different periods — that is why this is a second function and not an
+ * edit to getPacingPct().
+ */
+function getGoalPacingPct(stores) {
+  if (activeDay || activeWeek || activeMonth !== MONTH_YTD) return getPacingPct(stores);
+  const today = new Date();
+  const yr    = activeYear;
+  if (yr < today.getFullYear()) return 100;
+  if (yr > today.getFullYear()) return 0;
+  const curMonth = today.getMonth() + 1;
+  const list     = (stores && stores.length) ? stores : getActiveStores();
+  let goalToDate = 0, expected = 0;
+  for (let m = 1; m <= curMonth; m++) {
+    const mGoal = list.reduce((a, s) => a + getMonthlyGoal(s, m, yr), 0);
+    goalToDate += mGoal;
+    expected   += m < curMonth
+      ? mGoal
+      : mGoal * monthGoalFrac(list, m, yr, new Date(yr, m, 0).getDate(), today.getDate());
+  }
+  if (goalToDate <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round(expected / goalToDate * 100)));
+}
+
 function getActiveStores() {
   if (activeStoreSet !== null) {
     return STORES.map(s => s.name).filter(n => activeStoreSet.has(n));
@@ -3264,7 +3319,7 @@ function _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores) {
       return `
         <div class="ic-proj-lbl">Est. end of day</div>
         <div class="ic-proj-val">${fmtK(estEOD)}</div>
-        <div class="ic-proj-above ${delta >= 0 ? 'good' : 'bad'}">${delta >= 0 ? '+' : ''}${fmtK(delta)} ${delta >= 0 ? 'above' : 'below'} target</div>
+        <div class="ic-proj-above ${delta >= 0 ? 'good' : 'bad'}">${delta >= 0 ? '+' : ''}${fmtK(Math.abs(delta))} ${delta >= 0 ? 'above' : 'below'} target</div>
         <div class="ic-proj-div"></div>
         <div class="ic-proj-row"><span class="ic-proj-rlbl">Daily target</span><span class="ic-proj-rval">${fmtD(periodGoal)}</span></div>`;
     } else {
@@ -3273,7 +3328,7 @@ function _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores) {
       return `
         <div class="ic-proj-lbl">vs Daily target</div>
         <div class="ic-proj-val">${fmtK(net)}</div>
-        <div class="ic-proj-above ${delta >= 0 ? 'good' : 'bad'}">${delta >= 0 ? '+' : ''}${fmtK(delta)} ${delta >= 0 ? 'above' : 'below'} target</div>
+        <div class="ic-proj-above ${delta >= 0 ? 'good' : 'bad'}">${delta >= 0 ? '+' : ''}${fmtK(Math.abs(delta))} ${delta >= 0 ? 'above' : 'below'} target</div>
         <div class="ic-proj-div"></div>
         <div class="ic-proj-row"><span class="ic-proj-rlbl">Daily target</span><span class="ic-proj-rval">${fmtD(periodGoal)}</span></div>
         <div class="ic-proj-row"><span class="ic-proj-rlbl">Achievement</span><span class="ic-proj-rval ${pct >= 100 ? 'good' : 'bad'}">${pct}%</span></div>`;
@@ -3281,6 +3336,29 @@ function _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores) {
   }
   if (!periodGoal) return `<div class="ic-proj-lbl">Projection</div><div class="ic-proj-val">—</div>`;
   const today   = new Date();
+  // YTD, current year. The generic month block below divides by daysInMo — which is 365 here — and
+  // labels the result "Projected month". With 236 days elapsed that made the daily run rate 65% of
+  // the real one ($14,424 against $22,309) and the "projection" exactly equal to net, i.e. not a
+  // projection at all. The YTD goal runs through the END of the current month, so project net to
+  // that same boundary; comparing a full-year projection against a Jan..Aug goal would just be the
+  // two-clock bug wearing a different hat.
+  if (activeMonth === MONTH_YTD && activeYear === today.getFullYear()) {
+    const dayOfYear = Math.floor((today - new Date(activeYear, 0, 1)) / 86400000) + 1;
+    const monthEnd  = new Date(activeYear, today.getMonth() + 1, 0).getDate();
+    const remaining = Math.max(0, monthEnd - today.getDate());
+    const runRate   = dayOfYear > 0 ? net / dayOfYear : 0;
+    const projected = Math.round(net + runRate * remaining);
+    const aboveGoal = projected - periodGoal;
+    const dailyRate = Math.round(runRate);
+    const needed    = remaining > 0 ? Math.max(0, Math.round((periodGoal - net) / remaining)) : 0;
+    return `
+    <div class="ic-proj-lbl">Projected YTD</div>
+    <div class="ic-proj-val">${fmtK(projected)}</div>
+    <div class="ic-proj-above ${aboveGoal >= 0 ? 'good' : 'bad'}">${aboveGoal >= 0 ? '+' : ''}${fmtK(Math.abs(aboveGoal))} ${aboveGoal >= 0 ? 'above' : 'below'} goal</div>
+    <div class="ic-proj-div"></div>
+    <div class="ic-proj-row"><span class="ic-proj-rlbl">Daily run rate</span><span class="ic-proj-rval">${fmtD(dailyRate)}</span></div>
+    ${remaining > 0 ? `<div class="ic-proj-row"><span class="ic-proj-rlbl">Needed to goal</span><span class="ic-proj-rval ${needed > dailyRate ? 'bad' : 'good'}">${fmtD(needed)}/day</span></div>` : ''}`;
+  }
   const dayNum  = !isClosed && activeMonth === today.getMonth() + 1 && activeYear === today.getFullYear()
                   ? today.getDate() : daysInMo;
   const runRate = dayNum > 0 ? net / dayNum : 0;
@@ -3292,7 +3370,7 @@ function _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores) {
   return `
     <div class="ic-proj-lbl">Projected month</div>
     <div class="ic-proj-val">${fmtK(projected)}</div>
-    <div class="ic-proj-above ${aboveGoal >= 0 ? 'good' : 'bad'}">${aboveGoal >= 0 ? '+' : ''}${fmtK(aboveGoal)} ${aboveGoal >= 0 ? 'above' : 'below'} goal</div>
+    <div class="ic-proj-above ${aboveGoal >= 0 ? 'good' : 'bad'}">${aboveGoal >= 0 ? '+' : ''}${fmtK(Math.abs(aboveGoal))} ${aboveGoal >= 0 ? 'above' : 'below'} goal</div>
     <div class="ic-proj-div"></div>
     <div class="ic-proj-row"><span class="ic-proj-rlbl">Daily run rate</span><span class="ic-proj-rval">${fmtD(dailyRate)}</span></div>
     ${!isClosed && remaining > 0 ? `<div class="ic-proj-row"><span class="ic-proj-rlbl">Needed to goal</span><span class="ic-proj-rval ${needed > dailyRate ? 'bad' : 'good'}">${fmtD(needed)}/day</span></div>` : ''}`;
@@ -3699,7 +3777,9 @@ function renderIncome() {
   }
 
   const goalPct   = periodGoal > 0 ? Math.round(net / periodGoal * 100) : 0;
-  const pacingPct = getPacingPct(stores);
+  // getGoalPacingPct, not getPacingPct: in YTD the goal above is already a to-date figure, so the
+  // calendar-year fraction would discount it twice. See that function for the whole story.
+  const pacingPct = getGoalPacingPct(stores);
   const isClosed  = pacingPct >= 100;
 
   let pacedGoal;
