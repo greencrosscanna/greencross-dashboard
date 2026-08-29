@@ -326,6 +326,17 @@ function doGet(e) {
   // the live deployment asking the library itself. Ask this URL, not the repo, after every re-pin.
   // Guarded by the deploy secret like debuglogin: a Forbidden here means GX_DEPLOY_SECRET is unset or
   // stale on THIS script, which is its own finding — that same property gates qbReportViaGXCore_.
+  /* Are the Dutchie credentials actually configured? Reports LABELS and a COUNT, never a value.
+     Exists because the keys moved out of source into Script Properties on 2026-08-29: the property
+     is invisible from outside the script, so "did the seed work?" had no answer short of pushing
+     the new code and finding out in production. Deploy-secret gated, same as gxpin above. */
+  if (params.action === 'storekeys') {
+    const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
+    if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
+    const labels = Object.keys(getStoreKeys_()).sort();
+    return jsonOut_({ ok: true, configured: labels.length > 0, count: labels.length, labels: labels });
+  }
+
   if (params.action === 'gxpin') {
     const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
     if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
