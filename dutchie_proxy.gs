@@ -2,14 +2,53 @@
 // Deploy as Web App: Execute as "Me", Who has access "Anyone"
 // Paste your API keys below — these never leave your Google account
 
-const STORE_KEYS = {
-  'Bend':        '77e157f3fcdf43d9864daf0420df8c97',
-  'Center':      '6a7e9c3187a6471d8a0a2d05cfa92023',
-  'Commercial':  'd97da3cef3f74dd087cee7d4239a851d',
-  'Hillsboro':   'a2de33457b8f4d35972d3c47832207eb',
-  'Portland Rd': '5671f32c2c2a4756811e9513945815f4',
-  'River':       '5212417431014845a6db39bcb4ccef6b',
-};
+// ── DUTCHIE CREDENTIALS — NEVER IN SOURCE ────────────────────────────────────────
+// The six POS keys used to live here as literals. They were committed to a PUBLIC repo and sat at
+// HEAD from the first commit of this file until 2026-08-29. They now live in Script Properties
+// under DUTCHIE_STORE_KEYS_JSON, the same place leaderboard and inventory keep theirs.
+// To set or rotate them, run setDutchieStoreKeys() from the script editor and paste the JSON —
+// the value never enters the repo. Do NOT reintroduce a literal here, even "temporarily".
+const DUTCHIE_STORE_KEYS_PROP_ = 'DUTCHIE_STORE_KEYS_JSON';
+let _storeKeysCache_ = null;   // request-scoped; a GAS execution is short-lived
+
+function getStoreKeys_() {
+  if (_storeKeysCache_) return _storeKeysCache_;
+  const raw = PropertiesService.getScriptProperties().getProperty(DUTCHIE_STORE_KEYS_PROP_);
+  if (!raw) {
+    // Fail CLOSED and say so. Returning {} makes every storeKey_ lookup null, which surfaces as
+    // "Unknown store" at the gate rather than an outbound call with an undefined credential.
+    Logger.log('DUTCHIE_STORE_KEYS_JSON is not set — every store will read as unknown.');
+    return (_storeKeysCache_ = {});
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    _storeKeysCache_ = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+  } catch (e) {
+    Logger.log('DUTCHIE_STORE_KEYS_JSON is not valid JSON — every store will read as unknown.');
+    _storeKeysCache_ = {};
+  }
+  return _storeKeysCache_;
+}
+
+/**
+ * One-time / rotation setter. Run from the script editor:
+ *   setDutchieStoreKeys('{"Bend":"...","Center":"..."}')
+ *
+ * Labels are this app's store names, which are identical to GX Core's `dutchie_name` column and to
+ * Inventory's — verified 2026-08-29 by comparing key material across all three repos. Leaderboard
+ * uses a different (transposed) label set and has since moved to store_id keying; Sales has NOT,
+ * so do not paste a store_id-keyed JSON in here. Returns the labels written, never the values.
+ */
+function setDutchieStoreKeys(json) {
+  if (!json) throw new Error('Pass the store-keys JSON as the argument.');
+  const parsed = JSON.parse(json);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Store keys must be a JSON object of { storeKey: apiKey }.');
+  }
+  PropertiesService.getScriptProperties().setProperty(DUTCHIE_STORE_KEYS_PROP_, JSON.stringify(parsed));
+  _storeKeysCache_ = null;
+  return { ok: true, stores: Object.keys(parsed) };
+}
 
 // ── A LOOKUP TABLE IS NOT A WHITELIST ────────────────────────────────────────────
 // Every plain object inherits constructor, __proto__, toString, valueOf, hasOwnProperty and
@@ -28,7 +67,8 @@ function hasOwn_(obj, key) {
 }
 
 function storeKey_(store) {
-  return hasOwn_(STORE_KEYS, store) ? STORE_KEYS[store] : null;
+  const keys = getStoreKeys_();
+  return hasOwn_(keys, store) ? keys[store] : null;
 }
 
 const BASE = 'https://api.pos.dutchie.com';
@@ -1232,7 +1272,7 @@ function getReconConfig_() {
   try { cfg = JSON.parse(PropertiesService.getScriptProperties().getProperty(RECON_CFG_PROP_) || '{}'); }
   catch (e) { cfg = {}; }
   const out = {};
-  for (const name of Object.keys(STORE_KEYS)) {
+  for (const name of Object.keys(getStoreKeys_())) {
     const v = Number(cfg[name]);
     if (Number.isInteger(v) && v >= 0 && v <= 6) { out[name] = v; continue; }
     out[name] = hasOwn_(RECON_WEEK_START_BY_STORE_, name)
