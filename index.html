@@ -1678,6 +1678,27 @@ function paintSalesUserTray() {
     name: name,
     role: String(sess.role || '').replace(/_/g, ' '),
     avatar: window.GXAvatar ? GXAvatar.chip(sess.avatarConfig, name, sess.user || name) : null,
+    /* Opt-in avatar row — omitted unless we can actually SAVE, so the row never appears with a
+       Save button that cannot work. seed matches the chip above so the editor preview and the
+       rendered chip agree; the stored session carries no employee_number to use instead. */
+    avatarEdit: (window.GXAvatar && sess.token) ? {
+      token:  sess.token,
+      app:    'sales',
+      client: GXClient(GXCORE),
+      seed:   sess.user || name,
+      config: sess.avatarConfig,
+      onSaved: function (cfg) {
+        // Persist through the auth helper, or the new face reverts on reload — the tray reads
+        // avatarConfig back out of localStorage, not from memory. save() replaces the whole
+        // record, so merge onto the loaded session rather than writing avatarConfig alone.
+        try {
+          var cur = GC_SALES_AUTH.load() || {};
+          cur.avatarConfig = cfg;
+          GC_SALES_AUTH.save(cur);
+        } catch (e) {}
+        paintSalesUserTray();
+      },
+    } : undefined,
     items: [
       { action: 'settings', label: 'Settings' },
       { action: 'version',  label: 'Version', value: APP_VERSION },
