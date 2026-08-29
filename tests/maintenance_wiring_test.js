@@ -50,14 +50,26 @@ check('it does NOT use the note\'s placeholder name, which is undefined here',
 check('GXCORE is declared before init runs',
       SRC.indexOf("const GXCORE =") < SRC.indexOf('GXMaintenance.init('), true);
 
-console.log('\nthe kv lever needs a re-check, because gx-client.js is deferred');
+console.log('\nthe kv lever works despite the deferred client — now the SHARED layer\'s job');
+/* This block used to require a local DOMContentLoaded re-check, and the measurement recorded above
+   is why it existed. That defect was fixed IN gx-theme instead (b1b12d0, 2026-08-28): fromCore()
+   polls up to 6s for a deferred gx-client.js rather than skipping the kv lever the moment GXClient
+   is missing. Core-admin chose the shared fix over documenting the extra line precisely because the
+   failure is invisible per-app — an app looks correctly wired while the cockpit toggle does nothing.
+
+   So the assertion INVERTS. The local re-check is now redundant (deferred scripts run before
+   DOMContentLoaded, so the shared wait has always already succeeded by then) and it cost a second
+   config fetch on every load. It is asserted ABSENT so nobody reintroduces it from the old note, or
+   copies it into another spoke as though it were load-bearing.
+
+   The defer fact stays asserted: if this app ever drops `defer`, this whole block stops being about
+   anything, and a future reader should be able to see that from here. */
 const clientTag = /<script[^>]*gx-client\.js[^>]*>/.exec(SRC);
-check('gx-client.js really is deferred (the reason the re-check exists)',
+check('gx-client.js really is deferred (what made the kv lever fragile)',
       !!clientTag && /\bdefer\b/.test(clientTag[0]), true);
-check('a forced re-check runs once the document is parsed',
-      /DOMContentLoaded[\s\S]{0,80}GXMaintenance\.check\(true\)/.test(SRC), true);
-// check(false) would be swallowed by the 60s idle throttle and change nothing.
-check('the re-check is FORCED, not throttled away',
+check('no local DOMContentLoaded re-check — gx-theme waits for the deferred client now',
+      /DOMContentLoaded[\s\S]{0,80}GXMaintenance\.check\(/.test(SRC), false);
+check('and no throttled re-check either, which would have been swallowed by the 60s idle window',
       /GXMaintenance\.check\(false\)/.test(SRC), false);
 
 console.log('\nnothing local outranks the gate');

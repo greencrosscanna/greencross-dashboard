@@ -1129,7 +1129,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.538';
+const APP_VERSION = 'v2.539';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1200,8 +1200,14 @@ const GXCORE = 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO
  * instant lever would do nothing here until something happened to fire a visibilitychange, and the
  * Pages flag would be the only one that worked. */
 if (window.GXMaintenance) {
+  /* No DOMContentLoaded re-check here any more. Sales loads gx-client.js with `defer`, so GXClient
+     did not exist when init() first ran and the GX Core kv lever was never consulted — half a gate,
+     failing in the direction nobody notices. That was fixed IN THE SHARED LAYER instead
+     (gx-theme b1b12d0, 2026-08-28): fromCore() now polls up to 6s for a deferred client, so every
+     app gets it without knowing why. Deferred scripts run before DOMContentLoaded, so the local
+     re-check can only ever fire after the shared wait has already succeeded — it just bought a
+     second config fetch per load. Removed so no spoke copies it thinking it is load-bearing. */
   GXMaintenance.init({ app: 'sales', appName: 'Sales / Cashflow', gxcore: GXCORE });
-  document.addEventListener('DOMContentLoaded', function () { GXMaintenance.check(true); });
 }
 
 // Leaderboard GAS — computed rolling/YoY goals, authoritative for current month
