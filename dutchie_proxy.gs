@@ -1175,7 +1175,11 @@ function getPeriodGoalsRange_(start, end) {
   // midnight anchor lands on the previous day and every window shifts by one. Same reason the suite
   // stores dates as TEXT.
   const at    = s => new Date(s + 'T12:00:00Z').getTime();
-  const iso   = t => new Date(t).toISOString().slice(0, 10);
+  // The exact inverse of at(): every t handed to iso() is an at() result plus a whole number of
+  // dayMs, so the value is a calendar day encoded as a noon-UTC instant, never a wall-clock one.
+  // Reading it back in UTC returns the day it was built from; formatting it in LA would be the
+  // conversion that actually risks a shift, since it would no longer pair with the anchor above.
+  const iso   = t => new Date(t).toISOString().slice(0, 10);  // @utc-ok inverse of at()'s noon-UTC anchor
 
   if ((at(end) - at(start)) / dayMs + 1 > PG_RANGE_MAX_DAYS_) {
     return jsonOut_({ ok: false, error: 'range exceeds ' + PG_RANGE_MAX_DAYS_ + ' days' });
@@ -1529,7 +1533,7 @@ function reconAddDays_(dateStr, n) {
   const p = dateStr.split('-').map(Number);
   const d = new Date(Date.UTC(p[0], p[1] - 1, p[2]));
   d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
+  return d.toISOString().slice(0, 10);  // @utc-ok Date.UTC round-trip — built in UTC two lines up
 }
 
 // Day of week for a YYYY-MM-DD, 0=Sun..6=Sat, in UTC for the same reason as above.
@@ -2191,8 +2195,12 @@ function getTxDetail(params) {
   const apiKey = storeKey_(store);
   const auth   = Utilities.base64Encode(apiKey + ':');
   const hdrs   = { Authorization: 'Basic ' + auth, Accept: 'application/json' };
-  const today  = new Date();
-  const yd     = new Date(today - 86400000).toISOString().slice(0, 10);
+  // Dutchie's fromDate/toDate are CALENDAR days, so yesterday has to be yesterday in Pacific —
+  // toISOString() is UTC whatever the project timezone is, and from 17:00 PDT it returns tomorrow,
+  // which made this probe read the wrong day for seven hours out of every one. Same idiom as
+  // getCogsDutchie/getStoreSales_.
+  const todayPT = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM-dd');
+  const yd      = dayBefore_(todayPT);
   // Try fromDate/toDate instead of lastModified
   const resp = UrlFetchApp.fetch(
     BASE + '/reporting/transactions?fromDate=' + yd + '&toDate=' + yd + '&includeItems=true',
