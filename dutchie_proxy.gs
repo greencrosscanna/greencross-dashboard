@@ -736,9 +736,18 @@ function doGet(e) {
         proposed_annual_total: annual,
         revenue_trend: data.revenue_trend,
         applied: data.applied,
+        // The planner's contract, reported so a deploy can be checked without a browser session.
+        // open_months is the one that matters: it is what the Apply button promises, and if the
+        // server disagrees with it the write silently preserves months the screen said it would set.
+        open_months: data.open_months,
+        bills_once: data.bills_once,
+        prior_year_coverage: (data.proposals || []).filter(function (p) { return !!p.prior_year; }).length,
         rows: (data.proposals || []).map(function (p) {
           return { category: p.category, method: p.method, confidence: p.confidence,
                    n_months: p.n_months, annual: p.annual,
+                   prior_year_total: p.prior_year
+                     ? Math.round(MONTHS_12_.reduce(function (a, m) { return a + (p.prior_year[m] || 0); }, 0))
+                     : null,
                    outliers_excluded: p.basis ? p.basis.outliers_excluded : null };
         })
       });
