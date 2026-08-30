@@ -145,6 +145,50 @@ landed**, remember that order in `_bdOrder`, and reuse it while anything is pend
 makes a re-poll refresh numbers in place instead of reshuffling. Sorting by value while values are
 still arriving is precisely what makes rows jump.
 
+**Goals: the FROZEN PAY-PERIOD goals are authoritative, in every view.** Until v2.541 only the DAY
+view read GX Core's `period_goals`; week, month and YTD read the budget spreadsheet, and
+`loadPeriodGoals` was only ever called with `activeDay`, so the frozen goals were never even fetched
+elsewhere. The same past period therefore showed two different goals depending on which view you
+stood in. Measured over all 18 pay periods of 2026: **budget $4,679,904 vs period goals $5,017,051
+across Jan–Jul, +7.2%**, and Portland Rd off by **+39% to +49% every month**. Sky's call
+(2026-08-29): the period goals win — they are what the Leaderboard publishes and what staff were
+measured on. Precedence in all three accessors is now **frozen goals → `lbGoals` → budget**.
+
+- **`pgTotal` returns NULL, never a partial sum**, for a window with any uncovered date, and the
+  caller falls back to the budget. An understated goal renders identically to a correct one; this is
+  the past-year bug one level down. Don't "improve" it into summing what it has.
+- **Portland Rd's period goal is a flat $41,500 in every pay period** while all five others move
+  every period. **Confirmed intentional by Sky** — its ~40% gap against its budget line is the right
+  answer and must not be reconciled away.
+- **The current month usually still shows budget/lbGoals**, because the period covering its last day
+  or two is often unpublished and a partial window refuses. Deliberate: a goal that silently grew as
+  periods landed is worse than one that settles once.
+- **The ledger runs 2025-11-10 to 2026-08-30** (measured 2026-08-30). Nothing before or after. A past
+  YEAR gets no goal at all — the budget sheet is one year wide and gated to `BUDGET_YEAR` since
+  v2.540, because the picker offers curY-2..curY and every 2024/2025 view used to be measured against
+  the 2026 plan.
+
+**`period_goals_range` walks periods, and four things about it are load-bearing.** Each was found by
+MEASURING the deployed route, not by reading it — every one of them looked fine in the source:
+
+1. **Ask with an EMPTY store.** `getPeriodGoals` re-reads the whole `period_goals` tab on every call,
+   so per-store asking meant six full tab reads per period — a cold YTD took **42s**. The store-less
+   form returns `picked`, one row per store, in one read.
+2. **An empty `picked` is an ANSWER, not a failure.** `{ok:true, picked:[]}` means no period covers
+   that date. Falling through to the per-store fallback on it made a miss cost seven calls instead of
+   one.
+3. **Decide coverage BEFORE `cacheGet_`.** It is two CacheService round-trips per date; a 182-day
+   out-of-range walk spent **12–22s** in lookups for dates that cannot have an entry.
+4. **Use the exact INTERVALS, never a min/max span.** The tab holds a sentinel row dated
+   `2000-01-01`, so a span reported twenty-six years as findable and a 2024 range still took 17.8s.
+   `pgLedgerIntervals_` reads only period DATES from the raw rows — never a goal value, never a
+   tie-break, because picking a goal out of raw `rows` by hand is the `match[0]`-in-sheet-order bug
+   that forced the v220 re-pin. An overlapping orphan costs one lookup, never a wrong goal.
+
+Net: 2024 17.8s→2.5s · 2028 39s→1.5s · March 1.7s · YTD 42s→3.9s. `?action=goalrangeprobe&start=…
+&end=…&secret=…` is the secret-gated twin; it reports `periods`, `uncovered_days`, `truncated` and
+`ledger_intervals`. **Re-run it after any GXCore re-pin** — like `goalprobe`, it discriminates.
+
 **`getCogsDutchie` is cached at the proxy — leave it that way.** It was the only route the Income tab
 touches with no server-side cache, and the most expensive: six `getSalesDaily` reads plus **six live
 `dutchieClosingReport` calls, one per store, in sequence**. The Gross Profit card waits on it, which
