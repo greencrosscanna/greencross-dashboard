@@ -336,6 +336,78 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .exp-mapbtn{width:100%;padding:8px;border-radius:7px;border:1px solid var(--amber);background:rgba(234,179,8,.08);color:var(--amber);font:700 11.5px/1 inherit;cursor:pointer;margin-top:10px}
 .exp-mapbtn:hover{background:rgba(234,179,8,.16)}
 .exp-cfoot{display:flex;justify-content:space-between;gap:8px;font-size:10.5px;color:var(--muted);padding:10px 14px;border-top:1px solid var(--border)}
+/* ── Smart budget planner, desktop ────────────────────────────────────────────────────────────
+   The engine is unchanged; the REVIEW screen is what this is. Every proposed annual is an input,
+   because a proposal you cannot type over is just a different guess wearing better clothes — and
+   the months already closed are disabled, because a re-cut that rewrites January makes every
+   variance the Expenses tab has shown for January retroactively wrong. */
+.sbp-hd{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.sbp-title{font-size:19px;font-weight:600;color:var(--text);letter-spacing:-.01em}
+.sbp-prov{font-size:11.5px;color:var(--dim);flex:1;min-width:0}
+/* The 12 month chips must be a GRID with minmax(0,1fr) and shrinkable cells. As flex items they
+   cannot go below their own text width and push the whole page sideways. */
+.sbp-mchips{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:2px;margin-top:8px}
+.sbp-mchip{min-width:0;text-align:center;font:700 9.5px/1 inherit;padding:5px 0;border-radius:3px;
+  background:var(--gx-surface-dashed,#0f1412);color:#3f4a45;border:1px solid var(--card-3);overflow:hidden}
+.sbp-mchip.on{background:var(--green);color:var(--green-ink);border-color:var(--green)}
+.sbp-pctwrap{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+
+.sbp-tbl{background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:12px}
+.sbp-grid{display:grid;grid-template-columns:30px 1fr 104px 104px 132px 70px 132px 236px;gap:12px;align-items:center;padding:11px 15px}
+.sbp-hdr{background:var(--gx-surface-dashed,#0f1412);border-bottom:1px solid var(--border);
+  font:700 9.5px/1 inherit;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted);padding:9px 15px}
+.sbp-row{border-bottom:1px solid var(--card-3)}
+.sbp-row:last-child{border-bottom:0}
+.sbp-row.low{background:rgba(249,115,22,.04)}
+.sbp-row.open{background:var(--card-2);border-bottom:1px solid var(--border)}
+.sbp-name{display:flex;align-items:center;gap:7px;min-width:0;cursor:pointer}
+.sbp-label{font-size:12.5px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sbp-flag{font-size:9px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;border-radius:4px;padding:2px 5px;white-space:nowrap;flex:0 0 auto}
+.sbp-flag.once{color:var(--dim);border:1px solid var(--border-strong);background:transparent}
+.sbp-flag.rev{color:var(--green);border:1px solid rgba(74,222,128,.35);background:rgba(74,222,128,.08)}
+.sbp-flag.decide{color:var(--amber);border:1px solid rgba(234,179,8,.45);background:rgba(234,179,8,.10)}
+.sbp-flag.edited{color:var(--dim);border:1px solid var(--border-strong);background:transparent}
+.sbp-num{font-size:12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--dim);min-width:0}
+.sbp-num.strong{color:var(--text);font-weight:600}
+.sbp-basis{display:flex;flex-direction:column;gap:3px;align-items:flex-start;min-width:0}
+.sbp-hist{font-size:10px;color:var(--muted)}
+/* 12 bars, height = that month's share of the row's own max. Closed months are grey so the shape
+   reads as "what is still yours to set" at a glance. */
+.sbp-shape{display:flex;gap:2px;height:30px;align-items:flex-end}
+.sbp-sbar{flex:1;min-width:0;border-radius:2px 2px 0 0;background:var(--border-strong)}
+.sbp-sbar.open{background:var(--green)}
+input.gxnum{background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:6px 7px;
+  text-align:right;font:600 12px/1 inherit;font-variant-numeric:tabular-nums;color:var(--text);width:100%}
+input.gxnum:focus{outline:none;border-color:var(--green);box-shadow:0 0 0 3px rgba(74,222,128,.10)}
+input.gxnum:disabled{background:var(--gx-surface-dashed,#0f1412);color:#3f4a45;border-color:var(--card-3)}
+input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
+
+.sbp-exp{padding:2px 15px 15px 57px;display:flex;flex-direction:column;gap:12px}
+.sbp-reason{font-size:11.5px;color:var(--dim);line-height:1.5;max-width:960px}
+.sbp-mpanel{background:var(--gx-surface-dashed,#0f1412);border:1px solid var(--border);border-radius:8px;padding:12px 14px}
+.sbp-qa{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.sbp-qabtns{display:flex;gap:6px;flex-wrap:wrap}
+.sbp-qabtn{background:none;border:1px solid var(--border-strong);color:var(--dim);font:600 10.5px/1 inherit;
+  padding:5px 8px;border-radius:5px;cursor:pointer}
+.sbp-qabtn:hover{color:var(--text);border-color:var(--dim)}
+.sbp-mgrid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:6px}
+.sbp-mcell{min-width:0;display:flex;flex-direction:column;gap:3px}
+.sbp-mlabel{font:700 9.5px/1 inherit;text-transform:uppercase;color:var(--dim);min-width:0;overflow:hidden;text-overflow:ellipsis}
+.sbp-mlabel.closed{color:#3f4a45}
+.sbp-mprior{font-size:10px;color:var(--dim);text-align:right;font-variant-numeric:tabular-nums}
+.sbp-mcap{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:11px;color:var(--muted)}
+.sbp-once{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--dim)}
+
+.sbp-foot{position:sticky;bottom:0;background:rgba(18,23,21,.97);backdrop-filter:blur(8px);
+  border-top:1px solid var(--border);padding:12px 20px;margin:14px -20px -20px;
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;z-index:5}
+.sbp-footsum{font-size:11.5px;color:var(--dim);font-variant-numeric:tabular-nums}
+/* The period bar and store pills are meaningless on this screen — a budget is annual and
+   company-wide — and they render ABOVE this page's own header, giving two competing header rows.
+   They live outside #main-content, so hiding them takes a class rather than a re-render. */
+/* The id is load-bearing: the desktop query sets .gx-subnav.dsk-chrome{display:flex!important},
+   which out-specifies a lone class even with !important on both. */
+#dsk-subnav.dsk-subnav-off{display:none!important}
 /* Smart budget planner. Confidence is COLOUR-CODED and also spelled out in words on the row: the
    whole point of the screen is that a low-confidence number cannot masquerade as an analysed one,
    and colour alone fails exactly the readers who most need the warning. */
@@ -1274,7 +1346,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.556';
+const APP_VERSION = 'v2.557';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1368,6 +1440,10 @@ let invGmData = null;   // {cogs:{storeName:total}, byDay, byMonth} — 28d from
 let _invGmLoading = false;
 let expBudgets = null;  // loaded from Annual Budget sheet via proxy
 let expBudgetsOverlaid = new Set(); // categories whose budget is an applied smart-budget overlay
+// Categories that BILL ONCE in the period rather than accruing daily — rent, insurance,
+// licences, management. Server-side (set in the budget planner) because this tab is the
+// consumer: pacing a once-billed category against a day-30 fraction calls it "over" every month.
+let expBillsOnce = new Set();
 let otherRevData  = null; // { atm: { Jan: 9493, ... }, sublet: { Jan: 0, ... } }
 let revenueDetail = null; // { cfg, atm, sub, year } — full per-machine breakdown
 let periodGoalsCache = {};
@@ -2662,9 +2738,22 @@ async function loadAllStores() {
 
 // ── Navigation ────────────────────────────────────────────────────────────────
 
+/* The period bar and store pills mean nothing on the budget planner — a budget is annual and
+ * company-wide — and they live OUTSIDE #main-content, so no re-render can remove them; on that
+ * screen they sit above the planner's own header as a second, competing header row.
+ *
+ * Derived from state in ONE place rather than toggled at each call site. Toggling it on the way in
+ * means every exit has to remember to toggle it back, and the exit that gets forgotten is the top
+ * nav: leaving the planner by clicking Income left the period bar hidden on every other tab. */
+function syncSubnavVisibility() {
+  const sub = document.getElementById('dsk-subnav');
+  if (sub) sub.classList.toggle('dsk-subnav-off', section === 'expenses' && expSection === 'budget');
+}
+
 function setSection(s) {
   if (s !== 'expenses') expSection = 'main';
   section       = s;
+  syncSubnavVisibility();
   document.querySelectorAll('.stab').forEach(t => t.classList.toggle('on', t.textContent.toLowerCase() === s));
   // Desktop tabs use the shared active class, not this app's old .on pill.
   document.querySelectorAll('#dsk-nav .gx-topnav-tab').forEach(t => t.classList.toggle('is-active', t.dataset.s === s));
@@ -4673,6 +4762,7 @@ async function loadExpBudgets() {
   if (cached) {
     expBudgets = cached.budgets || cached;
     expBudgetsOverlaid = new Set(cached.overlaid || []);
+    expBillsOnce = new Set(cached.bills_once || []);
     return;
   }
   const proxyUrl = getProxyUrl();
@@ -4686,7 +4776,12 @@ async function loadExpBudgets() {
     // Carried through the cache too — dropping it there would make the badges vanish on the next
     // load while the numbers stayed overlaid, which is the confusing half of both states.
     expBudgetsOverlaid = new Set(data.overlaid || []);
-    writeCache('expbudgets', { budgets: data.budgets, overlaid: data.overlaid || [] });
+    // Which categories bill once rather than accruing. Cached alongside the budgets for the same
+    // reason `overlaid` is: dropping it from the cache would silently start pacing rent again on
+    // the next load, and the tab would look exactly the same while being wrong.
+    expBillsOnce = new Set(data.bills_once || []);
+    writeCache('expbudgets', { budgets: data.budgets, overlaid: data.overlaid || [],
+                               bills_once: data.bills_once || [] });
   } catch(e) {
     console.warn('ExpBudgets fetch failed:', e.message);
     expBudgets = null;
@@ -5223,10 +5318,16 @@ function renderExpenses() {
     .map(name => {
       const val    = (expenseData.expenses[name] || {})[colKey] || 0;
       const budget = getBudget(name);
+      // Rent, insurance, licences and management BILL ONCE — they land at a point in the period
+      // rather than accruing daily, so pacing them against a day-30 fraction calls them "over" by
+      // construction every single month. Flagged categories compare against the whole period's
+      // budget instead. The flag is server-side (set in the budget planner) precisely so this
+      // screen can read it.
+      const once  = expBillsOnce.has(name);
       // A category with no budget has no expected figure and no variance — rendering 0 would make
       // every unbudgeted dollar read as overspend.
-      const expected = budget > 0 ? budget * paceFrac : null;
-      return { name, val, budget, expected, variance: expected === null ? null : val - expected };
+      const expected = budget > 0 ? (once ? budget : budget * paceFrac) : null;
+      return { name, val, budget, expected, once, variance: expected === null ? null : val - expected };
     })
     .filter(c => c.val > 0 || c.budget > 0);
 
@@ -5426,6 +5527,7 @@ function _expRow(c, totalNet, expPacingPct, barPct) {
         ${hidden ? '<span class="exp-tag nob">excluded</span>'
                  : hasB ? `<span class="exp-tag ${over ? 'over' : 'under'}">${over ? 'over' : 'under'}</span>`
                         : '<span class="exp-tag nob">no budget</span>'}
+        ${c.once ? '<span class="exp-tag nob" title="Bills once in the period, so it is compared against the whole period\u2019s budget rather than paced">bills once</span>' : ''}
         ${expBudgetsOverlaid.has(c.name) ? '<span class="sb-tag applied">smart</span>' : ''}
       </div>
       <div class="exp-num actual">${fmtK(c.val)}</div>
@@ -5660,6 +5762,7 @@ function setExpSection(s) {
     });
   }
   expSection = s;
+  syncSubnavVisibility();
   renderExpenses();
 }
 
@@ -6694,11 +6797,53 @@ async function saveExpenseMappings() {
 // different guess wearing better clothes, and the categories where the engine is weakest are
 // exactly the ones a reader needs flagged.
 
-let budgetProposal   = null;   // { year, proposals[], projected_revenue, applied[] } from the proxy
+let budgetProposal   = null;   // { year, proposals[], projected_revenue, applied[], open_months, … }
 let budgetLoading    = false;
 let budgetChecked    = new Set();   // categories ticked for Apply
 let budgetExpanded   = new Set();   // categories showing their monthly breakdown
 let budgetApplying   = false;
+
+// ── Planner edits ─────────────────────────────────────────────────────────────────────────────
+// Kept SEPARATE from budgetProposal so "reset to proposal" is a delete rather than a refetch — the
+// proposal is a 24-month computation and re-running it to undo a typo would take a minute.
+let budgetEdits    = {};            // { category: { Jan..Dec: number } } — only what Sky changed
+let budgetCogsPct  = null;          // COGS as % of projected revenue; null = use the engine's own
+let budgetBillsOnce = new Set();    // categories that bill at a point in the period, not daily
+let budgetFilter   = 'all';         // 'all' | 'decide' | 'changed'
+// Categories whose last typed annual was BELOW what the closed months already commit. The clamp is
+// correct — those months cannot be rewritten — but silently returning a bigger number than the one
+// just typed reads as the input being broken, so the row says so instead.
+let budgetClamped  = new Set();
+
+/** Months the SERVER says are still writable. Never derived here: the client deciding its own
+ *  window is how an Apply button ends up promising something the write refuses. */
+function sbpOpenMonths() {
+  return (budgetProposal && budgetProposal.open_months) || [];
+}
+function sbpIsOpen(m) { return sbpOpenMonths().indexOf(m) !== -1; }
+
+/** The effective monthly figures for a category: the engine's proposal with the user's edits laid
+ *  over it. One accessor, so the row, the month grid, the totals and the Apply payload can never
+ *  disagree about what is about to be written. */
+function sbpMonthly(p) {
+  const base = {};
+  MONTHS.forEach(m => { base[m] = (p.monthly && p.monthly[m]) || 0; });
+  // COGS-style categories follow a % of projected revenue, so an edited % re-derives all twelve.
+  if (budgetCogsPct != null && p.basis && p.basis.projected_revenue) {
+    MONTHS.forEach(m => { base[m] = Math.round(budgetCogsPct / 100 * (p.basis.projected_revenue[m] || 0)); });
+  }
+  const e = budgetEdits[p.category];
+  if (e) MONTHS.forEach(m => { if (e[m] != null) base[m] = e[m]; });
+  return base;
+}
+function sbpAnnual(p)     { const m = sbpMonthly(p); return MONTHS.reduce((a, k) => a + (m[k] || 0), 0); }
+function sbpOpenTotal(p)  { const m = sbpMonthly(p); return sbpOpenMonths().reduce((a, k) => a + (m[k] || 0), 0); }
+function sbpEdited(cat)   { return !!budgetEdits[cat] && Object.keys(budgetEdits[cat]).length > 0; }
+function sbpPriorAnnual(p){ return p.prior_year ? MONTHS.reduce((a, m) => a + (p.prior_year[m] || 0), 0) : null; }
+
+/** Is this category one the engine refused to propose for? Those are the rows that need a decision:
+ *  they start at $0 and are still APPLIED, so a stale figure cannot survive by being skipped. */
+function sbpNeedsDecision(p) { return !p.monthly || p.confidence === 'none' || p.confidence === 'low'; }
 
 async function loadBudgetProposal() {
   const proxyUrl = getProxyUrl();
@@ -6708,6 +6853,9 @@ async function loadBudgetProposal() {
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'proposal failed');
     budgetProposal = data;
+    budgetEdits = {};
+    budgetCogsPct = null;
+    budgetBillsOnce = new Set(data.bills_once || []);
     // Pre-tick everything the engine actually stands behind. A 'low'/'none' row starts unticked on
     // purpose: applying it should be a decision someone makes, not a default they inherit.
     budgetChecked = new Set(
@@ -6732,27 +6880,141 @@ function toggleBudgetDetail(cat) {
 function reloadBudgetProposal() {
   budgetProposal = null; budgetLoading = false; renderExpenses();
 }
+function setBudgetFilter(f) { budgetFilter = f; renderExpenses(); }
 
-/** Sheet-derived annual for a category — the baseline the proposal is compared against. */
+/** Edit ONE month. Only that month moves; the annual is always recomputed from the months, never
+ *  stored, so the two cannot drift apart. */
+function sbpEditMonth(cat, m, raw) {
+  if (!sbpIsOpen(m)) return;                       // a closed month is disabled; belt and braces
+  const v = Number(String(raw).replace(/[^0-9.\-]/g, ''));
+  budgetEdits[cat] = budgetEdits[cat] || {};
+  budgetEdits[cat][m] = isFinite(v) && v >= 0 ? Math.round(v) : 0;
+  budgetClamped.delete(cat);
+  renderExpenses();
+}
+
+/** Edit the ANNUAL. Re-spreads across the OPEN months on the row's existing shape — a category that
+ *  spends nothing in December should not suddenly be given a twelfth of the year there. If the shape
+ *  is empty across the open months, fall back to flat, which is the only honest answer left. */
+function sbpEditAnnual(cat, raw) {
+  const p = (budgetProposal.proposals || []).find(x => x.category === cat);
+  if (!p) return;
+  const target = Number(String(raw).replace(/[^0-9.\-]/g, ''));
+  if (!isFinite(target) || target < 0) return;
+  const cur    = sbpMonthly(p);
+  const open   = sbpOpenMonths();
+  const closed = MONTHS.filter(m => !sbpIsOpen(m)).reduce((a, m) => a + (cur[m] || 0), 0);
+  // The annual the user typed includes the closed months, which they cannot change. What is being
+  // spread is whatever is left for the open ones.
+  const spread = Math.max(0, target - closed);
+  // Typing below the closed-month floor cannot lower the year — those months are already spent
+  // against. Remembered so the row can explain the number it hands back.
+  budgetClamped[target < closed ? 'add' : 'delete'](cat);
+  const shape  = open.reduce((a, m) => a + (cur[m] || 0), 0);
+  budgetEdits[cat] = budgetEdits[cat] || {};
+  let placed = 0;
+  open.forEach((m, i) => {
+    // The last open month absorbs the rounding remainder, so the annual that comes back is EXACTLY
+    // the one that was typed. Rounding each share independently leaves it a dollar or two out, and
+    // a figure that will not hold still is the fastest way to stop trusting the screen.
+    const v = (i === open.length - 1)
+      ? spread - placed
+      : Math.round(shape > 0 ? spread * (cur[m] || 0) / shape : spread / open.length);
+    budgetEdits[cat][m] = Math.max(0, v);
+    placed += budgetEdits[cat][m];
+  });
+  renderExpenses();
+}
+
+/** Quick actions — every one rewrites the OPEN months only. */
+function sbpQuick(cat, how) {
+  const p = (budgetProposal.proposals || []).find(x => x.category === cat);
+  if (!p) return;
+  const open = sbpOpenMonths();
+  if (!open.length) return;
+  budgetClamped.delete(cat);
+  if (how === 'reset') { delete budgetEdits[cat]; renderExpenses(); return; }
+  const cur = sbpMonthly(p);
+  budgetEdits[cat] = budgetEdits[cat] || {};
+  if (how === 'flat') {
+    const avg = Math.round(open.reduce((a, m) => a + (cur[m] || 0), 0) / open.length);
+    open.forEach(m => { budgetEdits[cat][m] = avg; });
+  } else if (how === 'prior') {
+    // Match last year's shape at this year's level, so "same rhythm, current size".
+    const pri = p.prior_year;
+    if (!pri) return;
+    const level = open.reduce((a, m) => a + (cur[m] || 0), 0);
+    const pShape = open.reduce((a, m) => a + (pri[m] || 0), 0);
+    open.forEach(m => {
+      budgetEdits[cat][m] = pShape > 0 ? Math.round(level * (pri[m] || 0) / pShape)
+                                       : Math.round(level / open.length);
+    });
+  } else if (how === 'down' || how === 'up') {
+    const k = how === 'up' ? 1.05 : 0.95;
+    open.forEach(m => { budgetEdits[cat][m] = Math.round((cur[m] || 0) * k); });
+  } else if (how === 'zero') {
+    open.forEach(m => { budgetEdits[cat][m] = 0; });
+  }
+  renderExpenses();
+}
+
+function sbpSetCogsPct(raw) {
+  const v = Number(String(raw).replace(/[^0-9.]/g, ''));
+  budgetCogsPct = isFinite(v) && v > 0 ? v : null;
+  renderExpenses();
+}
+
+/** The bills-once flag is a SERVER-side fact — the Expenses tab reads it to decide whether to pace
+ *  a category — so it is written immediately rather than riding along with Apply. */
+async function sbpToggleBillsOnce(cat) {
+  budgetBillsOnce.has(cat) ? budgetBillsOnce.delete(cat) : budgetBillsOnce.add(cat);
+  renderExpenses();
+  try {
+    const res = await fetch(`${getProxyUrl()}?action=set_bills_once&token=${encodeURIComponent(getToken())}`
+      + `&categories=${encodeURIComponent(JSON.stringify([...budgetBillsOnce]))}`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'save failed');
+    // The Expenses tab's copy of the flags is now stale.
+    localStorage.removeItem('gc_cache_expbudgets');
+    expBudgets = null;
+  } catch (e) {
+    alert('Could not save the "bills once" flag: ' + e.message);
+    budgetBillsOnce.has(cat) ? budgetBillsOnce.delete(cat) : budgetBillsOnce.add(cat);
+    renderExpenses();
+  }
+}
+
+/** The budget a category currently has — the overlay if it was applied, otherwise the frozen
+ *  figure. Deliberately NOT _sbCurrentAnnual's old reading of expBudgets, which is already overlaid
+ *  and so showed the overlay in a column labelled "Sheet". */
 function _sbCurrentAnnual(cat) {
-  if (!expBudgets || !expBudgets[cat]) return 0;
-  return Object.values(expBudgets[cat]).reduce((a, v) => a + (Number(v) || 0), 0);
+  const src = (budgetProposal && (budgetProposal.overlay?.[cat] || budgetProposal.current?.[cat])) || null;
+  if (!src) return 0;
+  return MONTHS.reduce((a, m) => a + (Number(src[m]) || 0), 0);
 }
 
 async function applyBudgetSelected() {
   if (budgetApplying) return;
-  const picks = (budgetProposal?.proposals || []).filter(p => p.monthly && budgetChecked.has(p.category));
+  const open  = sbpOpenMonths();
+  if (!open.length) { alert('Every month of ' + budgetProposal.year + ' is closed — there is nothing left to write.'); return; }
+  const picks = (budgetProposal?.proposals || []).filter(p => budgetChecked.has(p.category));
   if (!picks.length) { alert('Nothing ticked to apply.'); return; }
 
-  const total = picks.reduce((a, p) => a + (p.annual || 0), 0);
+  const window = open[0] + '–' + open[open.length - 1];
+  const total  = picks.reduce((a, p) => a + sbpOpenTotal(p), 0);
   if (!confirm(
-      `Apply ${picks.length} categor${picks.length === 1 ? 'y' : 'ies'} — ${fmtK(total)}/yr — as the `
-      + `${budgetProposal.year} budget?\n\nThis is stored by the Sales app and overlays the budget sheet. `
-      + `The sheet itself is not modified, so Revert restores it completely.`)) return;
+      `Apply ${picks.length} categor${picks.length === 1 ? 'y' : 'ies'} to ${window} — ${fmtK(total)}.\n\n`
+      + `Months already closed are left exactly as they are, so nothing the Expenses tab has already `
+      + `reported changes. Revert restores everything.`)) return;
 
   budgetApplying = true; renderExpenses();
   const payload = {};
-  picks.forEach(p => { payload[p.category] = p.monthly; });
+  picks.forEach(p => {
+    const m = sbpMonthly(p);
+    const row = {};
+    open.forEach(k => { row[k] = m[k] || 0; });   // open months only; the server enforces this too
+    payload[p.category] = row;
+  });
   try {
     const res = await fetch(
       `${getProxyUrl()}?action=apply_budget&token=${encodeURIComponent(getToken())}`
@@ -6764,7 +7026,7 @@ async function applyBudgetSelected() {
     // have to go — otherwise the Expenses tab keeps rendering the pre-apply numbers for 30 minutes
     // and the apply looks like it silently failed.
     localStorage.removeItem('gc_cache_expbudgets');
-    expBudgets = null; budgetProposal = null;
+    expBudgets = null; budgetProposal = null; expenseData = null; expBreak = null;
     await loadExpBudgets();
   } catch (e) {
     alert('Apply failed: ' + e.message);
@@ -6775,15 +7037,15 @@ async function applyBudgetSelected() {
 
 async function revertBudget(cat) {
   const one = cat || '';
-  if (!confirm(one ? `Revert "${one}" to the budget sheet's own numbers?`
-                   : 'Revert ALL categories to the budget sheet? The applied smart budget is discarded.')) return;
+  if (!confirm(one ? `Revert "${one}" to the budget it had before the smart budget was applied?`
+                   : 'Revert ALL categories? The applied smart budget is discarded and the frozen budget stands again.')) return;
   try {
     const res = await fetch(`${getProxyUrl()}?action=clear_budget&token=${encodeURIComponent(getToken())}`
       + (one ? `&category=${encodeURIComponent(one)}` : ''));
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'revert failed');
     localStorage.removeItem('gc_cache_expbudgets');
-    expBudgets = null; budgetProposal = null;
+    expBudgets = null; budgetProposal = null; expenseData = null; expBreak = null;
     await loadExpBudgets();
   } catch (e) {
     alert('Revert failed: ' + e.message);
@@ -6814,19 +7076,258 @@ function renderBudgetPlanner() {
     return;
   }
 
-  const props    = budgetProposal.proposals || [];
-  const usable   = props.filter(p => p.monthly);
-  const skipped  = props.filter(p => !p.monthly);
-  const applied  = new Set(budgetProposal.applied || []);
-  const picked   = usable.filter(p => budgetChecked.has(p.category));
-  const pickTot  = picked.reduce((a, p) => a + (p.annual || 0), 0);
-  const curTot   = picked.reduce((a, p) => a + _sbCurrentAnnual(p.category), 0);
-  const win      = budgetProposal.window || {};
+  if (!expIsDesktop()) { renderBudgetPlannerMobile(); return; }
+
+  const props   = budgetProposal.proposals || [];
+  const applied = new Set(budgetProposal.applied || []);
+  const open    = sbpOpenMonths();
+  const win     = budgetProposal.window || {};
+  const openLbl = open.length ? open[0] + '–' + open[open.length - 1] : 'nothing';
+
+  // A year with no writable month is a dead end, and saying so beats rendering a full editor whose
+  // Apply button cannot do anything. Same discipline as pgTotal refusing a partial window.
+  if (!open.length) {
+    el.innerHTML = `
+      <div class="sbp-hd">
+        <button class="s-btn" onclick="setExpSection('main')">‹ Expenses</button>
+        <span class="sbp-title">Smart budget · ${budgetProposal.year}</span>
+      </div>
+      <div class="sb-warn">Every month of ${budgetProposal.year} is closed, so there is nothing this
+        planner could write. A closed month keeps the budget it was measured against — changing it now
+        would make every variance already reported for it retroactively wrong.</div>`;
+    return;
+  }
+
+  const shown = props.filter(p => {
+    if (budgetFilter === 'decide')  return sbpNeedsDecision(p);
+    if (budgetFilter === 'changed') {
+      const cur = _sbCurrentAnnual(p.category);
+      return cur > 0 && Math.abs(sbpAnnual(p) - cur) / cur > 0.10;
+    }
+    return true;
+  });
+  const decideN = props.filter(sbpNeedsDecision).length;
+
+  const picked   = props.filter(p => budgetChecked.has(p.category));
+  const pickOpen = picked.reduce((a, p) => a + sbpOpenTotal(p), 0);
+  const pickYear = picked.reduce((a, p) => a + sbpAnnual(p), 0);
+  const allYear  = props.reduce((a, p) => a + sbpAnnual(p), 0);
+  const curYear  = props.reduce((a, p) => a + _sbCurrentAnnual(p.category), 0);
+  const revenue  = budgetProposal.projected_revenue || 0;
+  const untickedLow = props.filter(p => sbpNeedsDecision(p) && !budgetChecked.has(p.category)).length;
+
+  // The COGS tile drives every volume-linked category, so the % it shows is the one the engine
+  // derived unless Sky has typed over it.
+  const cogs     = props.find(p => p.category === 'COGS');
+  const cogsPct  = budgetCogsPct != null ? budgetCogsPct
+                 : (cogs && cogs.basis && cogs.basis.ratio_pct != null ? cogs.basis.ratio_pct : null);
+  const cogsDollars = cogs ? sbpAnnual(cogs) : 0;
+
+  el.innerHTML = `
+    <div class="sbp-hd">
+      <button class="s-btn" onclick="setExpSection('main')">‹ Expenses</button>
+      <span class="sbp-title">Smart budget ${budgetProposal.year}</span>
+      <span class="sbp-prov">Built from ${budgetProposal.months_of_history || 0} complete months of
+        QuickBooks actuals (${escHtml(win.start || '')} → ${escHtml(win.end || '')}). The month in
+        progress is excluded — a partial month would drag every figure down.</span>
+      <button class="s-btn" onclick="reloadBudgetProposal()">↻ Recompute</button>
+    </div>
+
+    <div class="exp-kpis">
+      <div class="exp-tile">
+        <div class="exp-tlabel">Proposed ${budgetProposal.year} budget</div>
+        <div class="exp-tval sm">${fmtK(allYear)}</div>
+        <div class="exp-tsub">Currently ${fmtK(curYear)}${curYear > 0
+          ? ` · <span class="${allYear > curYear ? 'bad' : 'good'}">${fmtSigned(allYear - curYear)}</span>` : ''}</div>
+      </div>
+      <div class="exp-tile">
+        <div class="exp-tlabel">Projected ${budgetProposal.year} revenue</div>
+        <div class="exp-tval sm">${fmtK(revenue)}</div>
+        <div class="exp-tsub">${revenue > 0 ? Math.round(allYear / revenue * 100) + '% of it is budgeted' : '—'}</div>
+      </div>
+      <div class="exp-tile" style="border-color:rgba(74,222,128,.28)">
+        <div class="exp-tlabel">COGS target</div>
+        <div class="sbp-pctwrap">
+          <input class="gxnum pct" type="text" inputmode="decimal" value="${cogsPct == null ? '' : cogsPct}"
+                 aria-label="COGS as a percent of projected revenue"
+                 onchange="sbpSetCogsPct(this.value)">
+          <span class="exp-tsub" style="margin:0">% of revenue</span>
+          <span class="exp-tval sm" style="font-size:15px;margin-left:auto">${fmtK(cogsDollars)}</span>
+        </div>
+        <div class="exp-tsub">${cogs && cogs.basis && cogs.basis.ratio_pct != null
+          ? `Trailing actual ${cogs.basis.ratio_pct}%` : 'No ratio in the history window'}</div>
+      </div>
+      <div class="exp-tile">
+        <div class="exp-tlabel">Applies to</div>
+        <div class="exp-tsub" style="margin:0">${openLbl} · ${open.length} month${open.length === 1 ? '' : 's'}</div>
+        <div class="sbp-mchips">
+          ${MONTHS.map(m => `<span class="sbp-mchip${sbpIsOpen(m) ? ' on' : ''}" title="${m} — ${
+            sbpIsOpen(m) ? 'open' : 'closed, keeps what it already budgeted'}">${m[0]}</span>`).join('')}
+        </div>
+      </div>
+    </div>
+
+    <div class="sec-lbl" style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 0">
+      <span>${shown.length} of ${props.length} categories</span>
+      <span class="exp-seg">
+        <button class="exp-seg-btn${budgetFilter==='all'?' on':''}"     onclick="setBudgetFilter('all')">All</button>
+        <button class="exp-seg-btn${budgetFilter==='decide'?' on':''}"  onclick="setBudgetFilter('decide')">Needs a decision · ${decideN}</button>
+        <button class="exp-seg-btn${budgetFilter==='changed'?' on':''}" onclick="setBudgetFilter('changed')">Changed &gt; 10%</button>
+      </span>
+    </div>
+
+    <div class="sbp-tbl">
+      <div class="sbp-grid sbp-hdr">
+        <div></div><div>Category</div>
+        <div style="text-align:right">${budgetProposal.year - 1} actual</div>
+        <div style="text-align:right">Current</div>
+        <div style="text-align:right">Proposed ${budgetProposal.year}</div>
+        <div style="text-align:right">Change</div>
+        <div>Basis</div><div>Monthly shape</div>
+      </div>
+      ${shown.map(p => _sbpRow(p, applied)).join('')}
+      ${shown.length === 0 ? '<div class="empty-state">Nothing matches this filter</div>' : ''}
+    </div>
+
+    <div class="sbp-foot">
+      <button class="s-btn primary" style="width:auto;margin:0;padding:8px 16px"
+        onclick="applyBudgetSelected()" ${budgetApplying ? 'disabled' : ''}>
+        ${budgetApplying ? 'Applying…' : `Apply ${picked.length} categor${picked.length === 1 ? 'y' : 'ies'} to ${openLbl}`}
+      </button>
+      <span class="sbp-footsum">${fmtK(pickOpen)} across ${openLbl} &nbsp;·&nbsp; ${fmtK(pickYear)} full year</span>
+      ${untickedLow ? `<span class="sbp-footsum" style="color:var(--amber)">${untickedLow} low-confidence row${
+        untickedLow === 1 ? '' : 's'} unticked</span>` : ''}
+      ${applied.size ? `<button class="s-btn danger" style="margin-left:auto;width:auto;padding:8px 14px"
+        onclick="revertBudget('')">Revert all applied (${applied.size})</button>` : ''}
+    </div>
+  `;
+}
+
+/** One planner row, plus its month editor when open. */
+function _sbpRow(p, applied) {
+  const cat    = p.category;
+  const on     = budgetChecked.has(cat);
+  const open   = budgetExpanded.has(cat);
+  const cur    = _sbCurrentAnnual(cat);
+  const annual = sbpAnnual(p);
+  const prior  = sbpPriorAnnual(p);
+  const dPct   = cur > 0 ? Math.round((annual - cur) / cur * 100) : null;
+  const decide = sbpNeedsDecision(p);
+  const months = sbpMonthly(p);
+  const max    = MONTHS.reduce((m, k) => Math.max(m, months[k] || 0), 0);
+  const once   = budgetBillsOnce.has(cat);
+
+  return `<div class="sbp-row${decide ? ' low' : ''}${open ? ' open' : ''}">
+    <div class="sbp-grid">
+      <input type="checkbox" class="sb-chk" ${on ? 'checked' : ''}
+             onchange="toggleBudgetCat('${escHtml(cat)}')" aria-label="Apply ${escHtml(cat)}">
+      <div class="sbp-name" onclick="toggleBudgetDetail('${escHtml(cat)}')">
+        <span class="sbp-label" title="${escHtml(cat)}">${escHtml(cat)}</span>
+        ${once ? '<span class="sbp-flag once">bills once</span>' : ''}
+        ${p.method === 'pct_of_revenue' ? '<span class="sbp-flag rev">% of revenue</span>' : ''}
+        ${decide ? '<span class="sbp-flag decide">you decide</span>' : ''}
+        ${applied.has(cat) ? '<span class="sb-tag applied">applied</span>' : ''}
+        ${sbpEdited(cat) ? '<span class="sbp-flag edited">edited</span>' : ''}
+        ${budgetClamped.has(cat) ? `<span class="sbp-flag decide" title="The closed months already commit more than the annual you typed, so the year could not go lower.">at floor</span>` : ''}
+      </div>
+      <div class="sbp-num">${prior == null ? '—' : fmtK(prior)}</div>
+      <div class="sbp-num">${cur > 0 ? fmtK(cur) : '—'}</div>
+      <div><input class="gxnum" type="text" inputmode="numeric" value="${annual.toLocaleString()}"
+             aria-label="Proposed annual for ${escHtml(cat)}"
+             onclick="event.stopPropagation()" onchange="sbpEditAnnual('${escHtml(cat)}', this.value)"></div>
+      <div class="sbp-num ${dPct == null ? '' : (dPct > 0 ? 'bad' : 'good')}">${
+        dPct == null ? '' : (dPct > 0 ? '+' : '') + dPct + '%'}</div>
+      <div class="sbp-basis">
+        <span class="sb-tag ${p.confidence}">${p.confidence === 'none' ? 'no data' : p.confidence}</span>
+        <span class="sbp-hist">${p.n_months ? p.n_months + ' mo of history' : 'no history'}</span>
+      </div>
+      <div class="sbp-shape">
+        ${MONTHS.map(m => `<span class="sbp-sbar${sbpIsOpen(m) ? ' open' : ''}"
+          style="height:${max > 0 ? Math.max((months[m] || 0) / max * 100, 12) : 12}%"
+          title="${m} ${fmtK(months[m] || 0)}"></span>`).join('')}
+      </div>
+    </div>
+    ${open ? _sbpEditor(p, months, once) : ''}
+  </div>`;
+}
+
+/** The expanded month editor: the reasoning, twelve inputs, and the bills-once flag. */
+function _sbpEditor(p, months, once) {
+  const cat    = p.category;
+  const open   = sbpOpenMonths();
+  const closed = MONTHS.filter(m => !sbpIsOpen(m));
+  const openTot   = open.reduce((a, m) => a + (months[m] || 0), 0);
+  const closedTot = closed.reduce((a, m) => a + (months[m] || 0), 0);
+  const b = p.basis || {};
+  const bits = [];
+  if (p.n_months) bits.push(`${p.n_months} months of history`);
+  if (b.outliers_excluded) bits.push(`${b.outliers_excluded} one-off month${b.outliers_excluded === 1 ? '' : 's'} set aside so they cannot set the year`);
+  if (b.trend && b.trend !== 1) bits.push(`a ${b.trend > 1 ? '+' : '−'}${Math.abs(Math.round((b.trend - 1) * 100))}% trend`);
+
+  return `<div class="sbp-exp">
+    <div class="sbp-reason">${escHtml(p.note || '')}${bits.length ? ' — ' + escHtml(bits.join(', ')) + '.' : ''}
+      ${p.prior_year ? ` Last year this category spent ${fmtK(sbpPriorAnnual(p))}.` : ''}</div>
+
+    <div class="sbp-mpanel">
+      <div class="sbp-qa">
+        <span class="exp-tlabel" style="margin:0">Monthly — ${open.length} month${open.length === 1 ? '' : 's'} editable</span>
+        <span class="sbp-qabtns">
+          <button class="sbp-qabtn" onclick="sbpQuick('${escHtml(cat)}','flat')">Flat</button>
+          ${p.prior_year ? `<button class="sbp-qabtn" onclick="sbpQuick('${escHtml(cat)}','prior')">Match ${budgetProposal.year - 1} shape</button>` : ''}
+          <button class="sbp-qabtn" onclick="sbpQuick('${escHtml(cat)}','down')">−5%</button>
+          <button class="sbp-qabtn" onclick="sbpQuick('${escHtml(cat)}','up')">+5%</button>
+          <button class="sbp-qabtn" onclick="sbpQuick('${escHtml(cat)}','zero')">Zero all</button>
+          <button class="sbp-qabtn" onclick="sbpQuick('${escHtml(cat)}','reset')">Reset to proposal</button>
+        </span>
+      </div>
+      <div class="sbp-mgrid">
+        ${MONTHS.map(m => {
+          const isOpen = sbpIsOpen(m);
+          return `<div class="sbp-mcell">
+            <span class="sbp-mlabel${isOpen ? '' : ' closed'}">${m}</span>
+            <input class="gxnum" type="text" inputmode="numeric" value="${Math.round(months[m] || 0).toLocaleString()}"
+                   aria-label="${escHtml(cat)} ${m}" ${isOpen ? '' : 'disabled'}
+                   onchange="sbpEditMonth('${escHtml(cat)}','${m}', this.value)">
+            <span class="sbp-mprior">${p.prior_year ? fmtK(p.prior_year[m] || 0) : ''}</span>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="sbp-mcap">
+        <span>${closed.length
+          ? `${closed[0]}–${closed[closed.length - 1]} are closed at ${fmtK(closedTot)} and keep the budget they were measured against, so the year cannot total less than that.`
+          : 'Every month is still open.'}</span>
+        <span>${fmtK(openTot)} across ${open.length} open month${open.length === 1 ? '' : 's'} &nbsp;·&nbsp; ${fmtK(sbpAnnual(p))} full year</span>
+      </div>
+    </div>
+
+    <label class="sbp-once">
+      <input type="checkbox" class="sb-chk" ${once ? 'checked' : ''}
+             onchange="sbpToggleBillsOnce('${escHtml(cat)}')">
+      Lands at the start of the period — don't pace it on the Expenses tab.
+      <span class="exp-hint">Rent, insurance and licences bill once, so a day-30 comparison calls them "over" every month.</span>
+    </label>
+  </div>`;
+}
+
+/** The phone keeps the original list. The planner is a wide editing surface — twelve number inputs
+ *  in a row — and squeezing it onto 375px was out of scope for the handoff. */
+function renderBudgetPlannerMobile() {
+  const el      = document.getElementById('main-content');
+  const props   = budgetProposal.proposals || [];
+  const usable  = props.filter(p => p.monthly);
+  const skipped = props.filter(p => !p.monthly);
+  const applied = new Set(budgetProposal.applied || []);
+  const picked  = usable.filter(p => budgetChecked.has(p.category));
+  const pickTot = picked.reduce((a, p) => a + (p.annual || 0), 0);
+  const curTot  = picked.reduce((a, p) => a + _sbCurrentAnnual(p.category), 0);
+  const win     = budgetProposal.window || {};
+  const open    = sbpOpenMonths();
+  const openLbl = open.length ? open[0] + '–' + open[open.length - 1] : 'nothing';
 
   const row = (p) => {
     const cur   = _sbCurrentAnnual(p.category);
     const on    = budgetChecked.has(p.category);
-    const open  = budgetExpanded.has(p.category);
+    const openR = budgetExpanded.has(p.category);
     const diff  = (cur > 0 && p.annual != null) ? p.annual - cur : null;
     const dPct  = (cur > 0 && p.annual != null) ? Math.round((p.annual - cur) / cur * 100) : null;
     const isApp = applied.has(p.category);
@@ -6839,14 +7340,14 @@ function renderBudgetPlanner() {
         ${isApp ? ' <span class="sb-tag applied">applied</span>' : ''}
       </div>
       <span class="sb-tag ${p.confidence}">${p.confidence === 'none' ? 'no data' : p.confidence}</span>
-      <div class="sb-num sb-cur"><span class="sb-lbl">Sheet</span>${cur > 0 ? fmtK(cur) : '—'}</div>
+      <div class="sb-num sb-cur"><span class="sb-lbl">Current</span>${cur > 0 ? fmtK(cur) : '—'}</div>
       <div class="sb-num"><span class="sb-lbl">New</span>${p.annual != null ? fmtK(p.annual) : '—'}</div>
       <div class="sb-delta ${diff == null ? '' : (diff > 0 ? 'bad' : 'good')}">${
         dPct == null ? '' : (dPct > 0 ? '+' : '') + dPct + '%'}</div>
       <div class="sb-note">${escHtml(p.note)}${
         p.n_months ? ` · ${p.n_months} mo of history` : ''}${
         p.basis && p.basis.outliers_excluded ? ` · ${p.basis.outliers_excluded} outlier${p.basis.outliers_excluded === 1 ? '' : 's'} excluded` : ''}</div>
-      ${open && p.monthly ? `<div class="sb-months">${
+      ${openR && p.monthly ? `<div class="sb-months">${
         MONTHS.map(m => `<div class="sb-mo">${m}<b>${fmtK(p.monthly[m] || 0)}</b></div>`).join('')
       }</div>` : ''}
     </div>`;
@@ -6865,8 +7366,8 @@ function renderBudgetPlanner() {
       each year is kept as real seasonality. The month in progress is excluded: a partial month would
       drag every figure down.
       <br><br>
-      Applying stores the numbers <b>in this app</b> and overlays them on the budget sheet's own values.
-      The sheet is never written, so Revert is complete.
+      Applying writes <b>${openLbl}</b> only. Months already closed keep the budget they were measured
+      against, so nothing the Expenses tab has already reported changes.
     </div>
 
     <div class="sb-bar">
@@ -6877,7 +7378,7 @@ function renderBudgetPlanner() {
       ${applied.size ? `<button class="s-btn danger" onclick="revertBudget('')">Revert all (${applied.size})</button>` : ''}
       <button class="s-btn" onclick="reloadBudgetProposal()">↻ Recompute</button>
       <span class="sb-sum">${picked.length ? `${fmtK(pickTot)}/yr selected${
-        curTot > 0 ? ` · ${pickTot >= curTot ? '+' : '−'}${fmtK(Math.abs(pickTot - curTot))} vs sheet` : ''}` : 'nothing selected'}</span>
+        curTot > 0 ? ` · ${pickTot >= curTot ? '+' : '−'}${fmtK(Math.abs(pickTot - curTot))} vs current` : ''}` : 'nothing selected'}</span>
     </div>
 
     <div class="card">
@@ -6885,7 +7386,7 @@ function renderBudgetPlanner() {
         <span class="sb-chk"></span>
         <div class="sb-name"><b>Category</b></div>
         <span class="sb-tag none">basis</span>
-        <div class="sb-num sb-cur"><b>Sheet</b></div>
+        <div class="sb-num sb-cur"><b>Current</b></div>
         <div class="sb-num"><b>Proposed</b></div>
         <div class="sb-delta"></div>
       </div>
@@ -6895,7 +7396,7 @@ function renderBudgetPlanner() {
     ${skipped.length ? `
     <div class="sec-lbl">No proposal — ${skipped.length} categor${skipped.length === 1 ? 'y' : 'ies'}</div>
     <div class="sb-warn">These have no spend in the window, so there is nothing to derive a budget from.
-      They are left exactly as the sheet has them rather than given a round number — a made-up figure
+      They are left exactly as they are rather than given a round number — a made-up figure
       reads as analysed, which is worse than a visibly missing one.</div>
     <div class="card">${skipped.map(row).join('')}</div>` : ''}
 

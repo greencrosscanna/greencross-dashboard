@@ -43,6 +43,9 @@ const WRITES = new Set([
   // Smart budget. apply_budget stores the overlay, clear_budget drops it — both mutate, both are
   // write-guarded in the proxy, and neither may be declared a read.
   'apply_budget', 'clear_budget',
+  // The bills-once flag is written from the budget planner and READ by the Expenses tab to decide
+  // whether to pace a category. It mutates a script property, so it is a write like any other.
+  'set_bills_once',
 ]);
 
 // ── Every action the page can request ─────────────────────────────────────────────────────────
