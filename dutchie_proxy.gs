@@ -683,6 +683,18 @@ function doGet(e) {
     return getPeriodGoalsRange_(params.start, params.end);
   }
 
+  // Frozen period goal vs ACTUAL net sales, per store, per pay period — the measurement that says
+  // whether the goals are set at a level the stores reach. Secret-gated and read-only, the same
+  // trick and the same reason as pnlprobe / goalrangeprobe: BOTH halves sit behind the login gate,
+  // so without this the only way to answer "what has attainment been" is to log in and add up
+  // screens by hand, and a check that inconvenient is a check nobody runs.
+  // ?action=attainprobe&start=YYYY-MM-DD&end=YYYY-MM-DD&secret=...
+  if (params.action === 'attainprobe') {
+    const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
+    if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
+    return attainProbe_(params.start, params.end);
+  }
+
   if (params.action === 'ping') {
     const pAuth = requireAuth_(params);
     if (!pAuth.ok) return jsonOut_({ ok: false, error: pAuth.error });
@@ -1310,6 +1322,155 @@ function getPeriodGoalsRange_(start, end) {
     // reported false after a cached December period reset the counter — so it said "fully probed"
     // about a walk that had skipped ten months. `uncovered_days` is a floor whenever this is true.
     truncated: everTruncated,
+  });
+}
+
+/**
+ * Goal attainment: the frozen period goal against ACTUAL net sales, per store, per pay period.
+ *
+ * The goal half comes from getPeriodGoalsRange_ — the very route the dashboard reads — rather than a
+ * second copy of the ledger walk, so this can never report a goal the app does not show. The actual
+ * half is GXCore.getSalesDaily, the settled Dutchie closing-report net, read ONCE per store over the
+ * whole span (six calls, not six per period).
+ *
+ * Two refusals are the point of this route, not shortcomings of it. Both are the same mistake in
+ * opposite directions — comparing a partial to a whole — and both render as a plausible number:
+ *
+ *   - A period that has not SETTLED is excluded, and named in `skipped_periods`. The open period
+ *     holds a few days of sales against a full fortnight of goal; counted, it reads as a
+ *     catastrophic miss. Same reason the smart budget drops the month in progress.
+ *   - A store-period MISSING any day of sales data is reported with its `days_missing`, but left out
+ *     of every total. A partial actual understates attainment exactly the way a partial goal
+ *     overstates it, which is what pgTotal already refuses to do one level up.
+ *
+ * `counted: false` is therefore the flag to read before believing any single row, and the totals
+ * only ever sum rows where it is true.
+ */
+function attainProbe_(start, end) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(start)) || !/^\d{4}-\d{2}-\d{2}$/.test(String(end))) {
+    return jsonOut_({ ok: false, error: 'start and end required as YYYY-MM-DD' });
+  }
+  if (end < start) return jsonOut_({ ok: false, error: 'end is before start' });
+
+  const dayMs = 86400000;
+  // Noon UTC and getUTCDay(), matching getPeriodGoalsRange_ and the frontend's own expansion of
+  // dow_targets exactly. A midnight anchor lands on the previous day under the Pacific script
+  // timezone and would pick the wrong weekday target for every date.
+  const at  = s => new Date(s + 'T12:00:00Z').getTime();
+  const iso = t => new Date(t).toISOString().slice(0, 10);  // @utc-ok inverse of at()'s noon-UTC anchor
+
+  if ((at(end) - at(start)) / dayMs + 1 > PG_RANGE_MAX_DAYS_) {
+    return jsonOut_({ ok: false, error: 'range exceeds ' + PG_RANGE_MAX_DAYS_ + ' days' });
+  }
+
+  let pg;
+  try { pg = JSON.parse(getPeriodGoalsRange_(start, end).getContent()); }
+  catch (e) { return jsonOut_({ ok: false, stage: 'period_goals_range', error: e.message }); }
+  if (!pg.ok) return jsonOut_({ ok: false, stage: 'period_goals_range', error: pg.error });
+
+  const todayPT        = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM-dd');
+  const settledThrough = dayBefore_(todayPT);
+
+  const all     = pg.periods || [];
+  const kept    = all.filter(p => p.period_end <= settledThrough);
+  const skipped = all.filter(p => p.period_end > settledThrough).map(p => ({
+    period_start: p.period_start, period_end: p.period_end,
+    reason: 'not settled — ends after ' + settledThrough
+  }));
+
+  if (!kept.length) {
+    return jsonOut_({
+      ok: true, start: start, end: end, settled_through: settledThrough,
+      periods: [], skipped_periods: skipped, summary: null, read_errors: [],
+      uncovered_days: pg.uncovered_days, truncated: pg.truncated,
+      note: 'no settled pay period in this range'
+    });
+  }
+
+  // The kept periods can start before `start` and end after `end` — a pay period is not a calendar
+  // month. Read the union, or the edge periods come back short on days and get dropped as missing.
+  let spanFrom = kept[0].period_start, spanTo = kept[0].period_end;
+  kept.forEach(function (p) {
+    if (p.period_start < spanFrom) spanFrom = p.period_start;
+    if (p.period_end   > spanTo)   spanTo   = p.period_end;
+  });
+
+  const netByStore = {}, readErrors = [];
+  for (const s of PG_STORE_MAP_) {
+    netByStore[s.sales] = {};
+    try {
+      const rows = GXCore.getSalesDaily(s.dutchie, spanFrom, spanTo) || [];
+      for (const r of rows) {
+        if (!r.date) continue;
+        netByStore[s.sales][String(r.date).slice(0, 10)] = Number(r.net || 0);
+      }
+    } catch (e) {
+      // Named, never silent: a store whose read failed has an EMPTY day map, so every one of its
+      // periods reports days_missing and drops out of the totals on its own. Without this list that
+      // is indistinguishable from a store that simply had no sales.
+      readErrors.push({ store: s.sales, error: e.message });
+    }
+  }
+
+  const agg = {};
+  const periods = kept.map(function (p) {
+    const stores = {};
+    let pGoal = 0, pActual = 0;
+    const pEnd = at(p.period_end);
+
+    for (const s of PG_STORE_MAP_) {
+      const g    = (p.goals || {})[s.sales];
+      const days = netByStore[s.sales] || {};
+      const hasGoal = !!(g && g.dow_targets && g.dow_targets.length === 7);
+      let goal = 0, actual = 0, missing = 0;
+
+      for (let t = at(p.period_start); t <= pEnd; t += dayMs) {
+        if (hasGoal) goal += Number(g.dow_targets[new Date(t).getUTCDay()] || 0);
+        const v = days[iso(t)];
+        if (v == null) missing++; else actual += v;
+      }
+
+      const counted = hasGoal && missing === 0 && goal > 0;
+      stores[s.sales] = {
+        goal: Math.round(goal), actual: Math.round(actual),
+        pct: counted ? Math.round(actual / goal * 1000) / 10 : null,
+        days_missing: missing, has_goal: hasGoal, counted: counted
+      };
+      if (counted) {
+        pGoal += goal; pActual += actual;
+        const a = agg[s.sales] || (agg[s.sales] = { goal: 0, actual: 0, periods: 0 });
+        a.goal += goal; a.actual += actual; a.periods++;
+      }
+    }
+
+    return {
+      period_start: p.period_start, period_end: p.period_end,
+      days: Math.round((pEnd - at(p.period_start)) / dayMs) + 1,
+      stores: stores,
+      total: { goal: Math.round(pGoal), actual: Math.round(pActual),
+               pct: pGoal > 0 ? Math.round(pActual / pGoal * 1000) / 10 : null }
+    };
+  });
+
+  const byStore = {};
+  let tGoal = 0, tActual = 0;
+  Object.keys(agg).forEach(function (k) {
+    const a = agg[k];
+    byStore[k] = { goal: Math.round(a.goal), actual: Math.round(a.actual),
+                   pct: Math.round(a.actual / a.goal * 1000) / 10, periods: a.periods };
+    tGoal += a.goal; tActual += a.actual;
+  });
+
+  return jsonOut_({
+    ok: true, start: start, end: end, settled_through: settledThrough,
+    periods: periods, skipped_periods: skipped, read_errors: readErrors,
+    summary: {
+      periods_in_range: periods.length,
+      by_store: byStore,
+      total: { goal: Math.round(tGoal), actual: Math.round(tActual),
+               pct: tGoal > 0 ? Math.round(tActual / tGoal * 1000) / 10 : null }
+    },
+    uncovered_days: pg.uncovered_days, truncated: pg.truncated
   });
 }
 

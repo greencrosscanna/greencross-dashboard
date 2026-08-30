@@ -18,7 +18,7 @@ app key in GX Core is **`sales`**.
 | version | the **`APP_VERSION` constant** in `index.html` (no `?v=` cache-buster — there's no external `.js`) |
 | run | `python3 serve.py` → <http://localhost:3000> |
 | ship | commit → push (Pages) → `./deploy.sh` records the release to `version_history` |
-| tests | `tests/*_test.js` — **19 suites, 573 assertions** (2026-08-30), run by the **pre-push hook** via `gx-preflight.sh`; a failure blocks the push. Also verify live with the `gxpin` / `authprobe` routes below |
+| tests | `tests/*_test.js` — **20 suites, 611 assertions** (2026-08-30), run by the **pre-push hook** via `gx-preflight.sh`; a failure blocks the push. Also verify live with the `gxpin` / `authprobe` routes below |
 
 The dev server talks to the **live** backend; `gx-dev.js` blocks writes until armed — which matters more
 here than elsewhere, since this app's writes now run through a fail-closed auth guard. `gx-preflight.sh`
@@ -27,9 +27,9 @@ failing test blocks the push exactly like a dev leftover does.
 
 **Run them yourself with `ls tests/*_test.js | xargs -n1 node`.** Most of them read this repo's real
 `index.html` / `dutchie_proxy.gs` — none of them tests a copy, which is what stops coverage rotting
-silently. Five EXECUTE the shipped source: `pnl_statement`, `deposit_reconciliation`, `pacing_staleness`
-and `qb_deposits_shape` `grab()` named functions out of the file and run them in a `vm` context, and
-`write_guard` rebuilds them with `new Function` — so a renamed function fails the suite instead of quietly
+silently. Six EXECUTE the shipped source: `pnl_statement`, `deposit_reconciliation`, `pacing_staleness`,
+`qb_deposits_shape` and `goal_attainment` `grab()` named functions out of the file and run them in a `vm`
+context, and `write_guard` rebuilds them with `new Function` — so a renamed function fails the suite instead of quietly
 falling out of coverage. The other two, `orphan_css_classes` and `dev_guard_actions`, analyse the source
 text rather than running it. `.claude/gx-posttool-tests.sh` reruns all of them after every edit to those
 two files, which is why a broken edit surfaces mid-session instead of at push time.
@@ -37,7 +37,7 @@ two files, which is why a broken edit surfaces mid-session instead of at push ti
 What they cover, before you assume a change is untested: `orphan_css_classes` (every class used in the
 markup is defined, and every class defined is used), `pnl_statement` (the P&L build **and** the store-pill
 state machine), `deposit_reconciliation`, `write_guard` (the auth guard's log / enforce / off modes),
-`dev_guard_actions` (every `action=` the app fetches is declared in `GX_DEV_READS`, so a new read cannot
+`goal_attainment` (`attainprobe`'s two refusals — see below), `dev_guard_actions` (every `action=` the app fetches is declared in `GX_DEV_READS`, so a new read cannot
 break localhost only), `pacing_staleness` (the two-clock bug — `paceFracs` going stale against a live
 poll), `qb_deposits_shape`.
 
@@ -236,6 +236,30 @@ is no longer read at all (see the severance section above).
 - **Portland Rd's period goal is a flat $41,500 in every pay period** while all five others move
   every period. **Confirmed intentional by Sky** — its ~40% gap against its budget line is the right
   answer and must not be reconciled away.
+
+  *But the goal this app RENDERED was not always that $41,500, and the reason is worth keeping.*
+  Sales sums `dow_targets` per date; it never reads `period_total`. On the Leaderboard a manual
+  override rescaled the day-of-week shape by `manualPP / g.ppGoal`, which only lands on the override
+  when `2 x sum(dowAvg) == ppGoal` — and that identity breaks whenever the 12-period window is
+  missing days (`ppGoal` falls, the per-weekday means do not) or carries an extra one from a
+  DST-stretched range. Portland Rd's sales history starts **2025-07-29** (derived here: two
+  different windows independently imply it), so the period from 2025-12-22 was short 22 of its 168
+  days and this app rendered **$47,735** — 15% over the goal Sky set. The next period rendered
+  $43,564; from 2026-01-19 the window cleared the gap. Since 2026-04-27 one extra window day held it
+  0.7% light instead.
+
+  Fixed in `greencross-leaderboard` **v1.667** (2026-08-30) by normalising on the shape's own
+  two-week total. Verified at the source: GX Core's `period_goals` row for 2026-08-17 now reads
+  `period_total 41500 | 2xdow 41500`. **The two distorted periods were NOT corrected** — a closed
+  period is locked, `writeGoalLedger_` refuses it and there is no unlock route, and that is
+  deliberate: they are what staff were measured on. Sky's call, 2026-08-30.
+
+  Two things NOT to conclude from that fix. The three `auto` stores also show `2xdow` about 0.5%
+  under their `period_total` in the same period — same extra-day effect, but for an auto store there
+  is no intended figure, so the shape and `ppGoal` are two equally legitimate readings and nothing
+  reads `period_total` anyway. Leave it. And a `goalbackfill` would NOT have repaired the two bad
+  periods even unlocked: it reconstructs as-of over the same window, and the gap is real history
+  that will never fill in.
 - **The current month usually still shows budget/lbGoals**, because the period covering its last day
   or two is often unpublished and a partial window refuses. Deliberate: a goal that silently grew as
   periods landed is worse than one that settles once.
@@ -264,6 +288,41 @@ MEASURING the deployed route, not by reading it — every one of them looked fin
 Net: 2024 17.8s→2.5s · 2028 39s→1.5s · March 1.7s · YTD 42s→3.9s. `?action=goalrangeprobe&start=…
 &end=…&secret=…` is the secret-gated twin; it reports `periods`, `uncovered_days`, `truncated` and
 `ledger_intervals`. **Re-run it after any GXCore re-pin** — like `goalprobe`, it discriminates.
+
+**`?action=attainprobe&start=…&end=…&secret=…` — goal vs ACTUAL, added 2026-08-30.** The frozen
+period goal against real net sales, per store, per pay period. Both halves sat behind the login
+gate, so "what has attainment been" was a question nobody could answer without adding up screens by
+hand. Goal side comes from `getPeriodGoalsRange_` itself — not a second copy of the ledger walk, so
+it cannot report a goal the app does not show. Actual side is `GXCore.getSalesDaily`, read ONCE per
+store over the union of the kept periods (six calls, not six per period). ~16s for a full year.
+
+Two refusals are the POINT of the route, not gaps in it. They are the same mistake in opposite
+directions — comparing a partial to a whole — and both render as a believable percentage:
+
+- **An unsettled period is excluded and NAMED** in `skipped_periods`. The open period holds a few
+  days of sales against a full fortnight of goal; counted, the company reads ~20% and someone
+  panics. Same reason the smart budget drops the month in progress.
+- **A store-period missing any sales day is reported but left out of every total**, carrying
+  `days_missing` and `counted: false`. A failed `getSalesDaily` lands in `read_errors` rather than
+  reading as a store that sold nothing — a silent 0% is the most alarming wrong answer available
+  here. **Read `counted` before believing any single row**; the totals only ever sum rows where it
+  is true. `tests/goal_attainment_test.js` (36 assertions) executes the shipped `attainProbe_` in a
+  `vm` and asserts the totals equal EXACTLY the sum of counted rows, not "close to".
+
+**The measured baseline (2026-08-30, 17 settled periods 2025-12-22 … 2026-08-16): 95.0%
+company-wide** — $5,631,004 goal against $5,349,927 actual. Per store: Hillsboro **104.5%** ·
+Commercial 98.2% · Center 96.7% · Bend 96.3% · River **88.8%** · Portland Rd **86.3%**.
+
+So the bar is ~5% above what gets delivered, which is a sane stretch. The spread is not, and it has
+a mechanical cause worth knowing before anyone "fixes" a store: the goal is a 12-period TRAILING
+MEAN, so it lags. **Hillsboro's goal has been rising** (36,207 → 41,672/period) and its bar sits
+below where the store now is; **River's has been falling** (71,830 → 64,458) and its bar sits above,
+because an average of better months cannot be caught — and `max(rolling, YoY)` stops it descending
+as fast as the store does. Growing stores are flattered, shrinking ones punished. That is the
+answer to "the goals feel too high", and it is NOT the stretch multiplier, which is **1.0%**
+(measured: published payload / frozen row = 1.0100 on five stores) and **0% on Portland Rd**,
+because a manual override zeroes stretch. Stretch also cannot compound — the next goal is computed
+from actual SALES, never from the previous goal.
 
 **`getCogsDutchie` is cached at the proxy — leave it that way.** It was the only route the Income tab
 touches with no server-side cache, and the most expensive: six `getSalesDaily` reads plus **six live
