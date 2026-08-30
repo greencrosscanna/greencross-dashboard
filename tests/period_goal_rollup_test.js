@@ -231,6 +231,12 @@ check('the per-store path survives as a fallback',
 // for both paths. An empty `picked` is Core answering, not Core failing.
 check('an authoritative empty answer does NOT trigger the fallback',
   /if \(Array\.isArray\(picked\) && !picked\.length\) return out;/.test(PROXY), true);
+check('the ledger span is learned once so an out-of-range walk spends no probes',
+  /function pgCoverageBounds_/.test(PROXY) && /date >= bounds\.min && date <= bounds\.max/.test(PROXY), true);
+check('bounds read only period dates — never a goal value, never a tie-break',
+  !/bounds[\s\S]{0,400}dow_targets/.test(PROXY), true);
+check('unknown bounds fall back to probing rather than to silence',
+  /!bounds \|\| \(date >= bounds\.min/.test(PROXY), true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

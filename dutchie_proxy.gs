@@ -1041,6 +1041,43 @@ function pgStoreIdMap_() {
 }
 
 /**
+ * The first and last date the period_goals ledger covers, as { min, max }, or null if unknowable.
+ *
+ * One call with BOTH arguments empty returns every row in the tab, and the min/max of period_start
+ * and period_end is all this needs. That makes an out-of-range walk free instead of spending its
+ * whole MISS_LIMIT budget discovering, one probe at a time, that the ledger does not go there —
+ * measured 22.5s for a 2027 range, which is 14 probes at ~1.6s each because every getPeriodGoals
+ * call re-reads the whole tab.
+ *
+ * Only period_start/period_end are read here, never a goal value and never a tie-break. That matters:
+ * `rows` is the RAW audit view, orphans included, and picking a goal out of it by hand is precisely
+ * the `match[0]`-in-sheet-order bug that forced the v220 re-pin. An orphan row can only WIDEN these
+ * bounds, which costs a wasted probe and never a missed period — the safe direction.
+ */
+function pgCoverageBounds_() {
+  const cached = cacheGet_('pg_bounds');
+  if (cached) { try { const b = JSON.parse(cached); return b.min ? b : null; } catch (e) {} }
+  try {
+    const all  = GXCore.getPeriodGoals('', '');
+    const rows = (all && all.rows) || [];
+    let min = '', max = '';
+    for (const r of rows) {
+      const ps = String(r.period_start || ''), pe = String(r.period_end || ps);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(ps)) continue;
+      if (!min || ps < min) min = ps;
+      if (!max || pe > max) max = pe;
+    }
+    if (min && max) {
+      const b = { min: min, max: max };
+      cacheSet_('pg_bounds', JSON.stringify(b), 1800); // 30 min: the ledger GROWS, so do not pin it long
+      return b;
+    }
+  } catch (e) { /* unknown bounds — fall back to probing, which is correct if slow */ }
+  cacheSet_('pg_bounds', JSON.stringify({ min: '' }), 300);
+  return null;
+}
+
+/**
  * One pay period's goals for every store, as { window, goals }.
  *
  * ONE store-less call, not six per-store ones. getPeriodGoals re-reads the whole period_goals tab on
@@ -1126,6 +1163,7 @@ function getPeriodGoalsRange_(start, end) {
     return jsonOut_({ ok: false, error: 'range exceeds ' + PG_RANGE_MAX_DAYS_ + ' days' });
   }
 
+  const bounds    = pgCoverageBounds_();
   const byStoreId = pgStoreIdMap_();
   const periods = [];
   let cursor    = at(start);
@@ -1150,7 +1188,9 @@ function getPeriodGoalsRange_(start, end) {
     let period   = cached ? JSON.parse(cached) : null;
     if (period && period.none) period = null;
 
-    if (!period && !cached && misses < MISS_LIMIT) {
+    // Outside the ledger's known span there is nothing to find, so do not spend a probe proving it.
+    const inLedger = !bounds || (date >= bounds.min && date <= bounds.max);
+    if (!period && !cached && inLedger && misses < MISS_LIMIT) {
       const loaded = pgLoadPeriod_(date, byStoreId);
       const goals  = loaded.goals;
       const window = loaded.window;
