@@ -2839,6 +2839,21 @@ const SB_TREND_DAMP = 0.5;
 const SB_TREND_MIN  = 0.80;
 const SB_TREND_MAX  = 1.25;
 
+// Outlier detection. SB_LIMIT_FLOOR keeps the band from collapsing on a near-constant series (see
+// sbOutlierLimit_); SB_LOCAL_W is how many months either side form the local level a point is
+// checked against. Both were chosen by running the real 24-month QuickBooks series through the
+// candidates, not by taste — W=3 with a 15% floor flags exactly the three true Rent anomalies
+// (a partial month, a double payment, a skipped month) and nothing else.
+const SB_LIMIT_FLOOR = 0.15;
+const SB_LOCAL_W     = 3;
+
+// A category is SPARSE when at least this share of its months had no spend at all. Sparse
+// categories get a run-rate budget instead of a typical-month one — see sbSparseProposal_.
+const SB_SPARSE_ZERO_SHARE = 0.5;
+// Inside a sparse category, a single month bigger than this share of the WHOLE window's spend is a
+// one-off event, not a rate. Miscellaneous is 94% one $26,915 month; Meals' biggest is 24%.
+const SB_SPARSE_EVENT_SHARE = 0.5;
+
 /** Median of a numeric array. Empty → 0. */
 function sbMedian_(arr) {
   const a = (arr || []).filter(function (v) { return typeof v === 'number' && isFinite(v); })
@@ -2876,7 +2891,14 @@ function sbOutlierLimit_(vals) {
   if (!scale && devs.length) {
     scale = devs.reduce(function (a, b) { return a + b; }, 0) / devs.length;
   }
-  return { med: med, lim: scale ? 3 * scale : Infinity };
+  // RELATIVE FLOOR. 3×MAD alone collapses on a series whose recent months are near-identical: the
+  // real Rent Expense window gave a limit of $1,755 across values spanning $0 to $73,762, so a
+  // perfectly ordinary $2,400 month read as an outlier. Measured against the live series, anything
+  // from 10–25% behaves the same; 15% sits in the middle of that plateau.
+  const floor = Math.abs(med) * SB_LIMIT_FLOOR;
+  const base  = scale ? 3 * scale : 0;
+  const lim   = Math.max(base, floor);
+  return { med: med, lim: lim || Infinity };
 }
 
 /** Split into the values to use and the ones to set aside. Never returns an empty `kept`. */
@@ -2918,11 +2940,38 @@ function sbCleanSeries_(series) {
     return peers.length ? sbMedian_(peers) : null;
   });
 
+  // The LOCAL level: the median of the two months either side, excluding this one. A level SHIFT is
+  // persistent — a new lease, a rent increase, a store opening — so its months agree with their
+  // immediate neighbours. A true anomaly does not. Without this test the rule cannot tell "rent went
+  // up in 2025" from "one weird month", and on the real Rent series it called 10 of 23 months
+  // outliers when only three were: Aug 2024 (partial), Dec 2024 (double payment), Apr 2025 (zero).
+  // The other seven were simply the old, lower rent.
+  // The neighbours BEFORE and AFTER are looked at separately, and agreeing with EITHER side is
+  // enough to be kept. A centred window cannot survive a step change: at the first month of a new
+  // lease, half the window is the old level and half the new, so the median lands between them and
+  // the month reads as an outlier against its own regime. One-sided, the new month agrees with what
+  // FOLLOWS it and is kept — which is the whole point, because a recent step up is exactly what a
+  // budget has to capture and the easiest thing to erase.
+  const side = function (i, dir) {
+    const near = [];
+    for (let k = 1; k <= SB_LOCAL_W; k++) { const q = series[i + dir * k]; if (q) near.push(q.v); }
+    return near.length ? sbMedian_(near) : null;
+  };
+
   let replaced = 0;
   const out = (series || []).map(function (p, i) {
+    const before = side(i, -1), after = side(i, 1);
     const farFromAll  = Math.abs(p.v - o.med) > o.lim;
     const farFromPeer = peerMed[i] === null ? true : Math.abs(p.v - peerMed[i]) > o.lim;
-    if (farFromAll && farFromPeer) { replaced++; return { mo: p.mo, yr: p.yr, v: o.med }; }
+    const fitsBefore  = before !== null && Math.abs(p.v - before) <= o.lim;
+    const fitsAfter   = after  !== null && Math.abs(p.v - after)  <= o.lim;
+    if (farFromAll && farFromPeer && !fitsBefore && !fitsAfter) {
+      replaced++;
+      // Filled with the level around it, not the window median: an anomaly inside a shifted stretch
+      // should be replaced by what that stretch was doing, not by an average of two regimes.
+      const fill = after !== null ? after : (before !== null ? before : o.med);
+      return { mo: p.mo, yr: p.yr, v: fill };
+    }
     return p;
   });
   return { series: out, replaced: replaced };
@@ -3000,12 +3049,65 @@ function sbProjectSeries_(series, year) {
   // one half of the 6-vs-6 comparison.
   const cleaned = sbCleanSeries_(series);
   const cs      = cleaned.series;
-  const level   = sbMean_(cs.map(function (p) { return p.v; }));
+  // LEVEL comes from the trailing 12 months, SEASONALITY from the whole window. They want different
+  // spans and averaging them together is what makes a level shift disappear: rent that rose from
+  // ~40k to ~44k has a 24-month mean of ~42k, so a budget built on it is under by 4% every month
+  // for a cost that is known exactly. Twelve months is also a whole cycle, so the mean is not itself
+  // seasonally skewed. Seasonality needs the longer window for the opposite reason — it takes
+  // repeated observations of the same calendar month to establish a shape at all.
+  const recent  = cs.slice(-Math.min(12, cs.length));
+  const level   = sbMean_(recent.map(function (p) { return p.v; }));
   const trend   = sbTrendFactor_(cs);
   const seas    = cs.length >= SB_MIN_SEASONAL ? sbSeasonalIndex_(cs) : new Array(12).fill(1);
   const out     = sbBlankYear_();
   MONTHS_12_.forEach(function (m, i) { out[m] = Math.round(level * seas[i] * trend); });
   return { monthly: out, level: level, trend: trend, seasonal: seas, outliers: cleaned.replaced };
+}
+
+/**
+ * Budget for a SPARSE category — one with no spend in half its months or more.
+ *
+ * These have no "typical month", and the main engine gets them badly wrong: with the median at
+ * zero, every month that DID have spend reads as an outlier, cleaning replaces it with the
+ * surrounding zeros, and the category is budgeted at $0. Meals & Entertainment came out of the live
+ * data at exactly that — $0 a year against $7,014 of real spend, with 11 of 12 months "excluded".
+ * A confident zero is the worst possible answer here: it reads as a decision.
+ *
+ * What such a category actually has is an annual RATE, so that is what it gets — total spend spread
+ * evenly, no seasonal claim. The only thing removed is a single month large enough to be an event
+ * rather than a rate: Miscellaneous is 94% one $26,915 line, which must not become a recurring
+ * budget, while Meals' largest month is 24% of its total and is simply a busy month.
+ *
+ * Deliberately NOT the MAD machinery. On small skewed values it produces a limit of a few hundred
+ * dollars and throws away half the real spend — the same collapse this function exists to avoid.
+ */
+function sbSparseProposal_(cat, series, windowMonths) {
+  const vals  = series.map(function (p) { return p.v; });
+  const total = vals.reduce(function (a, b) { return a + b; }, 0);
+  const events = [];
+  let used = total;
+  if (total > 0) {
+    vals.forEach(function (v) {
+      if (v > 0 && v / total > SB_SPARSE_EVENT_SHARE) { events.push(v); used -= v; }
+    });
+  }
+  const perMonth = windowMonths > 0 ? Math.max(0, used / windowMonths) : 0;
+  const monthly  = sbBlankYear_();
+  MONTHS_12_.forEach(function (m) { monthly[m] = Math.round(perMonth); });
+  const annual = MONTHS_12_.reduce(function (a, m) { return a + monthly[m]; }, 0);
+  const spent  = series.filter(function (p) { return p.v > 0; }).length;
+  return {
+    category: cat, method: 'run_rate', confidence: 'low', n_months: spent,
+    monthly: monthly, annual: annual,
+    basis: { total_in_window: Math.round(total), one_off_excluded: events.length,
+             one_off_amount: events.length ? Math.round(events[0]) : 0,
+             outliers_excluded: events.length },
+    note: 'Irregular — only ' + spent + ' of ' + windowMonths + ' months had any spend, so there is '
+        + 'no typical month. Budgeted at the run rate'
+        + (events.length ? ', after setting aside a one-off of $'
+             + Math.round(events[0]).toLocaleString() + ' that was most of the window\'s total' : '')
+        + '. Flat by design, not by analysis.'
+  };
 }
 
 /**
@@ -3083,6 +3185,12 @@ function sbBuildProposal_(year, history) {
                monthly: null, annual: null,
                note: 'No spend in the history window — nothing to derive a budget from. Left as-is.' };
     }
+
+    // Sparse categories are decided BEFORE the volume/seasonal paths — both of those assume a
+    // meaningful central value, which a mostly-zero series does not have.
+    const windowMonths = s.length;
+    const zeroShare    = windowMonths ? (windowMonths - n) / windowMonths : 1;
+    if (zeroShare >= SB_SPARSE_ZERO_SHARE) return sbSparseProposal_(cat, s, windowMonths);
 
     if (isVolume && n >= SB_MIN_RATIO) {
       // Ratio per month, then the MEDIAN ratio — not total spend over total revenue, which is a

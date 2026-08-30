@@ -46,7 +46,7 @@ function grab(name) {
 
 // Constants the engine reads, pulled from source so a retuned value is exercised, not shadowed.
 const CONSTS = ['SB_VOLUME_LINKED', 'SB_MIN_SEASONAL', 'SB_MIN_TREND', 'SB_MIN_RATIO', 'SB_MIN_ANY',
-                'SB_TREND_DAMP', 'SB_TREND_MIN', 'SB_TREND_MAX']
+                'SB_TREND_DAMP', 'SB_TREND_MIN', 'SB_TREND_MAX', 'SB_LIMIT_FLOOR', 'SB_LOCAL_W', 'SB_SPARSE_ZERO_SHARE', 'SB_SPARSE_EVENT_SHARE']
   .map(n => {
     const m = new RegExp('const ' + n + '\\s*=\\s*([^;]+);').exec(GS);
     if (!m) throw new Error('missing const ' + n);
@@ -57,7 +57,7 @@ const CONSTS = ['SB_VOLUME_LINKED', 'SB_MIN_SEASONAL', 'SB_MIN_TREND', 'SB_MIN_R
   }).join('\n');
 
 const FNS = ['sbMedian_', 'sbMad_', 'sbMean_', 'sbOutlierLimit_', 'sbSplitOutliers_', 'sbCleanSeries_', 'sbParseCol_', 'sbTrendFactor_',
-             'sbSeasonalIndex_', 'sbBlankYear_', 'sbProjectSeries_', 'sbBuildProposal_'];
+             'sbSeasonalIndex_', 'sbBlankYear_', 'sbProjectSeries_', 'sbSparseProposal_', 'sbBuildProposal_'];
 
 const ctx = {
   console,
@@ -264,6 +264,102 @@ console.log('\n5g. a one-off and a real season in the same series');
   const proj = ctx.sbProjectSeries_(series, 2026);
   ok('November is budgeted like a normal month, not at 250k', proj.monthly.Nov < 20000);
   ok('...and summer still outruns winter', proj.monthly.Jul > proj.monthly.Feb * 2);
+}
+
+// ── 5h. A LEVEL SHIFT is not a pile of outliers ───────────────────────────────────────────────
+// The real Rent Expense series is what exposed this. It runs ~38-42k through 2024/early 2025 and
+// ~44k after, with three true anomalies mixed in: a partial first month, a double payment, and a
+// skipped month. The first version of the cleaner called 10 of 23 months outliers — seven of which
+// were just the old, lower rent — and only landed on the right annual by luck.
+//
+// The failure that hides behind that mislabelling is the one that matters: a RECENT step up (a new
+// lease, a new store) is exactly what a budget must capture, and winsorizing to the window median
+// erases it, quietly budgeting next year at last year's rent.
+console.log('\n5h. a level shift is kept; only true anomalies are removed');
+{
+  const v = [5951, 41996, 37766, 41381, 73762, 38381, 38381, 39200, 0, 44939, 43918, 43918,
+             43918, 43918, 43918, 44503, 44503, 43524, 46087, 44126, 44126, 44126, 44126, 44126];
+  const series = v.map((val, i) => ({ mo: (7 + i) % 12, yr: 2024 + Math.floor((7 + i) / 12), v: val }));
+
+  const cleaned = ctx.sbCleanSeries_(series);
+  ok('exactly the three true anomalies are flagged, not half the series', cleaned.replaced === 3);
+  ok('...the partial first month is one of them', cleaned.series[0].v !== 5951);
+  ok('...so is the double payment', cleaned.series[4].v !== 73762);
+  ok('...and so is the zero month', cleaned.series[8].v !== 0);
+  ok('...but the old, lower 2024 rent is KEPT as a real level, not erased',
+     cleaned.series[2].v === 37766 && cleaned.series[5].v === 38381);
+
+  // The current run rate is 44,126.84/mo -> ~529,522/yr. The proposal must land there, not on the
+  // 24-month average of two different rent regimes (~42k -> ~505k, low by 4.5%).
+  const proj   = ctx.sbProjectSeries_(series, 2026);
+  const annual = MONTHS.reduce((a, m) => a + proj.monthly[m], 0);
+  ok('the annual lands on the CURRENT rent, within 3%', Math.abs(annual - 529522) / 529522 < 0.03);
+  ok('...and not on the whole-window average, which is materially lower',
+     annual > 12 * 42500);
+}
+
+// A step up in the LAST few months must survive rather than be flattened back to the old level.
+{
+  const v = new Array(21).fill(44000).concat([60000, 60000, 60000]);
+  const series = v.map((val, i) => ({ mo: (7 + i) % 12, yr: 2024 + Math.floor((7 + i) / 12), v: val }));
+  const cleaned = ctx.sbCleanSeries_(series);
+  ok('a recent step UP is not winsorized away',
+     cleaned.replaced === 0 && cleaned.series.slice(-3).every(p => p.v === 60000));
+  const proj = ctx.sbProjectSeries_(series, 2026);
+  ok('...and it lifts the budget above the old level', proj.monthly.Jan > 44000);
+}
+
+// ── 5i. Sparse categories get a RATE, never a confident zero ──────────────────────────────────
+// Both of these are real 24-month series from the live QuickBooks data, and both came out wrong
+// before this path existed. Meals & Entertainment has spend in 12 of 24 months; with the median at
+// zero, every month that DID spend read as an outlier, cleaning replaced each with the surrounding
+// zeros, and the category was budgeted at $0/yr against $7,014 of actual spend — while reporting
+// "11 outliers excluded". A confident zero is the worst answer available here: it reads as a
+// decision someone made.
+console.log('\n5i. a mostly-empty category is budgeted at its run rate, not at zero');
+{
+  const meals = [133,0,108,0,1706,13,0,113,949,135,0,0,941,0,0,853,0,1533,0,50,0,0,480,0];
+  const series = meals.map((v,i) => ({ mo:(7+i)%12, yr:2024+Math.floor((7+i)/12), v }));
+  const p = ctx.sbSparseProposal_('Meals & Entertainment', series, 24);
+  const total = meals.reduce((a,b)=>a+b,0);   // 7,014
+
+  ok('it is NOT budgeted at zero', p.annual > 0);
+  ok('...it is the run rate: total/24, twelve times', Math.abs(p.annual - total/2) < 12);
+  ok('...flat, with no seasonal claim', new Set(MONTHS.map(m=>p.monthly[m])).size === 1);
+  ok('...method says run_rate and confidence is low', p.method === 'run_rate' && p.confidence === 'low');
+  ok('...and the note says why rather than presenting it as analysis', /no typical month/i.test(p.note));
+  ok('...no month is called an outlier — the busy months are real spend',
+     p.basis.one_off_excluded === 0);
+}
+{
+  // Miscellaneous: 94% of the window is ONE $26,915 month. That is an event, not a rate, and must
+  // not become a recurring budget line.
+  const misc = [0,0,31,0,26915,0,0,0,0,-207,17,-20,24,-24,0,0,0,14,960,283,0,175,325,52];
+  const series = misc.map((v,i) => ({ mo:(7+i)%12, yr:2024+Math.floor((7+i)/12), v }));
+  const p = ctx.sbSparseProposal_('Miscellaneous', series, 24);
+  ok('the one-off is set aside', p.basis.one_off_excluded === 1 && p.basis.one_off_amount === 26915);
+  ok('...so the budget reflects the ordinary months, not the event', p.annual < 1500);
+  ok('...but is still above zero — the ordinary months are real', p.annual > 0);
+  ok('...and the note names the amount that was set aside', /26,915/.test(p.note));
+}
+{
+  // A negative-heavy or empty series must not produce a negative budget.
+  const series = new Array(24).fill(0).map((_,i)=>({mo:(7+i)%12, yr:2024+Math.floor((7+i)/12), v: i===3?-500:0}));
+  const p = ctx.sbSparseProposal_('Refunds', series, 24);
+  ok('a net-negative sparse category floors at zero, never negative',
+     MONTHS.every(m => p.monthly[m] >= 0));
+}
+{
+  // The routing itself: a sparse category must not reach the seasonal path.
+  const columns = [];
+  for (let yr = 2024; yr <= 2025; yr++) for (let mo = 0; mo < 12; mo++) columns.push(MONTHS[mo] + ' ' + yr);
+  const income = {}, expenses = { 'Meals & Entertainment': {} };
+  const meals = [133,0,108,0,1706,13,0,113,949,135,0,0,941,0,0,853,0,1533,0,50,0,0,480,0];
+  columns.forEach((c,i) => { income[c] = 600000; expenses['Meals & Entertainment'][c] = meals[i]; });
+  const built = ctx.sbBuildProposal_(2026, { columns, expenses, income });
+  const row = built.proposals[0];
+  ok('sbBuildProposal_ routes a sparse category to the run-rate path', row.method === 'run_rate');
+  ok('...and it is not zero', row.annual > 0);
 }
 
 // ── 6. The history window ends on the last COMPLETE month ─────────────────────────────────────
