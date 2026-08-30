@@ -60,6 +60,10 @@ class FakeDate extends Date {
 const ctx = {
   console, goals, goalsYear: 2026,
   activeYear: 2026,
+  // No frozen period goals loaded: this suite is about the BUDGET path and its year gate, so every
+  // pgTotal window must come back null and fall through. tests/period_goal_rollup_test.js covers
+  // the frozen path and the precedence between the two.
+  pgDaily: {}, _pgTotalMemo: new Map(),
   lbGoals: null,             // no published payload — exercise the budget path, which is the one gated
   periodGoalsCache: {},
   getDOWWeights: () => Array(7).fill(1 / 7),
@@ -68,7 +72,8 @@ const ctx = {
 vm.createContext(ctx);
 vm.runInContext([
   MONTHS_SRC, YTD_SRC,
-  grab('getGoal'), grab('getMonthlyGoal'), grab('getWeeklyGoal'), grab('getDailyGoal'),
+  grab('getGoal'), grab('monthBounds'), grab('ytdBounds'), grab('pgTotal'),
+  grab('getMonthlyGoal'), grab('getWeeklyGoal'), grab('getDailyGoal'),
 ].join('\n'), ctx);
 
 let pass = 0, fail = 0;

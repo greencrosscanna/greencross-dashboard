@@ -620,6 +620,15 @@ function doGet(e) {
     return getPeriodGoalsForDate_(params.date);
   }
 
+  // Same trick and same reason as goalprobe, one range wide: the range route sits behind the login
+  // gate, so proving a re-pin still rolls periods up correctly would otherwise mean opening a
+  // browser. It is also the only way to see uncovered_days/truncated without a session.
+  if (params.action === 'goalrangeprobe') {
+    const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
+    if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
+    return getPeriodGoalsRange_(params.start, params.end);
+  }
+
   if (params.action === 'ping') {
     const pAuth = requireAuth_(params);
     if (!pAuth.ok) return jsonOut_({ ok: false, error: pAuth.error });
@@ -635,6 +644,7 @@ function doGet(e) {
   if (params.action === 'stores')      return getStoresMeta_();
   if (params.action === 'goals')       return getGoals();
   if (params.action === 'period_goals') return getPeriodGoalsForDate_(params.date);
+  if (params.action === 'period_goals_range') return getPeriodGoalsRange_(params.start, params.end);
   if (params.action === 'pace')        return getPacingFracs_();
   if (params.action === 'save_expense_mapping') { const g = writeGuard_(auth.user, 'save_expense_mapping'); if (!g.ok) return jsonOut_(g); return saveExpenseMapping_(params); }
   if (params.action === 'expenses')    return getExpenses(params);
@@ -992,6 +1002,124 @@ function getPeriodGoalsForDate_(date) {
   } catch(e) {
     return jsonOut_({ ok: false, error: e.message });
   }
+}
+
+// Dutchie name → Sales canonical key. Shared by getPeriodGoalsForDate_ and the range route below so
+// the two cannot drift into disagreeing about what a store is called.
+const PG_STORE_MAP_ = [
+  { dutchie: 'Bend',        sales: 'Bend'        },
+  { dutchie: 'Center',      sales: 'Center'      },
+  { dutchie: 'Commercial',  sales: 'Commercial'  },
+  { dutchie: 'Hillsboro',   sales: 'Hillsboro'   },
+  { dutchie: 'Portland Rd', sales: 'Portland Rd' },
+  { dutchie: 'River Rd',    sales: 'River'       },
+];
+
+const PG_RANGE_MAX_DAYS_ = 400; // a full year plus slack — bounds the walk below
+
+/**
+ * Every pay period overlapping [start, end], each with its frozen per-DOW targets.
+ *
+ * The client needs this because only the DAY view reads frozen period goals; week, month and YTD
+ * read the budget spreadsheet, and the two disagree — measured over Jan–Jul 2026, by +7.2%
+ * ($337k), and for Portland Rd by ~40% every month. Asking per date would be 365 × 6 GXCore calls
+ * for a YTD view, so this returns PERIODS and lets the client expand them to dates itself, exactly
+ * as getDailyGoal already does with dow_targets.
+ *
+ * Walk, don't guess: period boundaries come from GXCore, never from arithmetic on a 14-day cadence.
+ * They have moved before — the DST rows that made March 2026 a 15-day window are what forced the
+ * v220 re-pin — so a client-side stride would silently mis-bucket exactly the dates that matter.
+ *
+ * A frozen period never changes, so each one is cached on its own key rather than the range being
+ * cached as a whole: overlapping ranges (Aug, then YTD) then share every period they have in common
+ * instead of re-fetching from scratch.
+ */
+function getPeriodGoalsRange_(start, end) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(start)) || !/^\d{4}-\d{2}-\d{2}$/.test(String(end))) {
+    return jsonOut_({ ok: false, error: 'start and end required as YYYY-MM-DD' });
+  }
+  if (end < start) return jsonOut_({ ok: false, error: 'end is before start' });
+
+  const dayMs = 86400000;
+  // Noon UTC, not midnight: these are date-only strings and the script timezone is Pacific, so a
+  // midnight anchor lands on the previous day and every window shifts by one. Same reason the suite
+  // stores dates as TEXT.
+  const at    = s => new Date(s + 'T12:00:00Z').getTime();
+  const iso   = t => new Date(t).toISOString().slice(0, 10);
+
+  if ((at(end) - at(start)) / dayMs + 1 > PG_RANGE_MAX_DAYS_) {
+    return jsonOut_({ ok: false, error: 'range exceeds ' + PG_RANGE_MAX_DAYS_ + ' days' });
+  }
+
+  const periods = [];
+  let cursor    = at(start);
+  const last    = at(end);
+  let uncovered = 0;
+
+  // An uncovered date costs six live GXCore calls to establish, and coverage is a contiguous run
+  // that begins ~Nov 2025 and extends forward — so a long miss streak means the range starts before
+  // the ledger does, not that it is pocked with holes. Without this, asking for 2025 YTD walks 365
+  // days at six calls each and times the request out. After a month of nothing, stop probing and
+  // report the remainder uncovered; the client shows no goal either way.
+  const MISS_LIMIT = 31;
+  let misses = 0;
+
+  while (cursor <= last) {
+    const date   = iso(cursor);
+    const cached = cacheGet_('pgp_' + date);
+    let period   = cached ? JSON.parse(cached) : null;
+    if (period && period.none) period = null;
+
+    if (!period && !cached && misses < MISS_LIMIT) {
+      const goals = {};
+      let window  = null;
+      for (const s of PG_STORE_MAP_) {
+        try {
+          const pg = GXCore.getPeriodGoals(s.dutchie, date);
+          if (pg && pg.dow_targets) {
+            goals[s.sales] = { period_total: pg.period_total, dow_targets: pg.dow_targets };
+            if (!window) window = { start: pg.period_start, end: pg.period_end };
+          }
+        } catch (e2) { /* store not in the ledger for this period — skip, same as the day route */ }
+      }
+      if (window) {
+        period = { period_start: window.start, period_end: window.end, goals: goals };
+        // Cache under EVERY date the period covers, not just the one asked for: the next range that
+        // starts mid-period must hit the same entry, or the walk pays for it again.
+        const pEnd = at(period.period_end);
+        for (let t = at(period.period_start); t <= pEnd; t += dayMs) {
+          cacheSet_('pgp_' + iso(t), JSON.stringify(period), 21600); // 6h — the period itself is frozen
+        }
+      } else {
+        // Cache the miss too, on a shorter TTL than a hit: a date before the ledger starts will
+        // still be before it in an hour, but a date the producer has yet to publish should not stay
+        // negative for six hours after it lands.
+        cacheSet_('pgp_' + date, JSON.stringify({ none: true }), 1800);
+      }
+    }
+
+    if (!period) {
+      // No pay period covers this date. GX Core's period_goals do not begin until ~Nov 2025, so this
+      // is the normal answer for older dates — report it rather than letting the client mistake a
+      // partial sum for a whole one.
+      uncovered++;
+      misses++;
+      cursor += dayMs;
+      continue;
+    }
+
+    misses = 0;
+    periods.push(period);
+    cursor = at(period.period_end) + dayMs;
+  }
+
+  return jsonOut_({
+    ok: true, start: start, end: end, periods: periods,
+    uncovered_days: uncovered,
+    // True when the walk stopped probing on the miss streak above, so `uncovered_days` is a floor,
+    // not a count. The client treats any uncovered day as "no goal", so it needs no more than this.
+    truncated: misses >= MISS_LIMIT,
+  });
 }
 
 function getPacingFracs_() {

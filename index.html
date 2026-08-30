@@ -840,7 +840,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   //                 set_recon, set_recon_assign, set_recon_config
   window.GX_DEV_READS = [
     'cogs', 'cogs_dutchie', 'config', 'deposits', 'expbudgets', 'expenses', 'getdailygoals', 'goals',
-    'inventory', 'login', 'otherrev', 'pace', 'period_goals', 'ping', 'pnl', 'published_goals',
+    'inventory', 'login', 'otherrev', 'pace', 'period_goals', 'period_goals_range', 'ping', 'pnl', 'published_goals',
     'recon_config', 'revenue_detail',
     'stores', 'velocity', 'version_history'
   ];
@@ -1129,7 +1129,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.540';
+const APP_VERSION = 'v2.541';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1305,11 +1305,75 @@ const MONTHS_FULL = ['January','February','March','April','May','June','July','A
 // Sentinel: activeMonth === MONTH_YTD means "full year / YTD" view.
 const MONTH_YTD = 0;
 
+// ── Frozen pay-period goals, expanded to dates ───────────────────────────────
+// Until v2.541 only the DAY view read these; week, month and YTD read the budget spreadsheet, so
+// the same past period showed two different goals depending on which view you were in. Measured
+// over Jan–Jul 2026: +7.2% company-wide ($337k), Portland Rd ~40% every month. Sky's call
+// (2026-08-29) is that the frozen period goals are authoritative — they are the targets staff were
+// actually held to, and what the Leaderboard publishes — so every view now reads them, with the
+// budget kept only as the fallback for dates GX Core has no period for.
+//
+// Portland Rd's period goal is a FLAT $41,500 in all eighteen pay periods from Dec 2025 to Aug 2026
+// while every other store's varies every period. Confirmed intentional by Sky, not a stale row —
+// so the ~40% jump against its budget line is correct and must not be "corrected" back.
+let pgDaily = {};              // store → { 'YYYY-MM-DD': dailyTarget }; frozen, so it only ever grows
+let pgLoaded = new Set();      // range keys already fetched, so render() cannot loop on the fetch
+let _pgTotalMemo = new Map();  // 'store|from|to' → sum; cleared whenever pgDaily grows
+
 /**
- * Monthly goal for a store — leaderboard computed value when viewing current month,
- * budget spreadsheet otherwise.
+ * Sum of the frozen daily targets over [from, to], or NULL if ANY date in the window has no period.
+ *
+ * Null rather than a partial sum, deliberately: an understated goal renders exactly like a correct
+ * one and would read as the store beating a target it never had. It is the same failure the
+ * past-year fix just closed, one level down. Callers fall back to the budget on null.
+ */
+function pgTotal(storeName, from, to) {
+  const key = storeName + '|' + from + '|' + to;
+  if (_pgTotalMemo.has(key)) return _pgTotalMemo.get(key);
+  const days = pgDaily[storeName];
+  let out = null;
+  if (days) {
+    let sum = 0, ok = true;
+    for (let t = Date.parse(from + 'T12:00:00Z'), end = Date.parse(to + 'T12:00:00Z'); t <= end; t += 86400000) {
+      const v = days[new Date(t).toISOString().slice(0, 10)];
+      if (v == null) { ok = false; break; }
+      sum += v;
+    }
+    if (ok) out = sum;
+  }
+  _pgTotalMemo.set(key, out);
+  return out;
+}
+
+/** First and last date of a month, as YYYY-MM-DD. */
+function monthBounds(year, month /* 1–12 */) {
+  const p = n => String(n).padStart(2, '0');
+  return [`${year}-${p(month)}-01`, `${year}-${p(month)}-${p(new Date(year, month, 0).getDate())}`];
+}
+
+/**
+ * The YTD window, matching getGoal's own maxMo exactly. If these two ever disagree about where the
+ * year-to-date stops, the goal and the pacing it is measured against would be reading different
+ * calendars — which is the two-clock bug that printed "+$1.7m over pace" under "98% of goal".
+ */
+function ytdBounds(year) {
+  const maxMo = year < new Date().getFullYear() ? 12 : new Date().getMonth() + 1;
+  return [`${year}-01-01`, monthBounds(year, maxMo)[1]];
+}
+
+/**
+ * Monthly goal for a store — frozen period goals first, then the leaderboard's live payload for the
+ * current month, then the budget spreadsheet.
+ *
+ * The current month usually falls through to lbGoals/budget rather than resolving here, and that is
+ * intended: the pay period covering the last day or two of the month is often unpublished, pgTotal
+ * refuses partial windows, and a goal that silently grew as periods landed would be worse than one
+ * that changes once when the month completes.
  */
 function getMonthlyGoal(storeName, month /* 1–12 or 0=YTD */, year) {
+  const [from, to] = month === MONTH_YTD ? ytdBounds(year) : monthBounds(year, month);
+  const pg = pgTotal(storeName, from, to);
+  if (pg != null) return pg;
   if (month > 0 && lbGoals && year === lbGoals.year && MONTHS[month - 1] === lbGoals.month) {
     const lb = lbGoals.stores[storeName];
     if (lb && lb.monthly) return lb.monthly;
@@ -1318,11 +1382,18 @@ function getMonthlyGoal(storeName, month /* 1–12 or 0=YTD */, year) {
 }
 
 /**
- * Weekly goal for a store — leaderboard computed value for current month,
- * or flat budget × 7 / daysInMonth fallback.
- * Used by renderIncome period goal AND per-store breakdown (was duplicated).
+ * Weekly goal for a store — frozen period goals for the week actually being viewed, else the
+ * leaderboard payload, else a flat budget × 7 / daysInMonth.
+ *
+ * `from`/`to` are the real week being rendered, so this is the first version of the week target
+ * that reflects WHICH week: the budget fallback below divides the month evenly and hands back the
+ * same number for every week in it, holiday weeks included.
  */
-function getWeeklyGoal(storeName, month, year, daysInMo) {
+function getWeeklyGoal(storeName, month, year, daysInMo, from, to) {
+  if (from && to) {
+    const pg = pgTotal(storeName, from, to);
+    if (pg != null) return pg;
+  }
   if (month > 0 && lbGoals && year === lbGoals.year && MONTHS[month - 1] === lbGoals.month) {
     const lb = lbGoals.stores[storeName];
     if (lb?.dow) return lb.dow.reduce((a, b) => a + b, 0);
@@ -1340,6 +1411,11 @@ function getDailyGoal(storeName, dow, month /* 1–12 */, year, daysInMo, forDat
     const pg = periodGoalsCache[forDate][storeName];
     if (pg?.dow_targets?.[dow] != null) return pg.dow_targets[dow];
   }
+  // 1b. The same frozen targets, reached through the range load the aggregate views use. Identical
+  // numbers from the identical source — this only widens WHEN they are in hand, so a month or week
+  // view that has already fetched the range gives its per-day rows the frozen target instead of
+  // dropping to the budget fallback three lines down.
+  if (forDate && pgDaily[storeName]?.[forDate] != null) return pgDaily[storeName][forDate];
   // 2. lbGoals — live, refreshes every 30 min; best for current period
   if (month > 0 && lbGoals && year === lbGoals.year && MONTHS[month - 1] === lbGoals.month) {
     const lb = lbGoals.stores[storeName];
@@ -1478,6 +1554,67 @@ async function loadPeriodGoals(date) {
       render(); // re-render now that we have accurate per-period DOW targets
     }
   } catch(e) { console.warn('[period-goals] fetch failed:', e.message); }
+}
+
+/**
+ * The date window the active view needs frozen goals for. One range per view, not one per store or
+ * per month: in YTD this covers Jan..maxMo in a single fetch, so getGoalPacingPct's month-by-month
+ * loop resolves every month out of the same payload.
+ */
+function activeWeekBounds() {
+  const ds = getDaysOfISOWeek(activeYear, activeWeek);
+  return [toDateStr(ds[0]), toDateStr(ds[6])];
+}
+
+function activeGoalRange() {
+  if (activeDay)  return [activeDay, activeDay];
+  if (activeWeek) return activeWeekBounds();
+  if (activeMonth === MONTH_YTD) return ytdBounds(activeYear);
+  return monthBounds(activeYear, activeMonth);
+}
+
+/**
+ * Load every pay period overlapping the active view and expand it to per-date targets.
+ *
+ * The key goes into pgLoaded BEFORE the await: this is called from render(), render() is called on
+ * success, and without that the two would chase each other. On failure the key is released so the
+ * next render retries — the 60s poll makes that self-healing, and stranding the view on budget
+ * numbers because of one flaked fetch is exactly the silent wrong answer this whole change is
+ * about. Nothing is cached client-side: the proxy caches each frozen period for 6h already.
+ */
+async function loadPeriodGoalRange(from, to) {
+  const key = from + '|' + to;
+  if (pgLoaded.has(key)) return;
+  pgLoaded.add(key);
+  const proxyUrl = getProxyUrl();
+  if (!proxyUrl) { pgLoaded.delete(key); return; }
+  try {
+    const res  = await fetch(`${proxyUrl}?action=period_goals_range&start=${encodeURIComponent(from)}` +
+                             `&end=${encodeURIComponent(to)}&token=${encodeURIComponent(getToken())}`);
+    const data = await res.json();
+    if (!data.ok || !Array.isArray(data.periods)) { pgLoaded.delete(key); return; }
+    let added = 0;
+    for (const p of data.periods) {
+      const end = Date.parse(p.period_end + 'T12:00:00Z');
+      for (let t = Date.parse(p.period_start + 'T12:00:00Z'); t <= end; t += 86400000) {
+        const d   = new Date(t);
+        const ds  = d.toISOString().slice(0, 10);
+        const dow = d.getUTCDay();
+        for (const [store, g] of Object.entries(p.goals || {})) {
+          if (g?.dow_targets?.[dow] == null) continue;
+          (pgDaily[store] ??= {})[ds] = g.dow_targets[dow];
+          added++;
+        }
+      }
+    }
+    if (added) {
+      _pgTotalMemo.clear(); // pgDaily grew, so every cached null may now be a real number
+      render();
+    }
+  } catch (e) {
+    pgLoaded.delete(key);
+    console.warn('[period-goals-range] fetch failed:', e.message);
+  }
 }
 
 /**
@@ -2196,6 +2333,7 @@ async function loadAllStores() {
   const auxDataPromise = Promise.all([
     fetchStoresMeta(),
     loadGoals(), loadLeaderboardGoals(),
+    loadPeriodGoalRange(...activeGoalRange()),
   ]);
   loadExpBudgets(); loadOtherRevenue(); loadExpenses(); // fire-and-forget (expenses tab only)
 
@@ -2320,6 +2458,7 @@ async function loadAllStores() {
       buildTimeNav();
       render();
       loadPeriodGoals(activeDay);
+      loadPeriodGoalRange(...activeGoalRange());
       loadPaceFracs();
       refreshCompare();   // this auto-select runs AFTER the refreshCompare above, so redo it
     }
@@ -2473,6 +2612,7 @@ function periodApply(o) {
   } else {
     render();
   }
+  loadPeriodGoalRange(...activeGoalRange());
   if (activeDay) {
     loadPeriodGoals(activeDay);
     if (activeDay === toDateStr(new Date())) {
@@ -3701,7 +3841,7 @@ function _storeBreakdownRows(stores, storeNets, isClosed, pacingPct, yr, daysInM
     const sMonthGoal  = getMonthlyGoal(s, activeMonth, yr);
     const sPeriodGoal = activeDay
       ? getDailyGoal(s, new Date(activeDay + 'T12:00:00').getDay(), activeMonth, yr, daysInMo, activeDay)
-      : activeWeek ? getWeeklyGoal(s, activeMonth, yr, daysInMo)
+      : activeWeek ? getWeeklyGoal(s, activeMonth, yr, daysInMo, ...activeWeekBounds())
       : sMonthGoal;
     // For today's day view use per-store GXCore frac; else fall back to hero pacingPct
     const sFrac = (!isClosed && activeDay && activeDay === today && paceFracs?.[s] != null)
@@ -3891,7 +4031,7 @@ function renderIncome() {
     periodGoal = Math.round(stores.reduce((a,s) => a + getDailyGoal(s, dow, activeMonth, yr, daysInMo, activeDay), 0));
     goalLabel  = 'Daily target';
   } else if (activeWeek) {
-    periodGoal = Math.round(stores.reduce((a,s) => a + getWeeklyGoal(s, activeMonth, yr, daysInMo), 0));
+    periodGoal = Math.round(stores.reduce((a,s) => a + getWeeklyGoal(s, activeMonth, yr, daysInMo, ...activeWeekBounds()), 0));
     goalLabel  = 'Week target';
   } else {
     periodGoal = stores.reduce((a,s) => a + getMonthlyGoal(s, activeMonth, yr), 0);

@@ -52,6 +52,9 @@ const ctx = {
   // future year has elapsed, and a year-gated getGoal would zero the budget out from under those
   // cases and make them assert nothing. The gate itself is covered by past_year_goals_test.js.
   goalsYear: null,
+  // Empty, so pgTotal returns null for every window and the accessors fall through to the budget —
+  // which is what this suite is about. The frozen-period path has its own suite.
+  pgDaily: {}, _pgTotalMemo: new Map(),
   lbGoals: null,                    // no published payload: exercise the budget fallback
   periodGoalsCache: {},
   paceFracs: null, paceFracsAt: 0,
@@ -76,7 +79,8 @@ function atClock(iso) {
 
 vm.runInContext([
   MONTHS_SRC, YTD_SRC, THRESHOLDS_SRC,
-  grab('getGoal'), grab('getMonthlyGoal'), grab('getWeeklyGoal'), grab('getDailyGoal'),
+  grab('getGoal'), grab('monthBounds'), grab('ytdBounds'), grab('pgTotal'),
+  grab('getMonthlyGoal'), grab('getWeeklyGoal'), grab('getDailyGoal'),
   grab('getPacingPct'), grab('monthGoalFrac'), grab('getGoalPacingPct'),
 ].join('\n'), ctx);
 

@@ -76,6 +76,11 @@ const ctx = {
   loadAllStores:   () => calls.push('loadAllStores'),
   refreshCompare:  () => calls.push('refreshCompare'),
   loadPeriodGoals: () => calls.push('loadPeriodGoals'),
+  // periodApply now loads the frozen-goal range for whatever view it lands on, day or not — the
+  // week/month/YTD views read those goals as of v2.541. Recorded like the others so a future change
+  // that stops following the period shows up here.
+  loadPeriodGoalRange: () => calls.push('loadPeriodGoalRange'),
+  activeGoalRange: () => ['2026-01-01', '2026-01-31'],
   loadPaceFracs:   () => calls.push('loadPaceFracs'),
   paceFracsAt: 0,
   getDaysOfISOWeek: () => [],
