@@ -18,14 +18,14 @@ app key in GX Core is **`sales`**.
 | version | the **`APP_VERSION` constant** in `index.html` (no `?v=` cache-buster — there's no external `.js`) |
 | run | `python3 serve.py` → <http://localhost:3000> |
 | ship | commit → push (Pages) → `./deploy.sh` records the release to `version_history` |
-| tests | `tests/*_test.js` — 10 suites, run by the **pre-push hook** via `gx-preflight.sh`; a failure blocks the push. Also verify live with the `gxpin` / `authprobe` routes below |
+| tests | `tests/*_test.js` — **19 suites, 573 assertions** (2026-08-30), run by the **pre-push hook** via `gx-preflight.sh`; a failure blocks the push. Also verify live with the `gxpin` / `authprobe` routes below |
 
 The dev server talks to the **live** backend; `gx-dev.js` blocks writes until armed — which matters more
 here than elsewhere, since this app's writes now run through a fail-closed auth guard. `gx-preflight.sh`
 runs as a **pre-push hook** and refuses dev leftovers — and it also runs every `tests/*_test.js`, so a
 failing test blocks the push exactly like a dev leftover does.
 
-**Run them yourself with `ls tests/*_test.js | xargs -n1 node`.** Seven of the nine read this repo's real
+**Run them yourself with `ls tests/*_test.js | xargs -n1 node`.** Most of them read this repo's real
 `index.html` / `dutchie_proxy.gs` — none of them tests a copy, which is what stops coverage rotting
 silently. Five EXECUTE the shipped source: `pnl_statement`, `deposit_reconciliation`, `pacing_staleness`
 and `qb_deposits_shape` `grab()` named functions out of the file and run them in a `vm` context, and
@@ -41,10 +41,10 @@ state machine), `deposit_reconciliation`, `write_guard` (the auth guard's log / 
 break localhost only), `pacing_staleness` (the two-clock bug — `paceFracs` going stale against a live
 poll), `qb_deposits_shape`.
 
-**Two of the nine are wrappers, and they SKIP — not fail — when `greencross-command-center` is not a
+**Two are wrappers, and they SKIP — not fail — when `greencross-command-center` is not a
 sibling checkout.** `cross_app_contract` (the Leaderboard → Sales goal payload) and `store_palette_drift`
 (this app's hardcoded store palette against the hub's) both live canonically in the hub, because they span
-repos and neither side owns them. On a lone clone you get 8 suites, not 10, and the output says `SKIP` —
+repos and neither side owns them. On a lone clone two of them say `SKIP` —
 read it, don't assume green means covered.
 
 *Corrected 2026-08-25: this row previously read "no automated suite — verify with the `gxpin` /
@@ -56,6 +56,80 @@ caught `refreshCompare` being undefined in the pill handlers. Both would have sh
 **Shared files** (`deploy.sh`, `serve.py`, `gx-preflight.sh`, `.claude/gx-brain-notes.sh`) come from
 **gx-theme** via `./gx-sync.sh`, filled from `.gx_app`. Edit them **there**, then re-sync. This CLAUDE.md is
 intentionally **not** synced.
+
+## The budget sheet is GONE — everything comes from this script's own properties
+
+**Severed 2026-08-30 (Sky's call). `dutchie_proxy.gs` contains ZERO `SpreadsheetApp` calls.** The
+legacy "2026 GX2 Dashboard" workbook is no longer read, and `BUDGET_SHEET_ID` / the sheet gids /
+`ATM_SHEET_CONFIG_` are deleted rather than merely unused — while they exist, the next session adds
+"just one quick read" and the dependency grows back. `tests/sheet_severance_test.js` (26 assertions)
+asserts the ABSENCE, so it cannot creep back unnoticed.
+
+Done as **freeze-then-cut**, and the freeze was VERIFIED against the live sheet before anything was
+deleted: 6 store goal rows, 22 expense categories, 9 QB mapping pairs — May total $685,700, Jun
+$664,946, matching an independent read. That check earned its keep: the sheet has more than one row
+per store label and the parse takes the LAST match, which is exactly how a wrong figure gets frozen
+permanently and silently. Each store's row proved to be its own.
+
+Now serving from ScriptProperties: `frozen_goals` · `frozen_expbudgets` · `frozen_qbmapping` ·
+`otherrev_data` · `rev_atm_*`. `?action=freezestatus&secret=…` reports all of it.
+
+- **The ATM bootstrap was still live** — `ATM_SHEET_CONFIG_['2026'].sid` *was* `BUDGET_SHEET_ID`.
+  Had `rev_atm_2026` not already existed, the cut would have silently blanked ATM revenue. Check
+  properties before removing a "one-time" bootstrap; one-time does not mean spent.
+- **The `spreadsheets` OAuth scope STAYS, deliberately — do not "tidy" it away.** An Apps Script
+  library runs under the CALLING project's authorization, and `GXCore` reads the GX Core
+  spreadsheet for `getPeriodGoals` and `roleForApp`. Dropping that scope severs GX Core too,
+  including the fail-closed write guard, which would then refuse every write.
+- **There were no pre-2026 budget goals to preserve.** The sheet holds ONE year; `getGoals` tags its
+  response `BUDGET_YEAR` and the frontend returns 0 for any other year. What the freeze preserves is
+  the 2026 fallback for windows the pay-period ledger does not cover.
+
+## Smart budget — the expense budget is now derived, not typed
+
+**`?action=budget_proposal`** proposes a 12-month budget per category from **24 complete months** of
+QuickBooks actuals (the month in progress is excluded — on the 30th it holds 29 days and would drag
+every figure down). All 22 categories are applied as of 2026-08-30. Apply writes a `smart_budget`
+ScriptProperties overlay that `getExpenseBudgets()` merges per-category over `frozen_expbudgets`;
+`clear_budget` reverts one category or all.
+
+- **COGS / Payroll are % of projected revenue**, not their own history — budgeting them off last
+  year's spend holds them flat against a sales plan that isn't.
+- **A category with no history gets NO proposal.** That refusal is the point: a made-up figure reads
+  as analysed, which is worse than a visibly missing one.
+- **Sparse categories (no spend in half their months) get a run rate**, not a typical month. With
+  the median at 0 every month that DID spend read as an outlier and Meals & Entertainment came out
+  at **$0/yr against $7,014 of real spend**. A confident zero is the worst answer available.
+- **Cleaning is recurrence-aware and one-sided.** A point is set aside only if it is far from the
+  overall median AND its own calendar month in other years AND the months either side of it. That is
+  what tells a real seasonal peak (July sits on last July) from a one-off (March's rent spike), and
+  what stops a recent step change — a new lease, a new store — from being erased back to the old
+  level. Thresholds (`SB_LOCAL_W` 3, `SB_LIMIT_FLOOR` 15%) were chosen by running the REAL series
+  through the candidates, not by taste.
+- **Level from the trailing 12, seasonality from the full 24**, and both are means over the CLEANED
+  series — a budget has to total correctly, and 12x the median month under-budgets a 9-month/3-month
+  category by 20%.
+- **`?action=budgetprobe&secret=…`** is the secret-gated twin — method/confidence spread across all
+  22 categories without logging in. Re-run it after any GXCore re-pin.
+- **`admin_apply_proposed`** applies the engine's own figures for named categories, for scripted
+  rollouts with no browser session. It takes NAMES only and fills them from a fresh proposal — there
+  is no parameter through which a fabricated number could reach the budget, which is the entire
+  reason secret-gating a financial write is defensible here.
+
+## Two load-bearing render rules, both learned the hard way
+
+- **A render fault must never kill a data load.** `loadAllStores()` had `try/finally` with no
+  `catch`, and the progressive `render()` sits OUTSIDE the per-store fetch try/catch — so a throw
+  while PAINTING rejected the store's promise, rejected the `Promise.all`, escaped the function and
+  skipped the final render. The app sat on "Connecting…" forever with nothing logged and no error
+  shown. Both are guarded now; `tests/load_resilience_test.js` keeps them that way.
+- **Never show a goal you are about to replace.** `getMonthlyGoal` falls back budget-ward while
+  `pgDaily` is empty, so the hero painted the budget figure and swapped in the period goal a moment
+  later — May 2026 $685,702 becoming $742,625, Portland Rd $65,638 becoming $92,073. The goal now
+  shimmers until the authoritative source ANSWERS. The subtlety: `pgLoaded` is added to BEFORE the
+  await, so it only ever means *asked* — resolution needs its own set (`pgResolved`), and EVERY exit
+  path must reach it, including "GX Core has no periods for this range". Miss one and that view
+  shimmers forever, which is worse than the flicker it replaced.
 
 ## Sync with the brain — run `/gxbrain` (or say "brain sync")
 
@@ -152,7 +226,9 @@ elsewhere. The same past period therefore showed two different goals depending o
 stood in. Measured over all 18 pay periods of 2026: **budget $4,679,904 vs period goals $5,017,051
 across Jan–Jul, +7.2%**, and Portland Rd off by **+39% to +49% every month**. Sky's call
 (2026-08-29): the period goals win — they are what the Leaderboard publishes and what staff were
-measured on. Precedence in all three accessors is now **frozen goals → `lbGoals` → budget**.
+measured on. Precedence in all three accessors is now **frozen goals → `lbGoals` → budget**, where
+"budget" since 2026-08-30 means the FROZEN `frozen_goals` property, not the spreadsheet — the sheet
+is no longer read at all (see the severance section above).
 
 - **`pgTotal` returns NULL, never a partial sum**, for a window with any uncovered date, and the
   caller falls back to the budget. An understated goal renders identically to a correct one; this is
