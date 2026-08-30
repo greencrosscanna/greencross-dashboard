@@ -2146,12 +2146,18 @@ function qbBreakdownWalk_(rows, cols, out, mapConfig, depth, listUnder) {
       const cat = custom[raw] || QB_SUMMARY_MAP_[raw];
       if (cat && !ignored.has(raw)) {
         matchedCat = cat;
-        addTo(bucketFor(cat), vals(row.Summary.ColData));
+        // Only when an outer section is not already carrying this money. walkQBRows_ expresses the
+        // same rule as `if (result)`; without it a mapped section INSIDE a mapped section is counted
+        // twice. It does not fire on the current mapping — nothing nests today — but the mapping UI
+        // lets Sky map any section, so it is one custom override away from doubling a category.
+        if (!listUnder) addTo(bucketFor(cat), vals(row.Summary.ColData));
       }
     }
 
     if (row.Rows && row.Rows.Row) {
-      qbBreakdownWalk_(row.Rows.Row, cols, out, mapConfig, depth + 1, matchedCat || listUnder);
+      // listUnder FIRST: the outermost matched section owns the money, so a nested match must not
+      // steal the listing away from it.
+      qbBreakdownWalk_(row.Rows.Row, cols, out, mapConfig, depth + 1, listUnder || matchedCat);
     }
 
     if (row.ColData && !row.Summary) {

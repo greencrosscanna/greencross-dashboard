@@ -224,6 +224,118 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .exp-map-btn{font-size:11px;background:none;border:.5px solid var(--border);color:var(--muted);cursor:pointer;padding:3px 8px;border-radius:12px;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
 .exp-map-btn:hover{color:var(--text);border-color:var(--border-strong)}
 .exp-unmap-badge{background:#EF4444;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px}
+/* ── Expenses tab, desktop variance table ────────────────────────────────────────────────────
+   The tab used to compare month-to-date spend against a FULL-MONTH budget, which on 30 August
+   rendered as "102% of budget" while the company was $148,808 ahead of where day 30 should be.
+   So expected-to-date is the primary comparison now, and every bar puts the full-month budget at
+   80% of its track rather than 100% — overspend has to be able to cross the line to be visible.
+   That 80% geometry is shared by the hero bar and every row bar; it is the one number to keep in
+   step if either is touched.
+   Desktop only: the phone keeps .kpi-grid/.srow, and renderExpenses picks by matchMedia. */
+.exp-wrap{display:flex;gap:16px;align-items:flex-start}
+.exp-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:14px}
+.exp-rail{width:330px;flex-shrink:0;display:flex;flex-direction:column;gap:14px}
+.exp-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.exp-tile{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 15px;min-width:0}
+.exp-tile.wide2{grid-column:span 2}
+.exp-tlabel{font-size:10px;font-weight:600;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.exp-tval{font-size:30px;font-weight:600;letter-spacing:-.01em;color:var(--text);font-variant-numeric:tabular-nums;line-height:1.1}
+.exp-tval.sm{font-size:26px}
+.exp-trow{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.exp-tdelta{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
+.exp-tsub{font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;margin-top:4px}
+/* The 80%-budget bar. --w/--pace/--budget are set per element; the budget line is the reference
+   the fill is allowed to cross, which is the whole point of not putting it at 100%. */
+.exp-bar{position:relative;height:8px;background:var(--gx-surface-dashed,#0f1412);border:1px solid var(--border);border-radius:5px;margin:12px 0 8px}
+.exp-bar.mini{height:6px;border-radius:4px;margin:0}
+.exp-bar-fill{position:absolute;left:0;top:0;bottom:0;border-radius:4px}
+.exp-bar-pace{position:absolute;top:-4px;width:2px;height:14px;background:var(--dim);transform:translateX(-50%);border-radius:1px}
+.exp-bar.mini .exp-bar-pace{top:-3px;height:12px}
+.exp-bar-budget{position:absolute;top:-5px;bottom:-5px;width:1px;background:var(--text)}
+.exp-bar.mini .exp-bar-budget{background:rgba(230,236,233,.55);top:-3px;bottom:-3px}
+.exp-foot{display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums}
+.exp-foot-item{display:flex;align-items:center;gap:5px}
+/* Each footnote carries the marker it explains, so the bar needs no separate legend. */
+.exp-swatch{width:2px;height:10px;background:var(--dim);border-radius:1px;flex:0 0 auto}
+.exp-swatch.budget{background:var(--text)}
+
+.exp-seg{display:inline-flex;gap:2px;padding:2px;background:var(--gx-surface-dashed,#0f1412);border:1px solid var(--border);border-radius:7px}
+.exp-seg-btn{border:0;background:transparent;color:var(--muted);font:700 11.5px/1 inherit;padding:5px 10px;border-radius:5px;cursor:pointer}
+.exp-seg-btn.on{background:var(--card-3);color:var(--text)}
+
+.exp-tbl{background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.exp-grid{display:grid;grid-template-columns:1fr 118px 118px 112px 74px 150px;gap:12px;align-items:center}
+.exp-hd{padding:9px 15px;background:var(--gx-surface-dashed,#0f1412);border-bottom:1px solid var(--border);font:700 9.5px/1 inherit;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted)}
+.exp-row{border-bottom:1px solid var(--card-3);cursor:pointer}
+.exp-row:last-child{border-bottom:0}
+.exp-row:hover{background:var(--card-2)}
+.exp-row.over{background:rgba(239,68,68,.04)}
+.exp-row.open{background:rgba(239,68,68,.05);border-bottom:1px solid var(--border)}
+.exp-rowin{padding:11px 15px}
+.exp-cat{display:flex;align-items:center;gap:8px;min-width:0}
+.exp-chev{flex:0 0 auto}
+.exp-name{font-size:12.5px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.exp-name.open{font-weight:600}
+.exp-tag{font-size:9px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;border-radius:4px;padding:2px 5px;white-space:nowrap;flex:0 0 auto}
+.exp-tag.over{color:var(--red);border:1px solid rgba(239,68,68,.45);background:rgba(239,68,68,.10)}
+.exp-tag.under{color:var(--green);border:1px solid rgba(74,222,128,.35);background:rgba(74,222,128,.08)}
+.exp-tag.nob{color:var(--muted);border:1px solid var(--border-strong);background:transparent}
+.exp-num{text-align:right;font-variant-numeric:tabular-nums;min-width:0}
+.exp-num.actual{font-size:12.5px;font-weight:600;color:var(--text)}
+.exp-num.dim{font-size:12px;color:var(--dim)}
+.exp-num.var{font-size:12.5px;font-weight:700}
+.exp-tfoot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 15px}
+.exp-more{background:none;border:0;color:var(--dim);font:600 11.5px/1 inherit;cursor:pointer;padding:0}
+.exp-more:hover{color:var(--text)}
+.exp-hint{font-size:11px;color:var(--muted)}
+
+/* Inline expand — the two panels that answer "which accounts" and "which stores". */
+.exp-panels{display:flex;gap:14px;padding:0 15px 15px 33px;align-items:flex-start}
+.exp-panel{background:var(--gx-surface-dashed,#0f1412);border:1px solid var(--border);border-radius:8px;padding:12px 14px;min-width:0}
+.exp-panel.accts{flex:1}
+.exp-panel.stores{width:430px;flex-shrink:0}
+.exp-phead{font:700 9.5px/1 inherit;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+.exp-acct{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:.5px solid var(--card-3)}
+.exp-acct:last-child{border-bottom:0}
+.exp-acct-name{flex:1;font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.exp-acct-amt{font-size:12px;color:var(--text);font-variant-numeric:tabular-nums;text-align:right}
+.exp-acct-var{font-size:11px;text-align:right;min-width:66px;font-variant-numeric:tabular-nums}
+.exp-srow{display:flex;align-items:center;gap:8px;padding:5px 0}
+.exp-dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+.exp-sname{width:78px;flex:0 0 auto;font-size:11.5px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.exp-strack{flex:1;height:6px;background:var(--card-3);border-radius:3px;overflow:hidden;min-width:0}
+/* display:block is load-bearing — .exp-sfill is a <span> inside a track that is not a flex
+   container, so as an inline box its width and height are ignored and it renders 0x0. The bar
+   simply is not there, which looks like missing data rather than a CSS mistake. */
+.exp-sfill{display:block;height:100%;border-radius:3px;opacity:.75}
+.exp-samt{width:76px;flex:0 0 auto;text-align:right;font-size:11.5px;color:var(--text);font-variant-numeric:tabular-nums}
+.exp-svar{width:62px;flex:0 0 auto;text-align:right;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums}
+/* A QB section can carry money its child accounts do not explain — $47k across three categories in
+   2025. Shown as its own line rather than absorbed into the last account, which would be a wrong
+   number wearing a real account's name. */
+.exp-resid{font-size:11px;color:var(--amber);padding:6px 0 0;font-variant-numeric:tabular-nums}
+.exp-excl{margin-top:10px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+.exp-excl-btn{background:none;border:1px solid var(--border-strong);color:var(--muted);font:600 10.5px/1 inherit;padding:4px 8px;border-radius:5px;cursor:pointer}
+.exp-excl-btn:hover{color:var(--text);border-color:var(--dim)}
+
+/* Right rail */
+.exp-card{background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.exp-card.alert{border-color:rgba(239,68,68,.28)}
+.exp-chd{padding:12px 14px 10px;border-bottom:1px solid var(--border)}
+.exp-ctitle{font:700 9.5px/1 inherit;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted)}
+.exp-ctitle.red{color:var(--red)}
+.exp-csub{font-size:11.5px;color:var(--dim);line-height:1.45;margin-top:6px}
+.exp-cbody{padding:4px 14px 12px}
+.exp-att{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:.5px solid var(--card-3)}
+.exp-att:last-child{border-bottom:0}
+.exp-att-name{flex:1;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.exp-att-var{font-size:12px;font-weight:700;color:var(--red);font-variant-numeric:tabular-nums}
+.exp-att-pct{font-size:10.5px;color:var(--muted);text-align:right;min-width:42px;font-variant-numeric:tabular-nums}
+.exp-mapbar{display:flex;height:8px;background:var(--gx-surface-dashed,#0f1412);border-radius:4px;overflow:hidden;margin-bottom:8px}
+.exp-mapseg{height:100%}
+.exp-mapbtn{width:100%;padding:8px;border-radius:7px;border:1px solid var(--amber);background:rgba(234,179,8,.08);color:var(--amber);font:700 11.5px/1 inherit;cursor:pointer;margin-top:10px}
+.exp-mapbtn:hover{background:rgba(234,179,8,.16)}
+.exp-cfoot{display:flex;justify-content:space-between;gap:8px;font-size:10.5px;color:var(--muted);padding:10px 14px;border-top:1px solid var(--border)}
 /* Smart budget planner. Confidence is COLOUR-CODED and also spelled out in words on the row: the
    whole point of the screen is that a low-confidence number cannot masquerade as an analysed one,
    and colour alone fails exactly the readers who most need the warning. */
@@ -872,7 +984,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   //                 apply_budget, clear_budget
   window.GX_DEV_READS = [
     'budget_proposal',
-    'cogs', 'cogs_dutchie', 'config', 'deposits', 'expbudgets', 'expenses', 'getdailygoals', 'goals',
+    'cogs', 'cogs_dutchie', 'config', 'deposits', 'expbudgets', 'expense_breakdown', 'expenses', 'getdailygoals', 'goals',
     'inventory', 'login', 'otherrev', 'pace', 'period_goals', 'period_goals_range', 'ping', 'pnl', 'published_goals',
     'recon_config', 'revenue_detail',
     'stores', 'velocity', 'version_history'
@@ -1162,7 +1274,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.555';
+const APP_VERSION = 'v2.556';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -4952,9 +5064,103 @@ const ALL_EXPENSE_CATS = [
   'Taxes','Travel','Utilities / Garbage','Management',
 ];
 
+// ── Expenses tab ──────────────────────────────────────────────────────────────────────────────
+//
+// Desktop got the variance table (design_handoff_expenses_variance_table, 2026-08-30). The change
+// that matters is not the layout: it is that the primary comparison is now EXPECTED-TO-DATE rather
+// than the full-month budget. On 30 August the old tab read "102% of budget", which sounds mild,
+// while the company was $148,808 ahead of where day 30 should be. Same data, opposite impression.
+//
+// The phone keeps the old .kpi-grid/.srow rendering — it is a different layout problem and was out
+// of scope for the handoff — so this picks by matchMedia rather than rendering both and hiding one.
+// Rendering both would put two #expChart canvases in the DOM, and Chart.js would bind the hidden one.
+const EXP_DESKTOP_MQ = window.matchMedia
+  ? window.matchMedia('(min-width:768px) and (hover:hover) and (pointer:fine)')
+  : null;
+function expIsDesktop() { return !!(EXP_DESKTOP_MQ && EXP_DESKTOP_MQ.matches); }
+// Crossing the breakpoint changes which markup is correct, and nothing else re-renders on resize.
+if (EXP_DESKTOP_MQ && EXP_DESKTOP_MQ.addEventListener) {
+  EXP_DESKTOP_MQ.addEventListener('change', () => {
+    if (section === 'expenses' && expSection === 'main') renderExpenses();
+  });
+}
+
+// Which row is expanded, how the list is sorted, and whether the tail is revealed. All view state:
+// nothing here changes a number, so none of it is persisted.
+let expExpandedCat = null;
+let expSort        = 'pace';   // 'pace' | 'amount' | 'name'
+let expShowAll     = false;
+const EXP_TOP_N    = 11;
+
+// The per-category account list and store split, from action=expense_breakdown. Fetched LAZILY —
+// only when a row is first expanded — because it is a second QuickBooks report and the tab should
+// not wait on it to paint.
+let expBreak        = null;   // { classes, categories, _range }
+let expBreakLoading = null;   // the range in flight, so a re-render mid-fetch cannot stack fetches
+let expBreakError   = null;
+
+/** The window the Expenses tab is actually showing. NOT periodRange(): this tab reads a MONTH
+ *  column regardless of a selected week or day, so the breakdown has to use the same month or the
+ *  expanded panel would disagree with the row above it. */
+function expBreakRange() {
+  const t = new Date(), cy = t.getFullYear();
+  const pad = n => String(n).padStart(2, '0');
+  if (activeMonth === MONTH_YTD) {
+    return { start: activeYear + '-01-01',
+             end:   activeYear < cy ? activeYear + '-12-31' : toDateStr(t) };
+  }
+  const isCur = activeYear === cy && activeMonth === t.getMonth() + 1;
+  const last  = new Date(activeYear, activeMonth, 0).getDate();
+  return { start: activeYear + '-' + pad(activeMonth) + '-01',
+           end:   isCur ? toDateStr(t) : activeYear + '-' + pad(activeMonth) + '-' + pad(last) };
+}
+function expBreakKey() { const r = expBreakRange(); return r.start + '_' + r.end; }
+
+async function loadExpenseBreakdown() {
+  const key = expBreakKey();
+  if (expBreakLoading === key) return;
+  const proxyUrl = getProxyUrl();
+  if (!proxyUrl) return;
+  expBreakLoading = key;
+  expBreakError   = null;
+  const r = expBreakRange();
+  try {
+    const res  = await fetch(`${proxyUrl}?action=expense_breakdown&token=${encodeURIComponent(getToken())}`
+      + `&start=${encodeURIComponent(r.start)}&end=${encodeURIComponent(r.end)}`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'breakdown failed');
+    data._range = key;
+    expBreak = data;
+  } catch (e) {
+    console.warn('[expenses] breakdown failed:', e.message);
+    // Tagged with its range so a failure renders once instead of re-fetching forever — same rule
+    // reconData follows.
+    expBreakError = { range: key, message: e.message };
+  }
+  expBreakLoading = null;
+  if (section === 'expenses' && expSection === 'main') renderExpenses();
+}
+
+/** Signed money. fmtK prefixes the $ before toLocaleString, so a negative renders "$-27,200"; this
+ *  puts the sign first and uses a real minus, which is what the column is read as. */
+function fmtSigned(n) {
+  const v = Math.round(n);
+  if (v === 0) return '$0';
+  return (v > 0 ? '+' : '−') + '$' + Math.abs(v).toLocaleString();
+}
+
+function setExpSort(s) { expSort = s; renderExpenses(); }
+function toggleExpShowAll() { expShowAll = !expShowAll; renderExpenses(); }
+function toggleExpRow(name) {
+  expExpandedCat = (expExpandedCat === name) ? null : name;
+  if (expExpandedCat && !expBreak) loadExpenseBreakdown();
+  renderExpenses();
+}
+
 async function reloadExpenses() {
   expenseData = null;
   expensesLoading = false;
+  expBreak = null; expBreakError = null;
   renderExpenses();
 }
 
@@ -5007,20 +5213,319 @@ function renderExpenses() {
     return expBudgets[name][MONTHS[activeMonth - 1]] || 0;
   };
 
-  // Pacing: % of period elapsed (shared with income renderer via getPacingPct)
+  // Pacing: % of period elapsed (shared with income renderer via getPacingPct).
+  // ONE constant, read once — every "expected to date" on this screen divides by this same
+  // fraction. Two roundings of the same number is two different answers in one view.
   const expPacingPct = getPacingPct();
+  const paceFrac     = expPacingPct / 100;
 
   const cats = mergedCats
-    .map(name => ({ name, val: (expenseData.expenses[name] || {})[colKey] || 0, budget: getBudget(name) }))
-    .filter(c => c.val > 0 || c.budget > 0)
-    .sort((a, b) => b.val - a.val);
+    .map(name => {
+      const val    = (expenseData.expenses[name] || {})[colKey] || 0;
+      const budget = getBudget(name);
+      // A category with no budget has no expected figure and no variance — rendering 0 would make
+      // every unbudgeted dollar read as overspend.
+      const expected = budget > 0 ? budget * paceFrac : null;
+      return { name, val, budget, expected, variance: expected === null ? null : val - expected };
+    })
+    .filter(c => c.val > 0 || c.budget > 0);
 
-  const total       = cats.filter(c => !hiddenExpCats.has(c.name)).reduce((s, c) => s + c.val, 0);
-  const totalBudget = cats.filter(c => !hiddenExpCats.has(c.name)).reduce((s, c) => s + c.budget, 0);
-  const stores = getActiveStores();
-  const totalNet = stores.reduce((a, s) => a + (liveData[s]?.netSales || 0), 0);
+  const visible     = cats.filter(c => !hiddenExpCats.has(c.name));
+  const total       = visible.reduce((s, c) => s + c.val, 0);
+  const totalBudget = visible.reduce((s, c) => s + c.budget, 0);
+  const stores      = getActiveStores();
+  const totalNet    = stores.reduce((a, s) => a + (liveData[s]?.netSales || 0), 0);
+
+  if (!expIsDesktop()) { renderExpensesMobile(cats, total, totalBudget, totalNet, expPacingPct); return; }
+
+  const expectedTotal = totalBudget * paceFrac;
+  const paceVar       = total - expectedTotal;
+  const offPace       = visible.filter(c => c.variance !== null && c.variance > 0);
+  const underPace     = visible.filter(c => c.variance !== null && c.variance < 0);
+  const offPaceWorth  = offPace.reduce((s, c) => s + c.variance, 0);
+
+  const sorted = [...cats].sort((a, b) => {
+    if (expSort === 'name')   return a.name.localeCompare(b.name);
+    if (expSort === 'amount') return b.val - a.val;
+    // 'pace' — most over expected first; a category with no budget has no variance and sorts last
+    // rather than sorting as zero, which would bury real overspend beneath it.
+    const av = a.variance === null ? -Infinity : a.variance;
+    const bv = b.variance === null ? -Infinity : b.variance;
+    return bv - av;
+  });
+  const shown  = expShowAll ? sorted : sorted.slice(0, EXP_TOP_N);
+  const hiddenN = sorted.length - shown.length;
+
+  // 80% geometry, shared by the hero bar and every row bar: the full-month budget sits at 80% of
+  // the track so overspend can visibly cross it.
+  const barPct = (v, budget) => budget > 0 ? Math.min(v / budget * 80, 100) : 0;
+
+  const attention = visible
+    .filter(c => c.variance !== null && c.variance > 0)
+    .sort((a, b) => b.variance - a.variance)
+    .slice(0, 6);
+
+  const unmapped = expenseData.unmappedCount || 0;
+  const mappedN  = (expenseData.allAccounts || []).filter(a => !a.ignored).length;
+
+  destroyCharts();
+  document.getElementById('main-content').innerHTML = `
+    <div class="exp-wrap">
+      <div class="exp-main">
+        ${_expKpis(total, totalBudget, expectedTotal, paceVar, totalNet, offPace.length, visible.length,
+                   offPaceWorth, underPace.length, expPacingPct, barPct)}
+
+        <div class="sec-lbl" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0">
+          <span>By category</span>
+          <span style="display:flex;gap:8px;align-items:center">
+            <span class="exp-seg">
+              <button class="exp-seg-btn${expSort==='pace'?' on':''}"   onclick="setExpSort('pace')">Off pace</button>
+              <button class="exp-seg-btn${expSort==='amount'?' on':''}" onclick="setExpSort('amount')">Amount</button>
+              <button class="exp-seg-btn${expSort==='name'?' on':''}"   onclick="setExpSort('name')">Name</button>
+            </span>
+            <button class="exp-map-btn" onclick="setExpSection('budget')">✨ Smart budget</button>
+          </span>
+        </div>
+
+        <div class="exp-tbl">
+          <div class="exp-grid exp-hd">
+            <div>Category</div><div style="text-align:right">Actual</div>
+            <div style="text-align:right">Expected to date</div><div style="text-align:right">Variance</div>
+            <div style="text-align:right">% net</div><div>Spend vs budget</div>
+          </div>
+          ${shown.map(c => _expRow(c, totalNet, expPacingPct, barPct)).join('')}
+          ${sorted.length === 0 ? '<div class="empty-state">No expenses for this period</div>' : ''}
+          <div class="exp-tfoot">
+            ${hiddenN > 0 || expShowAll
+              ? `<button class="exp-more" onclick="toggleExpShowAll()">${
+                  expShowAll ? 'Show fewer categories ▴' : `Show ${hiddenN} more categories ▾`}</button>`
+              : '<span></span>'}
+            <span class="exp-hint">Click a row to see its QB accounts and store split</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="exp-rail">
+        <div class="exp-card alert">
+          <div class="exp-chd">
+            <div class="exp-ctitle red">Needs attention · top ${attention.length} of ${offPace.length}</div>
+            <div class="exp-csub">Categories spending faster than their budget allows for
+              ${expPacingPct}% of ${activeMonth === 0 ? 'the year' : 'the month'}.</div>
+          </div>
+          <div class="exp-cbody">
+            ${attention.length ? attention.map(c => `
+              <div class="exp-att">
+                <div class="exp-att-name" title="${escHtml(c.name)}">${escHtml(c.name)}</div>
+                <div class="exp-att-var">${fmtSigned(c.variance)}</div>
+                <div class="exp-att-pct">${Math.round(c.val / c.budget * 100)}%</div>
+              </div>`).join('')
+              : '<div class="exp-hint" style="padding:9px 0">Nothing is running ahead of its budget.</div>'}
+          </div>
+        </div>
+
+        <div class="exp-card">
+          <div class="exp-chd">
+            <div class="exp-ctitle">Monthly trend</div>
+            <div class="exp-csub">Actual vs budget</div>
+          </div>
+          <div class="exp-cbody">
+            <div style="position:relative;width:100%;height:170px">
+              <canvas id="expChart" role="img" aria-label="Monthly expenses against budget">Expense data</canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="exp-card">
+          <div class="exp-chd"><div class="exp-ctitle">Mapping health</div></div>
+          <div class="exp-cbody">
+            <div class="exp-mapbar">
+              <div class="exp-mapseg" style="width:${mappedN ? (mappedN-unmapped)/mappedN*100 : 0}%;background:#1D9E75"></div>
+              <div class="exp-mapseg" style="width:${mappedN ? unmapped/mappedN*100 : 0}%;background:var(--amber)"></div>
+            </div>
+            <div style="font-size:12px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums">${mappedN - unmapped} / ${mappedN}</div>
+            ${unmapped > 0
+              ? `<div class="exp-csub">${unmapped} QuickBooks account${unmapped===1?' is':'s are'} unmapped, held out of every figure on this tab.</div>
+                 <button class="exp-mapbtn" onclick="setExpSection('mapping')">Map ${unmapped} account${unmapped===1?'':'s'}</button>`
+              : `<div class="exp-csub">Every QuickBooks account is mapped or deliberately ignored.</div>
+                 <button class="exp-mapbtn" style="border-color:var(--border-strong);background:transparent;color:var(--dim)" onclick="setExpSection('mapping')">Review mapping</button>`}
+          </div>
+          <div class="exp-cfoot">
+            <span>QB via GX Core</span>
+            <span>loaded ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}
+              &nbsp;<button class="exp-more" onclick="reloadExpenses()">↻ refresh</button></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  requestAnimationFrame(() => drawExpMonthlyChart());
+}
+
+/** The KPI strip. Split out so renderExpenses stays readable — it is four tiles of arithmetic. */
+function _expKpis(total, totalBudget, expectedTotal, paceVar, totalNet, offPaceN, catN,
+                  offPaceWorth, underN, expPacingPct, barPct) {
+  const hasBudget = totalBudget > 0;
+  const pctNet    = totalNet > 0 ? total / totalNet * 100 : null;
+  return `
+    <div class="exp-kpis">
+      <div class="exp-tile wide2">
+        <div class="exp-tlabel">Spent so far — ${escHtml(getPeriodLabel())}</div>
+        <div class="exp-trow">
+          <div class="exp-tval">${fmtK(total)}</div>
+          ${hasBudget ? `<div class="exp-tdelta ${paceVar > 0 ? 'bad' : 'good'}">${
+            fmtK(Math.abs(paceVar))} ${paceVar > 0 ? 'over' : 'under'} pace</div>` : ''}
+        </div>
+        ${hasBudget ? `
+        <div class="exp-bar">
+          <div class="exp-bar-fill" style="width:${barPct(total, totalBudget)}%;background:${
+            total > expectedTotal ? 'rgba(239,68,68,.55)' : '#1D9E75'}"></div>
+          <div class="exp-bar-pace" style="left:${expPacingPct * 0.8}%"></div>
+          <div class="exp-bar-budget" style="left:80%"></div>
+        </div>
+        <div class="exp-foot">
+          <span class="exp-foot-item"><span class="exp-swatch"></span>${fmtK(expectedTotal)} expected by now</span>
+          <span class="exp-foot-item"><span class="exp-swatch budget"></span>Full-period budget ${fmtK(totalBudget)}</span>
+        </div>` : `<div class="exp-tsub">No budget set for this period</div>`}
+      </div>
+
+      <div class="exp-tile">
+        <div class="exp-tlabel">% of net sales</div>
+        <div class="exp-tval sm">${pctNet === null ? '—' : pctNet.toFixed(1) + '%'}</div>
+        <div class="exp-tsub">${totalNet > 0 ? 'Net sales ' + fmtK(totalNet) : 'Net sales still loading'}</div>
+      </div>
+
+      <div class="exp-tile">
+        <div class="exp-tlabel">Categories off pace</div>
+        <div class="exp-trow">
+          <div class="exp-tval sm">${offPaceN}</div>
+          <div class="exp-tsub" style="margin-top:0;color:var(--muted)">of ${catN}</div>
+        </div>
+        <div class="exp-tsub">Worth <b class="bad">${fmtK(offPaceWorth)}</b> over</div>
+        <div class="exp-tsub good">${underN} running under</div>
+      </div>
+    </div>`;
+}
+
+/** One category row, plus its inline expand when open. */
+function _expRow(c, totalNet, expPacingPct, barPct) {
+  const open   = expExpandedCat === c.name;
+  const hidden = hiddenExpCats.has(c.name);
+  const hasB   = c.budget > 0;
+  const over   = c.variance !== null && c.variance > 0;
+  const bad    = c.variance !== null && c.variance > 12000;
+  const pctNet = totalNet > 0 ? (c.val / totalNet * 100) : null;
+  const chev   = open ? 'M6 9l6 6 6-6' : 'M9 6l6 6-6 6';
+  return `<div class="exp-row${bad && !open ? ' over' : ''}${open ? ' open' : ''}"
+       onclick="toggleExpRow('${escHtml(c.name)}')">
+    <div class="exp-grid exp-rowin">
+      <div class="exp-cat">
+        <svg class="exp-chev" width="10" height="10" viewBox="0 0 24 24" fill="none"
+             stroke="${open ? 'var(--dim)' : '#3f4a45'}" stroke-width="3" stroke-linecap="round"><path d="${chev}"/></svg>
+        <span class="exp-name${open ? ' open' : ''}" title="${escHtml(c.name)}">${escHtml(c.name)}</span>
+        ${hidden ? '<span class="exp-tag nob">excluded</span>'
+                 : hasB ? `<span class="exp-tag ${over ? 'over' : 'under'}">${over ? 'over' : 'under'}</span>`
+                        : '<span class="exp-tag nob">no budget</span>'}
+        ${expBudgetsOverlaid.has(c.name) ? '<span class="sb-tag applied">smart</span>' : ''}
+      </div>
+      <div class="exp-num actual">${fmtK(c.val)}</div>
+      <div class="exp-num dim">${c.expected === null ? '—' : fmtK(c.expected)}</div>
+      <div class="exp-num var ${c.variance === null ? '' : (over ? 'bad' : 'good')}">${
+        c.variance === null ? '—' : fmtSigned(c.variance)}</div>
+      <div class="exp-num dim">${pctNet === null ? '—' : pctNet.toFixed(1) + '%'}</div>
+      <div>${hasB ? `<div class="exp-bar mini">
+        <div class="exp-bar-fill" style="width:${barPct(c.val, c.budget)}%;background:${over ? 'var(--red)' : '#1D9E75'}"></div>
+        <div class="exp-bar-pace" style="left:${expPacingPct * 0.8}%"></div>
+        <div class="exp-bar-budget" style="left:80%"></div>
+      </div>` : ''}</div>
+    </div>
+    ${open ? _expExpand(c) : ''}
+  </div>`;
+}
+
+/** The two panels behind a row: which QB accounts, and which stores. */
+function _expExpand(c) {
+  const key = expBreakKey();
+  if (expBreakError && expBreakError.range === key) {
+    return `<div class="exp-panels"><div class="exp-panel accts">
+      <div class="exp-phead">Breakdown unavailable</div>
+      <div class="exp-hint">${escHtml(expBreakError.message)}</div>
+    </div></div>`;
+  }
+  if (!expBreak || expBreak._range !== key) {
+    return `<div class="exp-panels"><div class="exp-panel accts">
+      <div class="exp-hint"><span class="spinner-inline"></span>Loading the accounts and store split…</div>
+    </div></div>`;
+  }
+  const b = expBreak.categories[c.name];
+  if (!b) {
+    return `<div class="exp-panels"><div class="exp-panel accts">
+      <div class="exp-phead">QuickBooks accounts mapped here</div>
+      <div class="exp-hint">Nothing posted to this category in the selected period.</div>
+    </div></div>`;
+  }
+
+  // Store rows come from the STORES registry (live from GX Core) joined to the QB class each store
+  // banks under — never a hardcoded palette, and never a fold-and-match on the class string.
+  const rows = STORES
+    .map(s => ({ label: s.display, color: s.color, amount: b.byClass[PNL_CLASS_BY_STORE[s.name]] || 0, store: true }))
+    .concat(PNL_NON_STORE_CLASSES.map(k => ({ label: 'Corporate', color: 'var(--muted)', amount: b.byClass[k] || 0, store: false })))
+    .filter(r => Math.abs(r.amount) > 0.005)
+    .sort((x, y) => Math.abs(y.amount) - Math.abs(x.amount));
+  // Scaled to the largest STORE, not the largest row. Corporate carries $297,833 of August's COGS
+  // against about $16,000 per store, so scaling to it collapses all six store bars to a few pixels
+  // and the one comparison this panel exists to make becomes unreadable. Corporate keeps its row and
+  // its number — it is real money and does not vanish — but its bar clamps at full width rather than
+  // setting the scale for everyone else.
+  const max = rows.reduce((m, r) => r.store ? Math.max(m, Math.abs(r.amount)) : m, 0)
+              || rows.reduce((m, r) => Math.max(m, Math.abs(r.amount)), 0);
+  // The row's own pace fraction, so an account's or a store's share is measured the same way the
+  // category above it is.
+  const share = b.total !== 0 ? (v) => (c.expected === null ? null : v / b.total * c.expected) : () => null;
+
+  return `<div class="exp-panels" onclick="event.stopPropagation()">
+    <div class="exp-panel accts">
+      <div class="exp-phead">QuickBooks accounts mapped here</div>
+      ${b.accounts.map(a => {
+        const exp = share(a.amount);
+        const v   = exp === null ? null : a.amount - exp;
+        return `<div class="exp-acct">
+          <div class="exp-acct-name" title="${escHtml(a.display)}">${escHtml(a.display)}</div>
+          <div class="exp-acct-amt">${fmtK(a.amount)}</div>
+          <div class="exp-acct-var ${v === null ? '' : (v > 0 ? 'bad' : 'good')}">${v === null ? '' : fmtSigned(v)}</div>
+        </div>`;
+      }).join('')}
+      ${b.accounts.length === 0 ? '<div class="exp-hint">QuickBooks reports this category as a single total with no account detail.</div>' : ''}
+      ${b.residual ? `<div class="exp-resid">${fmtK(b.residual)} posted directly to the parent account, not to any line above.</div>` : ''}
+      <div class="exp-excl">
+        <button class="exp-excl-btn" onclick="toggleExpCat('${escHtml(c.name)}')">${
+          hiddenExpCats.has(c.name) ? 'Include in totals' : 'Exclude from totals'}</button>
+        <span>${hiddenExpCats.has(c.name) ? 'Currently excluded from every figure on this tab.' : 'Leaves the row visible; drops it from the KPIs.'}</span>
+      </div>
+    </div>
+    <div class="exp-panel stores">
+      <div class="exp-phead">By store (QB class)</div>
+      ${rows.map(r => {
+        const exp = share(r.amount);
+        const v   = exp === null ? null : r.amount - exp;
+        return `<div class="exp-srow">
+          <span class="exp-dot" style="background:${r.color}"></span>
+          <span class="exp-sname" title="${escHtml(r.label)}">${escHtml(r.label)}</span>
+          <span class="exp-strack"><span class="exp-sfill" style="width:${max ? Math.min(Math.abs(r.amount)/max*100, 100) : 0}%;background:${r.color}"></span></span>
+          <span class="exp-samt">${fmtK(r.amount)}</span>
+          <span class="exp-svar ${v === null ? '' : (v > 0 ? 'bad' : 'good')}">${v === null ? '' : fmtSigned(v)}</span>
+        </div>`;
+      }).join('')}
+      ${rows.length === 0 ? '<div class="exp-hint">No class-tagged spend in this category.</div>' : ''}
+    </div>
+  </div>`;
+}
+
+/** The phone rendering, unchanged from before the desktop redesign — a different layout problem,
+ *  and deliberately out of scope for the handoff. */
+function renderExpensesMobile(cats, total, totalBudget, totalNet, expPacingPct) {
+  const sorted = [...cats].sort((a, b) => b.val - a.val);
   const budgetDiff = totalBudget > 0 ? total - totalBudget : null;
-
   destroyCharts();
   document.getElementById('main-content').innerHTML = `
     <div class="kpi-grid">
@@ -5038,12 +5543,12 @@ function renderExpenses() {
       </div>
       <div class="kpi">
         <div class="klabel">Largest category</div>
-        <div class="kval" style="font-size:15px;line-height:1.2">${cats[0]?.name || '—'}</div>
-        <div class="ksub muted">${cats[0] ? fmtK(cats[0].val) : ''}</div>
+        <div class="kval" style="font-size:15px;line-height:1.2">${sorted[0]?.name || '—'}</div>
+        <div class="ksub muted">${sorted[0] ? fmtK(sorted[0].val) : ''}</div>
       </div>
       <div class="kpi">
         <div class="klabel">Categories tracked</div>
-        <div class="kval">${cats.length}</div>
+        <div class="kval">${sorted.length}</div>
         <div class="ksub muted">with activity</div>
       </div>
     </div>
@@ -5058,7 +5563,7 @@ function renderExpenses() {
       </span>
     </div>
     <div class="card">
-      ${cats.map(c => {
+      ${sorted.map(c => {
         const hidden = hiddenExpCats.has(c.name);
         const hasBudget = c.budget > 0;
         const pct = hasBudget ? Math.min(Math.round(c.val / c.budget * 100), 100) : 0;
@@ -5075,7 +5580,7 @@ function renderExpenses() {
           </div>` : ''}
         </div>`;
       }).join('')}
-      ${cats.length === 0 ? '<div class="empty-state">No expenses for this period</div>' : ''}
+      ${sorted.length === 0 ? '<div class="empty-state">No expenses for this period</div>' : ''}
     </div>
 
     <div class="sec-lbl">Monthly trend &nbsp;<button onclick="reloadExpenses()" style="font-size:10px;color:#555;background:none;border:none;cursor:pointer">↻ refresh</button></div>
@@ -5090,6 +5595,9 @@ function renderExpenses() {
   requestAnimationFrame(() => drawExpMonthlyChart());
 }
 
+// The trend answers "was that month over budget", so the budget has to be ON it. Before the
+// redesign this was a single orange series with no reference line: every month looked the same
+// height whether it beat its budget or blew through it.
 function drawExpMonthlyChart() {
   const el = document.getElementById('expChart');
   if (!el || !expenseData) return;
@@ -5097,22 +5605,42 @@ function drawExpMonthlyChart() {
   const totals = cols.map(col =>
     Object.values(expenseData.expenses).reduce((s, vals) => s + (vals[col] || 0), 0)
   );
-  // Highlight the active month column
-  const yr = new Date().getFullYear();
-  const bgColors = cols.map((c, i) => {
-    if (activeMonth === 0) return '#D85A30';
-    const prefix = MONTHS[activeMonth - 1] + ' ';
-    return c.startsWith(prefix) ? '#D85A30' : 'rgba(216,90,48,0.35)';
+  // Month name -> that month's budget across every category. Absent budgets give null, not 0:
+  // Chart.js skips a null point, where a 0 would draw the budget line down to the axis and read
+  // as "budgeted nothing".
+  const budgets = cols.map(col => {
+    const mo = col.split(' ')[0];
+    if (!expBudgets) return null;
+    let sum = 0, any = false;
+    Object.values(expBudgets).forEach(b => { const v = b?.[mo]; if (v != null) { sum += Number(v) || 0; any = true; } });
+    return any ? sum : null;
   });
+  const desktop = expIsDesktop();
+  const isActive = (c) => activeMonth === 0 || c.startsWith(MONTHS[activeMonth - 1] + ' ');
+  // On desktop the bar colour carries over/under against that month's own budget; the active month
+  // is the saturated variant. The phone keeps the original orange — its layout was out of scope.
+  const bgColors = cols.map((c, i) => {
+    if (!desktop) return isActive(c) ? '#D85A30' : 'rgba(216,90,48,0.35)';
+    const over = budgets[i] != null && totals[i] > budgets[i];
+    if (over) return isActive(c) ? '#ef4444' : 'rgba(239,68,68,.45)';
+    return isActive(c) ? '#4ade80' : 'rgba(74,222,128,.38)';
+  });
+  const datasets = [{ label: 'Actual', data: totals, backgroundColor: bgColors, borderRadius: 3, order: 2 }];
+  if (desktop && budgets.some(b => b != null)) {
+    datasets.push({
+      label: 'Budget', data: budgets, type: 'line', borderColor: '#8a958f', borderWidth: 1.5,
+      borderDash: [4, 3], pointRadius: 0, tension: .25, fill: false, order: 1
+    });
+  }
   charts.exp = new Chart(el, {
     type: 'bar',
-    data: {
-      labels: cols.map(c => c.split(' ')[0]),
-      datasets: [{ label: 'Expenses', data: totals, backgroundColor: bgColors, borderRadius: 3 }]
-    },
+    data: { labels: cols.map(c => c.split(' ')[0]), datasets },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => fmtK(ctx.parsed.y) } } },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ctx.dataset.label + ' ' + fmtK(ctx.parsed.y) } }
+      },
       scales: {
         x: { ticks: { color: '#555', font: { size: 9 } }, grid: { display: false }, border: { display: false } },
         y: { ticks: { color: '#555', font: { size: 10 }, callback: v => fmtK(v) }, grid: { color: 'rgba(255,255,255,0.05)' }, border: { display: false } }
