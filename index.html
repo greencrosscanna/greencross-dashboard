@@ -1129,7 +1129,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.539';
+const APP_VERSION = 'v2.540';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1216,6 +1216,7 @@ let LEADERBOARD_GAS = 'https://script.google.com/macros/s/AKfycbxXqtL-rKjuzFQkyA
 let lbGoals = null; // { month, year, stores: { locationName: { monthly, dow:[7] 0=Sun } } }
 
 let goals = {};       // loaded from budget spreadsheet via proxy (historical months)
+let goalsYear = null; // calendar year `goals` describes; null = backend didn't say — see getGoal()
 let expenseData = null; // loaded from QuickBooks via proxy
 let expensesLoading = false;
 let invGmData = null;   // {cogs:{storeName:total}, byDay, byMonth} — 28d from cogs_dutchie
@@ -1269,12 +1270,31 @@ function toggleExpCat(name) {
   renderExpenses();
 }
 
-function getGoal(storeName, month) {
+/**
+ * Budget-spreadsheet goal for a store. The sheet holds ONE year — 12 monthly columns, no year
+ * dimension — while the period picker offers curY-2..curY and happily fetches all 12 months of
+ * Dutchie data for a past year. So every 2024/2025 view used to measure real sales against the
+ * 2026 plan, silently and with no marker: getMonthlyGoal('Bend', 3, 2025) returned 2026's March.
+ * A "Full year" 2025 read the entire 2026 annual budget as its goal.
+ *
+ * There is nothing to fall back to — the 2025 workbook holds only ATM usage, and GX Core's frozen
+ * period goals do not start until ~Nov 2025 — so the honest answer for an unbudgeted year is no
+ * goal at all. Zero degrades cleanly: the hero drops the "% of goal" label and the projection card
+ * renders "—" rather than comparing against nothing.
+ *
+ * `goalsYear` null means the backend did not report a year (a proxy older than this build, or a
+ * server-side cache entry written before it). That falls through to the old behaviour on purpose:
+ * Pages and clasp deploy separately, and blanking every goal for an hour is a worse failure than
+ * the one being fixed.
+ */
+function getGoal(storeName, month, year) {
+  const yr = year ?? activeYear;
+  if (goalsYear && yr !== goalsYear) return 0;
   const sg = goals[storeName];
   if (!sg) return 0;
   if (month === MONTH_YTD) {
     const curYear = new Date().getFullYear();
-    const maxMo = activeYear < curYear ? 12 : new Date().getMonth() + 1;
+    const maxMo = yr < curYear ? 12 : new Date().getMonth() + 1;
     return MONTHS.slice(0, maxMo).reduce((a, m) => a + (sg[m] || 0), 0);
   }
   return sg[MONTHS[month - 1]] || 0;
@@ -1294,7 +1314,7 @@ function getMonthlyGoal(storeName, month /* 1–12 or 0=YTD */, year) {
     const lb = lbGoals.stores[storeName];
     if (lb && lb.monthly) return lb.monthly;
   }
-  return getGoal(storeName, month);
+  return getGoal(storeName, month, year);
 }
 
 /**
@@ -1307,7 +1327,7 @@ function getWeeklyGoal(storeName, month, year, daysInMo) {
     const lb = lbGoals.stores[storeName];
     if (lb?.dow) return lb.dow.reduce((a, b) => a + b, 0);
   }
-  return getGoal(storeName, month) * 7 / daysInMo;
+  return getGoal(storeName, month, year) * 7 / daysInMo;
 }
 
 /**
@@ -1326,7 +1346,7 @@ function getDailyGoal(storeName, dow, month /* 1–12 */, year, daysInMo, forDat
     if (lb?.dow?.[dow] != null) return lb.dow[dow];
   }
   // 3. Fallback: budget monthly scaled by DOW weight
-  const sg = getGoal(storeName, month);
+  const sg = getGoal(storeName, month, year);
   const dowWeights = getDOWWeights([storeName]);
   return sg * 7 / daysInMo * dowWeights[dow];
 }
@@ -2094,14 +2114,22 @@ async function backfillDailyHistory(proxyUrl) {
 }
 
 async function loadGoals() {
-  const cached = readCache('goals');
-  if (cached) { goals = cached; return; }
+  // Key is goals_v2, not goals: the cached shape changed from a bare store→months map to one that
+  // carries the year it describes, and a v1 entry read as v2 would look like "backend said nothing"
+  // for up to its 24h TTL — i.e. the old bug, still live on every warm tab. A new key retires them.
+  // The TTL still resolves through CACHE_TTL['goals'] via readCache's underscore-prefix fallback.
+  const cached = readCache('goals_v2');
+  if (cached) { goals = cached.goals; goalsYear = cached.year ?? null; return; }
   const proxyUrl = getProxyUrl();
   if (!proxyUrl) return;
   try {
     const res  = await fetch(`${proxyUrl}?action=goals&token=${encodeURIComponent(getToken())}`);
     const data = await res.json();
-    if (data.goals) { goals = data.goals; writeCache('goals', data.goals); }
+    if (data.goals) {
+      goals     = data.goals;
+      goalsYear = Number(data.year) || null; // absent on a proxy older than this build — see getGoal()
+      writeCache('goals_v2', { goals: data.goals, year: goalsYear });
+    }
   } catch (e) {
     console.warn('Goals fetch failed:', e.message);
   }

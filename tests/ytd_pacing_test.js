@@ -48,6 +48,10 @@ const ctx = {
   console, goals,
   activeYear: 2026, activeMonth: 0, activeWeek: null, activeDay: null,
   Date: null,                       // installed per-case
+  // null, not 2026: this suite flips activeYear to 2025/2027 to check how much of a CLOSED or
+  // future year has elapsed, and a year-gated getGoal would zero the budget out from under those
+  // cases and make them assert nothing. The gate itself is covered by past_year_goals_test.js.
+  goalsYear: null,
   lbGoals: null,                    // no published payload: exercise the budget fallback
   periodGoalsCache: {},
   paceFracs: null, paceFracsAt: 0,

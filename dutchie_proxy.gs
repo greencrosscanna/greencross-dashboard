@@ -75,6 +75,12 @@ const BASE = 'https://api.pos.dutchie.com';
 
 const BUDGET_SHEET_ID  = '1OBNzkBrJtLIlf8xknVlGd6Jb8nlkg4_KG-Gq6BD7HHY';
 const BUDGET_SHEET_GID = 1092240858;
+// The calendar year the sheet above holds goals for — it is the "2026 GX2 Dashboard" workbook and
+// carries ONE set of 12 monthly columns, with no year dimension. getGoals() ships this alongside the
+// numbers so the frontend can refuse to show them for a year they do not describe: the period picker
+// offers curY-2..curY, and without this every 2024/2025 view measured real sales against the 2026
+// plan. Swap the sheet, swap this. There is no 2025 budget anywhere to fall back to.
+const BUDGET_YEAR      = 2026;
 
 // ── Cache helpers ─────────────────────────────────────────────────────────────
 const CACHE = CacheService.getScriptCache();
@@ -945,7 +951,7 @@ function getGoals() {
       });
     }
 
-    const content = JSON.stringify({ goals });
+    const content = JSON.stringify({ goals, year: BUDGET_YEAR });
     cacheSet_('goals', content, 3600); // 1 hour
     output.setContent(content);
   } catch (err) {
