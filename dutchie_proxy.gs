@@ -798,6 +798,7 @@ function doGet(e) {
   if (params.action === 'budget_proposal') return getBudgetProposal(params);
   if (params.action === 'apply_budget')    { const g = writeGuard_(auth.user, 'apply_budget'); if (!g.ok) return jsonOut_(g); params._user = auth.user; return applyBudget_(params); }
   if (params.action === 'clear_budget')    { const g = writeGuard_(auth.user, 'clear_budget'); if (!g.ok) return jsonOut_(g); return clearBudget_(params); }
+  if (params.action === 'set_bills_once')  { const g = writeGuard_(auth.user, 'set_bills_once'); if (!g.ok) return jsonOut_(g); return setBillsOnce_(params); }
   if (params.action === 'clear_atm_cache') { const g = writeGuard_(auth.user, 'clear_atm_cache'); if (!g.ok) return jsonOut_(g); return clearAtmCache_(params, auth.user); }
   if (params.action === 'inventory')     return getInventory(params);
   if (params.action === 'invprobe')      return probeInventoryEndpoints(params);
@@ -2547,6 +2548,9 @@ function getExpenseBudgets() {
     });
   }
   const content = JSON.stringify({ budgets: budgets, overlaid: overlaid, source: 'frozen+overlay',
+                                   // The Expenses tab needs these to decide whether to PACE a
+                                   // category; shipping them here keeps that decision one fetch.
+                                   bills_once: sbBillsOnce_(),
                                    overlay_applied_at: ov ? ov.applied_at : null,
                                    overlay_applied_by: ov ? ov.applied_by : null });
   cacheSet_('expbudgets', content, 3600);
@@ -3338,6 +3342,21 @@ function sbBuildProposal_(year, history) {
   // Revenue projected by the same engine, so the volume-linked ratio has something to land on.
   const incomeProj = sbProjectSeries_(incomeSeries, year);
 
+  // Last year's actuals per month, keyed by month name. The planner shows them beside every figure
+  // it proposes, because "is this number sane" is answered by what the category actually spent, not
+  // by the method label. The data is already in `series` — this is a reshape, not a second fetch.
+  const priorYear = {};
+  cats.forEach(function (cat) {
+    const row = sbBlankYear_();
+    let any = false;
+    (series[cat] || []).forEach(function (p) {
+      if (p.yr !== year - 1) return;
+      row[MONTHS_12_[p.mo]] = Math.round(p.v * 100) / 100;
+      any = true;
+    });
+    priorYear[cat] = any ? row : null;   // null, not a row of zeros: "no history" is not "spent nothing"
+  });
+
   const proposals = cats.map(function (cat) {
     const s        = series[cat] || [];
     const nonZero  = s.filter(function (p) { return p.v > 0; });
@@ -3413,6 +3432,11 @@ function sbBuildProposal_(year, history) {
     };
   });
 
+  // Attached in ONE place rather than in each branch: the sparse path returns from
+  // sbSparseProposal_, so a per-branch assignment silently skips it — and a missing prior year
+  // renders as an empty column, which reads as "spent nothing last year".
+  proposals.forEach(function (p) { p.prior_year = priorYear[p.category] || null; });
+
   proposals.sort(function (a, b) { return (b.annual || 0) - (a.annual || 0); });
   return { year: year, proposals: proposals, projected_revenue: incomeProj.monthly,
            revenue_trend: incomeProj.trend };
@@ -3463,13 +3487,81 @@ function getBudgetProposal(params) {
       proposals: built.proposals,
       projected_revenue: built.projected_revenue,
       revenue_trend: built.revenue_trend,
-      applied: overlay && overlay.year === year ? Object.keys(overlay.categories || {}) : []
+      applied: overlay && overlay.year === year ? Object.keys(overlay.categories || {}) : [],
+      // The planner cannot work these out for itself without re-deriving the server's own date
+      // rules, and a client that disagreed would render an Apply button promising something the
+      // write would refuse.
+      open_months: sbOpenMonths_(year),
+      bills_once:  sbBillsOnce_(),
+      current:     frozenGet_(FROZEN_EXPBUD_PROP) || {},
+      overlay:     overlay && overlay.year === year ? (overlay.categories || {}) : {}
     };
     cacheSet_(key, JSON.stringify(out), 3600);
     return jsonOut_(out);
   } catch (e) {
     return jsonOut_({ ok: false, error: e.message });
   }
+}
+
+// ── Which months a budget may still be written to ─────────────────────────────────────────────
+//
+// A quarterly re-cut must not rewrite January. Every variance the Expenses tab has already shown
+// for a closed month was measured against the budget that stood at the time; changing it now makes
+// that history retroactively wrong, and silently — the tab would simply start drawing a different
+// line with no indication anything moved.
+//
+// The month IN PROGRESS counts as closed too. A partial month cannot be budgeted, which is the same
+// reason the proposal engine excludes it from history (sbHistoryWindow_).
+//
+// Computed HERE, never taken from the client. The client sends numbers for the months it thinks are
+// open; the server decides which of them it is willing to write. A client that is wrong about the
+// date must not be able to rewrite a closed month.
+function sbOpenMonths_(year) {
+  const tz  = 'America/Los_Angeles';
+  const now = new Date();
+  const cy  = Number(Utilities.formatDate(now, tz, 'yyyy'));
+  const cm  = Number(Utilities.formatDate(now, tz, 'MM'));   // 1-12
+  if (year > cy) return MONTHS_12_.slice();                  // a future year is entirely open
+  if (year < cy) return [];                                  // a past year is entirely closed
+  return MONTHS_12_.slice(cm);                               // months AFTER the one in progress
+}
+
+/** Categories flagged as landing at the start of a period rather than accruing daily. */
+const BILLS_ONCE_PROP = 'bills_once';
+function sbBillsOnce_() {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty(BILLS_ONCE_PROP);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter(function (v) { return typeof v === 'string' && v; }) : [];
+  } catch (e) { return []; }
+}
+
+/**
+ * action=set_bills_once - which categories bill at a point in the period instead of accruing.
+ *
+ * This has to live on the SERVER rather than in the planner's own state, because the consumer is the
+ * EXPENSES tab: Rent, Insurance, Licenses and Management are billed once, so pacing them against a
+ * day-30 fraction flags them as "over" by construction every single month. A flag kept only in the
+ * planner would leave that wrong on the screen people actually read.
+ *
+ * Takes the WHOLE list, not a delta - the planner always knows the full set, and a merge would make
+ * un-flagging impossible without a second verb.
+ */
+function setBillsOnce_(params) {
+  let list;
+  try {
+    const raw = params.categories;
+    list = Array.isArray(raw) ? raw : JSON.parse(raw || '[]');
+  } catch (e) { return jsonOut_({ ok: false, error: 'Invalid categories JSON' }); }
+  if (!Array.isArray(list)) return jsonOut_({ ok: false, error: 'categories must be an array' });
+  const clean = [];
+  list.forEach(function (v) {
+    const n = String(v || '').trim();
+    if (n && clean.indexOf(n) === -1) clean.push(n);
+  });
+  PropertiesService.getScriptProperties().setProperty(BILLS_ONCE_PROP, JSON.stringify(clean));
+  cacheDelete_('expbudgets');
+  return jsonOut_({ ok: true, bills_once: clean });
 }
 
 /**
@@ -3493,18 +3585,38 @@ function applyBudget_(params) {
   // budget year would be indistinguishable from having applied them deliberately.
   const cats = (prev && prev.year === year && prev.categories) ? prev.categories : {};
 
-  const applied = [];
+  // Only months the server considers open may be written; the rest KEEP whatever they already
+  // budgeted. The overlay row stays a full twelve months on purpose — getExpenseBudgets replaces the
+  // whole category row with it, so a partial row would blank every month it omitted. This is the
+  // read-merge-write rule the GX Core writes follow, for the same reason.
+  const open = sbOpenMonths_(year);
+  if (!open.length) {
+    return jsonOut_({ ok: false, error: 'every month of ' + year + ' is closed — nothing can be written' });
+  }
+  const frozen = frozenGet_(FROZEN_EXPBUD_PROP) || {};
+
+  const applied = [], skipped_months = MONTHS_12_.filter(function (m) { return open.indexOf(m) === -1; });
   for (const name of Object.keys(incoming)) {
     const row = incoming[name];
     if (!row || typeof row !== 'object') continue;
+    const held = cats[name] || frozen[name] || {};
     const clean = {};
-    let any = false;
+    let wroteAny = false;
     MONTHS_12_.forEach(function (m) {
+      if (open.indexOf(m) === -1) {
+        // Closed: preserve. Not the proposal's figure for that month — what the month already had.
+        const h = Number(held[m]);
+        clean[m] = isFinite(h) && h >= 0 ? Math.round(h * 100) / 100 : 0;
+        return;
+      }
       const v = Number(row[m]);
       clean[m] = (isFinite(v) && v >= 0) ? Math.round(v * 100) / 100 : 0;
-      if (clean[m] > 0) any = true;
+      wroteAny = true;
     });
-    if (!any) continue;                 // an all-zero row is a no-op, not a budget of nothing
+    // A category proposed at $0 for every open month IS a real answer — it is how a stale figure
+    // gets retired — so unlike before, an all-zero row is applied rather than skipped. What is
+    // skipped is a row that supplied no open month at all.
+    if (!wroteAny) continue;
     cats[name] = clean;
     applied.push(name);
   }
@@ -3518,7 +3630,8 @@ function applyBudget_(params) {
   };
   PropertiesService.getScriptProperties().setProperty(SMART_BUDGET_PROP, JSON.stringify(rec));
   cacheDelete_('expbudgets');
-  return jsonOut_({ ok: true, applied: applied, total_overlaid: Object.keys(cats).length, year: year });
+  return jsonOut_({ ok: true, applied: applied, total_overlaid: Object.keys(cats).length, year: year,
+                    open_months: open, preserved_months: skipped_months });
 }
 
 /**
