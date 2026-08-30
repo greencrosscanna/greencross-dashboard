@@ -1057,6 +1057,13 @@ function pgLoadPeriod_(date, byStoreId) {
   try {
     const all    = GXCore.getPeriodGoals('', date);
     const picked = all && all.picked;
+    // An ANSWER of "no rows" is not a shape failure. `{ok:true, picked:[]}` is Core stating there is
+    // no pay period covering this date, which is the normal reply for anything outside the ledger —
+    // and outside it is where the walk spends every one of its MISS_LIMIT probes. Falling through to
+    // the per-store loop on an empty array made a miss cost SEVEN calls instead of one, measured at
+    // 39s for the 123 uncovered days after 2026-08-30. Only an exception or an unrecognisable shape
+    // earns the fallback.
+    if (Array.isArray(picked) && !picked.length) return out;
     if (picked && picked.length) {
       for (const r of picked) {
         const sales = byStoreId[String(r.store_id || '').toLowerCase()];

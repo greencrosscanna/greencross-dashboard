@@ -227,6 +227,10 @@ check('a row describing a different window is skipped, not folded in',
   /r\.period_start !== out\.window\.start/.test(PROXY), true);
 check('the per-store path survives as a fallback',
   /fall through to the per-store path/.test(PROXY), true);
+// A miss is where the walk spends its whole probe budget, so it is the one case that must not pay
+// for both paths. An empty `picked` is Core answering, not Core failing.
+check('an authoritative empty answer does NOT trigger the fallback',
+  /if \(Array\.isArray\(picked\) && !picked\.length\) return out;/.test(PROXY), true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
