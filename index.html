@@ -1162,7 +1162,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.551';
+const APP_VERSION = 'v2.552';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1351,7 +1351,12 @@ const MONTH_YTD = 0;
 // while every other store's varies every period. Confirmed intentional by Sky, not a stale row —
 // so the ~40% jump against its budget line is correct and must not be "corrected" back.
 let pgDaily = {};              // store → { 'YYYY-MM-DD': dailyTarget }; frozen, so it only ever grows
-let pgLoaded = new Set();      // range keys already fetched, so render() cannot loop on the fetch
+let pgLoaded = new Set();      // range keys already REQUESTED, so render() cannot loop on the fetch
+// Ranges whose fetch has finished — success, miss, or failure alike. Distinct from pgLoaded, which
+// is added to BEFORE the await and so only ever means "asked". Telling the two apart is what lets
+// the goal shimmer while the authoritative number is in flight instead of printing the budget
+// fallback and swapping it out a moment later.
+let pgResolved = new Set();
 let _pgTotalMemo = new Map();  // 'store|from|to' → sum; cleared whenever pgDaily grows
 
 /**
@@ -1600,6 +1605,21 @@ function activeWeekBounds() {
   return [toDateStr(ds[0]), toDateStr(ds[6])];
 }
 
+/**
+ * True while the frozen period goals for the CURRENT view are still in flight.
+ *
+ * getMonthlyGoal falls back budget-ward when pgDaily has nothing yet, so without this the hero
+ * paints the budget figure and then replaces it with the period goal a moment later — measured on
+ * May 2026 that is $685,702 becoming $742,625, and Portland Rd $65,638 becoming $92,073. Reading a
+ * number that then changes under you is worse than waiting a beat for the real one, so the goal
+ * shimmers until the authoritative source has answered. Only the goal waits; net sales and every
+ * other figure paint immediately.
+ */
+function goalPending() {
+  const [from, to] = activeGoalRange();
+  return !pgResolved.has(from + '|' + to);
+}
+
 function activeGoalRange() {
   if (activeDay)  return [activeDay, activeDay];
   if (activeWeek) return activeWeekBounds();
@@ -1626,7 +1646,7 @@ async function loadPeriodGoalRange(from, to) {
     const res  = await fetch(`${proxyUrl}?action=period_goals_range&start=${encodeURIComponent(from)}` +
                              `&end=${encodeURIComponent(to)}&token=${encodeURIComponent(getToken())}`);
     const data = await res.json();
-    if (!data.ok || !Array.isArray(data.periods)) { pgLoaded.delete(key); return; }
+    if (!data.ok || !Array.isArray(data.periods)) { pgLoaded.delete(key); pgResolved.add(key); return; }
     let added = 0;
     for (const p of data.periods) {
       const end = Date.parse(p.period_end + 'T12:00:00Z');
@@ -1641,13 +1661,19 @@ async function loadPeriodGoalRange(from, to) {
         }
       }
     }
-    if (added) {
-      _pgTotalMemo.clear(); // pgDaily grew, so every cached null may now be a real number
-      render();
-    }
+    // Resolved BEFORE the render below, and on the no-rows path too: a range GX Core simply has no
+    // periods for (a past year, an unpublished period) is an ANSWER. Leaving it unresolved would
+    // shimmer that view forever instead of falling back to the budget line.
+    pgResolved.add(key);
+    if (added) _pgTotalMemo.clear(); // pgDaily grew, so every cached null may now be a real number
+    render();                        // always: the shimmer has to clear even when nothing was added
   } catch (e) {
+    // A genuine failure releases the request key so the 60s poll retries — but it also RESOLVES,
+    // so the view falls back to the budget number rather than shimmering behind a dead fetch.
     pgLoaded.delete(key);
+    pgResolved.add(key);
     console.warn('[period-goals-range] fetch failed:', e.message);
+    render();
   }
 }
 
@@ -2100,6 +2126,7 @@ function clearAllCache() {
   liveData      = {};   // was missing — without it the on-screen figure survived a "clear" (the July 736k trap)
   lbGoals       = null;
   lbGoalsSource = null;
+  pgLoaded.clear(); pgResolved.clear(); _pgTotalMemo.clear();
   periodGoalsCache = {};
   paceFracs        = null;
   paceFracsAt      = 0;
@@ -3595,6 +3622,29 @@ function _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, und
   const paceLabel   = under > 0 ? `−${fmtK(under)} behind pace` : `+${fmtK(-under)} over pace`;
   const paceCls     = under > 0 ? 'bad' : 'good';
   const goalPctLbl  = periodGoal > 0 ? `${goalPct}% of ${fmtK(periodGoal)} goal` : '';
+  // While the frozen period goal is still loading, show a placeholder rather than the budget
+  // fallback that is about to be replaced. Only this row waits — the net-sales figure above it is
+  // already final and paints immediately.
+  if (o.goalWait) {
+    return `
+    <div class="ic-hero-top">
+      <span class="ic-hero-lbl">Net sales · ${getPeriodLabel()}</span>
+      <div class="ic-hero-live">
+        <div class="ic-hero-live-dot"></div>
+        <span>${syncTime}${periodDay ? ' · ' + periodDay : ''}</span>
+      </div>
+    </div>
+    <div class="ic-hero-val">${fmtK(net)}</div>
+    <div class="ic-hero-bar"><div class="sbar-track"></div></div>
+    <div class="ic-hero-foot">
+      <span class="bd-skel bd-skel-diff"></span>
+      <span class="bd-skel bd-skel-val"></span>
+      ${o.cmpHtml || ''}
+    </div>
+    <span class="ic-swipe-cue l" id="ic-cue-l">‹</span>
+    <span class="ic-swipe-cue r" id="ic-cue-r">›</span>
+`;
+  }
   return `
     <div class="ic-hero-top">
       <span class="ic-hero-lbl">Net sales · ${getPeriodLabel()}</span>
@@ -3620,7 +3670,12 @@ function _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, und
 `;
 }
 
-function _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores) {
+function _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores, goalWait) {
+  // Every branch below divides by or compares against periodGoal, so none of them can render an
+  // honest number until the authoritative goal has landed.
+  if (goalWait) {
+    return `<div class="ic-proj-lbl">Projection</div><div class="ic-proj-val"><span class="val-skel"></span></div>`;
+  }
   if (activeDay) {
     if (!periodGoal) return `<div class="ic-proj-lbl">Projection</div><div class="ic-proj-val">—</div>`;
     const isToday = activeDay === toDateStr(new Date());
@@ -4089,6 +4144,7 @@ function renderIncome() {
   }
 
   const goalPct   = periodGoal > 0 ? Math.round(net / periodGoal * 100) : 0;
+  const goalWait  = goalPending();   // frozen period goals still in flight for this view
   // getGoalPacingPct, not getPacingPct: in YTD the goal above is already a to-date figure, so the
   // calendar-year fraction would discount it twice. See that function for the whole story.
   const pacingPct = getGoalPacingPct(stores);
@@ -4143,7 +4199,7 @@ function renderIncome() {
       <!-- Mobile layout -->
       <div class="ic-mob">
         <div class="ic-hero-card" id="ic-mob-hero">
-          ${_incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml })}
+          ${_incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml, goalWait })}
         </div>
         <!-- KPIs sit ABOVE the store breakdown, per the handoff's mobile screen. The other order
              pushed all four cards under the bottom bar on a notched phone: hero + six breakdown
@@ -4170,10 +4226,10 @@ function renderIncome() {
       <div class="ic-dsk">
         <div class="ic-hero-row">
           <div class="ic-hero-card ic-dsk-hero" id="ic-dsk-hero">
-            ${_incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml })}
+            ${_incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml, goalWait })}
           </div>
           <div class="ic-proj-card" id="ic-dsk-proj">
-            ${_incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores)}
+            ${_incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores, goalWait)}
           </div>
         </div>
         <div class="ic-dsk-kpis" id="ic-dsk-kpis">
@@ -4205,9 +4261,9 @@ function renderIncome() {
     const patchEl = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
     const patchTxt = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
 
-    patchEl('ic-mob-hero',   _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml }));
-    patchEl('ic-dsk-hero',   _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml }));
-    patchEl('ic-dsk-proj',   _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores));
+    patchEl('ic-mob-hero',   _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml, goalWait }));
+    patchEl('ic-dsk-hero',   _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml, goalWait }));
+    patchEl('ic-dsk-proj',   _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores, goalWait));
     patchEl('ic-mob-kpis',   _incomeKpiMobHtml(net, gross, orders, disc, cost, aov, dutchieNet, dcost));
     patchEl('ic-dsk-kpis',   _incomeKpiDskHtml(net, gross, orders, disc, cost, aov, dutchieNet, dcost));
     patchEl('ic-mob-bd',     _incomeBreakdownMobHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo));
