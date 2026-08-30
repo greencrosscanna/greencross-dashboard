@@ -1061,8 +1061,12 @@ function getPeriodGoalsRange_(start, end) {
   // the ledger does, not that it is pocked with holes. Without this, asking for 2025 YTD walks 365
   // days at six calls each and times the request out. After a month of nothing, stop probing and
   // report the remainder uncovered; the client shows no goal either way.
-  const MISS_LIMIT = 31;
-  let misses = 0;
+  // One pay period. A gap longer than that is not a hole in the ledger, it is the edge of it —
+  // measured 2026-08-29, coverage runs contiguously from ~Nov 2025 forward with no interior gaps.
+  // 14 rather than 31 halves the worst-case probe cost, which is the whole point of the guard: a
+  // fully uncovered year still costs 14 x 6 live calls before it gives up.
+  const MISS_LIMIT = 14;
+  let misses = 0, everTruncated = false;
 
   while (cursor <= last) {
     const date   = iso(cursor);
@@ -1103,7 +1107,7 @@ function getPeriodGoalsRange_(start, end) {
       // is the normal answer for older dates — report it rather than letting the client mistake a
       // partial sum for a whole one.
       uncovered++;
-      misses++;
+      if (++misses >= MISS_LIMIT) everTruncated = true;
       cursor += dayMs;
       continue;
     }
@@ -1116,9 +1120,11 @@ function getPeriodGoalsRange_(start, end) {
   return jsonOut_({
     ok: true, start: start, end: end, periods: periods,
     uncovered_days: uncovered,
-    // True when the walk stopped probing on the miss streak above, so `uncovered_days` is a floor,
-    // not a count. The client treats any uncovered day as "no goal", so it needs no more than this.
-    truncated: misses >= MISS_LIMIT,
+    // STICKY: true if the walk ever stopped probing on the miss streak, not merely if it was still
+    // in one when the range ended. Read live 2026-08-29 for all of 2025, the non-sticky version
+    // reported false after a cached December period reset the counter — so it said "fully probed"
+    // about a walk that had skipped ten months. `uncovered_days` is a floor whenever this is true.
+    truncated: everTruncated,
   });
 }
 
