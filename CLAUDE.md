@@ -116,6 +116,93 @@ ScriptProperties overlay that `getExpenseBudgets()` merges per-category over `fr
   is no parameter through which a fabricated number could reach the budget, which is the entire
   reason secret-gating a financial write is defensible here.
 
+## The Expenses tab compares against EXPECTED-TO-DATE, and the budget line sits at 80%
+
+Redesigned v2.556/v2.557 (`design_handoff_expenses_variance_table`). The old tab compared
+month-to-date spend against a **full-month** budget, so on 30 August it read "102% of budget" —
+which sounds mild — while the company was well ahead of where day 30 should be. Same data, opposite
+impression. Expected-to-date is the primary comparison now.
+
+**Every bar puts the full-period budget at 80% of its track, not 100%**, so overspend can visibly
+CROSS the line instead of saturating at it. The hero bar and every row bar share that geometry;
+change one and change the other.
+
+- **One pace fraction, read once** from `getPacingPct()`, divides every "expected to date" on the
+  screen. Two roundings of the same number is two answers in one view.
+- **A category with no budget renders `—`, never 0**, and is counted in NEITHER the off-pace nor
+  the under tally. Rendering 0 makes every unbudgeted dollar read as overspend. It also sorts
+  **last** rather than as zero, which would bury real overspend beneath it.
+- **`fmtSigned`, not `fmtK`**, for anything signed — `fmtK` puts the `$` before the sign and renders
+  `$-27,200`.
+- **Category exclusion moved into the expanded panel.** The row click expands now; two meanings on
+  one click was not an option.
+- Desktop and phone are two renderings picked by **`matchMedia`**, not one markup with CSS hiding
+  the other — two `#expChart` canvases in the DOM and Chart.js binds the hidden one. The phone keeps
+  the old `.kpi-grid`/`.srow` layout deliberately.
+
+**`?action=expense_breakdown&start=…&end=…` — what is BEHIND a category.** The accounts under it and
+the per-store (QB class) split, both from ONE report: the P&L summarized by **`Classes`** (the QB
+enum is `Classes`, not `Class`). One report is the point — a breakdown fetched separately from the
+total it sits under is a breakdown that can disagree with it, on a panel nobody reconciles by hand.
+
+- **`qbBreakdownWalk_` copies `walkQBRows_`'s map semantics exactly.** A matched section summary IS
+  the category's total and its children are listed but **never re-summed**. The first version missed
+  that guard (`walkQBRows_` spells it `if (result)`) and double-counted a mapped section inside a
+  mapped section: $566,667 of August came out as $692,056. **It did not fire in production** — the
+  live custom mapping happens to nest nothing, so every live probe tied out perfectly — and it was
+  caught only by running the walk against the real report with the HARDCODED map. The mapping UI
+  lets any section be mapped, so it was one custom override from silently doubling a category.
+  `tests/expense_breakdown_test.js` pins it.
+- **`residual` is reported, never absorbed.** A QB section can carry money its child accounts do not
+  explain — ~$47k across Payroll, Software and Taxes in 2025. Folding it into the last account is a
+  wrong number wearing a real account's name.
+- **CORPORATE is a class like any other and must keep its row.** It is not a store, but it carried
+  $297,833 of August COGS and all $73,200 of Management. The store bars scale to the largest
+  **STORE**, not the largest row, or all six collapse to a few pixels; Corporate's bar clamps.
+- **`?action=expbreakprobe&start=…&end=…&secret=…`** diffs the breakdown against the by=Month figures
+  the tab already renders, in the live runtime. Measured: Aug $566,667.32 · March $634,816.64 · YTD
+  $4,937,907.44 · 2025 $7,492,302.07, zero delta each. Re-run it after any GXCore re-pin.
+- The expand's payload is **tagged with the range it was fetched for**, so a period change shows
+  loading rather than the previous range's split, and a failure renders once instead of re-fetching
+  forever. Same rule `reconData` follows.
+
+## The budget planner never writes a closed month
+
+**`applyBudget_` used to write all twelve.** A quarterly re-cut in September rewrote January — and
+every variance the Expenses tab had already shown for January was measured against the budget that
+stood then. No error, no warning, nothing looks different; the tab just starts drawing a different
+line. The window now comes from **`sbOpenMonths_`**, and a closed month **KEEPS** what it already
+had (the overlay's figure if applied before, else the frozen one).
+
+- **The month IN PROGRESS is closed**, same reason `sbHistoryWindow_` excludes it: a partial month
+  cannot be budgeted.
+- **The window is decided SERVER-side** and the client's months are filtered against it. A stale tab
+  left open into a new month must not reach a closed month by sending it.
+- **The overlay row stays a full twelve months.** `getExpenseBudgets` replaces the WHOLE category row
+  with it, so a partial row would blank every month it omitted — the read-merge-write hazard again.
+- **A $0 proposal is APPLIED, not skipped.** Skipping it is how a stale figure survives: the old
+  number stays because nothing overwrote it.
+- **Typing an annual below the closed-month floor cannot lower the year.** Correct, and it used to be
+  silent, which reads as a broken input — the row flags `at floor` and the caption names the figure.
+- `tests/budget_apply_window_test.js` (29 assertions) executes the shipped `applyBudget_`.
+
+**`bills_once` is a SERVER-side flag because its consumer is the EXPENSES tab.** Rent, insurance,
+licences and management bill at a point in the period, so pacing them against a day-30 fraction calls
+them "over" by construction every month — Rent read +$2,608 over on 30 August where the honest figure
+is +$1,324. A flag kept only in the planner would leave that wrong on the screen people read. It
+rides along on `expbudgets` (and through that cache) so the tab needs no second call.
+
+`budget_proposal` also returns `open_months`, `bills_once`, `current`, `overlay` and a `prior_year`
+per proposal, so the planner never re-derives the server's date rules and promise an Apply the write
+would refuse. `budgetprobe` reports all of it.
+
+**`#dsk-subnav` is hidden on the planner** — a budget is annual and company-wide, and the period bar
+otherwise renders as a second header above the planner's own. Derived from state in ONE place
+(`syncSubnavVisibility`): toggling it on the way in means every exit must undo it, and the top-nav
+exit did not, which left the period bar hidden on every other tab. The rule needs
+`#dsk-subnav.dsk-subnav-off` — the desktop query's `.gx-subnav.dsk-chrome{display:flex!important}`
+out-specifies a lone class even with `!important` on both.
+
 ## Two load-bearing render rules, both learned the hard way
 
 - **A render fault must never kill a data load.** `loadAllStores()` had `try/finally` with no
