@@ -73,8 +73,14 @@ function storeKey_(store) {
 
 const BASE = 'https://api.pos.dutchie.com';
 
-const BUDGET_SHEET_ID  = '1OBNzkBrJtLIlf8xknVlGd6Jb8nlkg4_KG-Gq6BD7HHY';
-const BUDGET_SHEET_GID = 1092240858;
+// The legacy "2026 GX2 Dashboard" workbook is DISCONNECTED (2026-08-30, Sky's call). Its id and
+// gids are deliberately not constants any more: while they exist, the next session adds "just one
+// quick read" and the dependency grows back. Everything it used to supply now lives in this
+// script's own properties — frozen_goals, frozen_expbudgets, frozen_qbmapping, otherrev_data,
+// rev_atm_* — with expense budgets superseded by the smart budget. This app holds only READER
+// access to that file anyway, so nothing here could ever have written it.
+// The snapshot taken before the cut: 6 store goal rows, 22 expense categories, 9 QB mapping pairs,
+// verified against the sheet (May total $685,700 / Jun $664,946) before anything was removed.
 // The calendar year the sheet above holds goals for — it is the "2026 GX2 Dashboard" workbook and
 // carries ONE set of 12 monthly columns, with no year dimension. getGoals() ships this alongside the
 // numbers so the frontend can refuse to show them for a year they do not describe: the period picker
@@ -627,6 +633,17 @@ function doGet(e) {
   // route sits behind the login gate, so without this the only way to check the budget math after a
   // deploy is to open a browser and sign in — and a check that inconvenient is a check nobody runs.
   // Returns the SHAPE and the reasoning (method, confidence, n_months, annual), not a 22×12 grid.
+  // Migration + status for severing the legacy budget workbook. Secret-gated, not session-gated:
+  // the freeze has to be runnable from a terminal whether or not anyone is signed in.
+  // freeze_sheet is gone with the sheet readers it depended on — the snapshot it took is now the
+  // source of truth, not a cache of one. freezestatus remains: it reads only properties and is how
+  // you confirm what the app is serving.
+  if (params.action === 'freezestatus') {
+    const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
+    if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
+    return freezeStatus_();
+  }
+
   if (params.action === 'budgetprobe') {
     const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
     if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
@@ -689,7 +706,6 @@ function doGet(e) {
   if (params.action === 'qbmapping')   return getQBMappingSheet();
   if (params.action === 'txfields')    return getTxFields(params);
   if (params.action === 'eodtest')     return getEodTest(params);
-  if (params.action === 'sheetpreview')  return getSheetPreview(params);
   if (params.action === 'cogs_dutchie')  return jsonOut_(getCogsDutchie(params));
   if (params.action === 'expbudgets')    return getExpenseBudgets();
   if (params.action === 'otherrev')       return getOtherRevenue();
@@ -982,31 +998,16 @@ function getGoals() {
   output.setMimeType(ContentService.MimeType.JSON);
   const cached = cacheGet_('goals');
   if (cached) { output.setContent(cached); return output; }
-  try {
-    const ss    = SpreadsheetApp.openById(BUDGET_SHEET_ID);
-    const sheet = ss.getSheets().find(s => s.getSheetId() === BUDGET_SHEET_GID);
-    if (!sheet) throw new Error('Budget sheet not found (gid ' + BUDGET_SHEET_GID + ')');
-
-    const STORE_NAMES = ['Bend', 'Center', 'Commercial', 'Hillsboro', 'Portland Rd', 'River'];
-    const MONTHS_12   = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    const data  = sheet.getDataRange().getValues();
-    const goals = {};
-
-    for (const row of data) {
-      const name = String(row[3] || '').trim();
-      if (!STORE_NAMES.includes(name)) continue;
-      goals[name] = {};
-      MONTHS_12.forEach((m, i) => {
-        goals[name][m] = Number(String(row[4 + i]).replace(/[$,]/g, '')) || 0;
-      });
-    }
-
-    const content = JSON.stringify({ goals, year: BUDGET_YEAR });
-    cacheSet_('goals', content, 3600); // 1 hour
-    output.setContent(content);
-  } catch (err) {
-    output.setContent(JSON.stringify({ error: err.message }));
+  // Frozen snapshot only — this app no longer opens the legacy budget workbook. See SHEET FREEZE.
+  const goals = frozenGet_(FROZEN_GOALS_PROP);
+  if (!goals) {
+    output.setContent(JSON.stringify({ error: 'no frozen goals — run action=freeze_sheet is gone; '
+      + 'restore the frozen_goals property or rely on GX Core period goals' }));
+    return output;
   }
+  const content = JSON.stringify({ goals: goals, year: BUDGET_YEAR, source: 'frozen' });
+  cacheSet_('goals', content, 3600);
+  output.setContent(content);
   return output;
 }
 
@@ -2074,24 +2075,11 @@ function getTxFields(params) {
 function getQBMappingSheet() {
   const output = ContentService.createTextOutput();
   output.setMimeType(ContentService.MimeType.JSON);
-  try {
-    const MAPPING_GID = 996732254;
-    const ss    = SpreadsheetApp.openById(BUDGET_SHEET_ID);
-    const sheet = ss.getSheets().find(s => s.getSheetId() === MAPPING_GID);
-    if (!sheet) throw new Error('Mapping sheet not found (gid ' + MAPPING_GID + ')');
-    const rows = sheet.getDataRange().getValues();
-    const pairs = rows
-      .filter(r => r[0] && r[1])
-      .map(r => ({ qb: String(r[0]).trim(), dash: String(r[1]).trim() }));
-    output.setContent(JSON.stringify({ pairs }));
-  } catch(e) {
-    output.setContent(JSON.stringify({ error: e.message }));
-  }
+  const pairs = frozenGet_(FROZEN_QBMAP_PROP);
+  output.setContent(JSON.stringify(pairs ? { pairs: pairs, source: 'frozen' }
+                                         : { error: 'no frozen QuickBooks mapping stored' }));
   return output;
 }
-
-
-
 
 function testProxy() {
   const e = { parameter: {
@@ -2104,26 +2092,6 @@ function testProxy() {
 }
 
 // Returns first 10 rows of a sheet by GID to inspect structure
-function getSheetPreview(params) {
-  const output = ContentService.createTextOutput();
-  output.setMimeType(ContentService.MimeType.JSON);
-  try {
-    const gid = params.gid;
-    const ss = SpreadsheetApp.openById(BUDGET_SHEET_ID);
-    const sheets = ss.getSheets();
-    const sheet = sheets.find(s => String(s.getSheetId()) === String(gid));
-    if (!sheet) {
-      output.setContent(JSON.stringify({ error: 'Sheet not found', available: sheets.map(s => ({ name: s.getName(), gid: s.getSheetId() })) }));
-      return output;
-    }
-    const maxRows = parseInt(params.rows || '10') || 10;
-    const rows = sheet.getRange(1, 1, Math.min(maxRows, sheet.getLastRow()), sheet.getLastColumn()).getValues();
-    output.setContent(JSON.stringify({ name: sheet.getName(), rows }));
-  } catch(e) {
-    output.setContent(JSON.stringify({ error: e.message }));
-  }
-  return output;
-}
 
 // Returns daily COGS from GXCore (Dutchie-sourced, settled days only).
 // Response: { data: [{ date, store, cogs }] }
@@ -2191,55 +2159,23 @@ function getExpenseBudgets() {
   output.setMimeType(ContentService.MimeType.JSON);
   const cached = cacheGet_('expbudgets');
   if (cached) { output.setContent(cached); return output; }
-  try {
-    const ss    = SpreadsheetApp.openById(BUDGET_SHEET_ID);
-    const sheet = ss.getSheets().find(s => s.getSheetId() === BUDGET_SHEET_GID);
-    if (!sheet) throw new Error('Budget sheet not found');
-
-    const data = sheet.getDataRange().getValues();
-    const MONTHS_12 = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-    // Find the "EXPENSES BUDGET" section header
-    let expStart = -1;
-    for (let i = 0; i < data.length; i++) {
-      if (String(data[i][1]).trim() === 'EXPENSES BUDGET') { expStart = i; break; }
-    }
-    if (expStart < 0) throw new Error('EXPENSES BUDGET section not found');
-
-    const budgets = {};
-    for (let i = expStart + 1; i < data.length; i++) {
-      const cat = String(data[i][3]).trim();
-      if (!cat || cat === 'Total') continue;
-      // Stop if we hit another section header
-      if (data[i][1]) break;
-      budgets[cat] = {};
-      MONTHS_12.forEach((m, j) => {
-        budgets[cat][m] = Number(data[i][4 + j]) || 0;
-      });
-    }
-
-    // Overlay any APPLIED smart budget on top of the sheet's numbers, per category. The sheet is
-    // never written (this script only holds reader access to it — see the SMART BUDGET section), so
-    // it stays the baseline and an un-applied category still reads straight from it. `overlaid`
-    // tells the frontend which rows are showing a proposal rather than the sheet, because a budget
-    // that silently isn't the sheet's is exactly the kind of divergence nobody catches.
-    const overlay  = sbGetOverlay_();
-    const overlaid = [];
-    if (overlay && overlay.year === BUDGET_YEAR && overlay.categories) {
-      Object.keys(overlay.categories).forEach(function (cat) {
-        budgets[cat] = overlay.categories[cat];
-        overlaid.push(cat);
-      });
-    }
-
-    const content = JSON.stringify({ budgets, overlaid,
-                                     overlay_applied_at: overlay ? overlay.applied_at : null,
-                                     overlay_applied_by: overlay ? overlay.applied_by : null });
-    cacheSet_('expbudgets', content, 3600); // 1 hour
-    output.setContent(content);
-  } catch(e) {
-    output.setContent(JSON.stringify({ error: e.message }));
+  // Frozen snapshot as the base, the applied smart budget overlaid per category on top. The legacy
+  // workbook is no longer read at all — the overlay IS the budget for any category Sky has applied,
+  // and the frozen figure covers the rest.
+  const budgets = frozenGet_(FROZEN_EXPBUD_PROP) || {};
+  const overlaid = [];
+  const ov = sbGetOverlay_();
+  if (ov && ov.year === BUDGET_YEAR && ov.categories) {
+    Object.keys(ov.categories).forEach(function (cat) {
+      budgets[cat] = ov.categories[cat];
+      overlaid.push(cat);
+    });
   }
+  const content = JSON.stringify({ budgets: budgets, overlaid: overlaid, source: 'frozen+overlay',
+                                   overlay_applied_at: ov ? ov.applied_at : null,
+                                   overlay_applied_by: ov ? ov.applied_by : null });
+  cacheSet_('expbudgets', content, 3600);
+  output.setContent(content);
   return output;
 }
 
@@ -2447,16 +2383,9 @@ function getInventory(params) {
   return output;
 }
 
-const ATM_SHEET_GID    = 1349619595;
-const SUBLET_SHEET_GID = 1274502465;
+
 const OTHERREV_PROP    = 'otherrev_data';
 const MONTHS_12_       = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-// Per-year ATM sheet config. sid = spreadsheet ID; gid = sheet GID (0 = first sheet).
-const ATM_SHEET_CONFIG_ = {
-  '2025': { sid: '10xW3f4nhGAFGPfpjQod0VOdfKalW4hWtLnBlrGttTmU', gid: 0 },
-  '2026': { sid: BUDGET_SHEET_ID, gid: ATM_SHEET_GID },
-};
 
 // Header cell text → MONTHS_12_ 3-letter abbreviation (handles full and abbreviated names)
 const MONTH_ABBR_ = {
@@ -2470,38 +2399,12 @@ function getOtherRevData_() {
   const props = PropertiesService.getScriptProperties();
   const raw   = props.getProperty(OTHERREV_PROP);
   if (raw) return JSON.parse(raw);
-
-  // One-time bootstrap from GX2 sheet
-  const blank = () => Object.fromEntries(MONTHS_12_.map(m => [m, 0]));
-  let atm = blank(), sublet = blank();
-  try {
-    const ss = SpreadsheetApp.openById(BUDGET_SHEET_ID);
-
-    const atmSheet = ss.getSheets().find(s => s.getSheetId() === ATM_SHEET_GID);
-    if (atmSheet) {
-      const atmData = atmSheet.getDataRange().getValues();
-      let atmRevRow = null;
-      for (let i = 0; i < atmData.length; i++) {
-        const v = atmData[i][0];
-        if (typeof v === 'number' && v > 1 && v < 3) { atmRevRow = atmData[i]; break; }
-      }
-      if (atmRevRow) MONTHS_12_.forEach((m, j) => { atm[m] = Number(atmRevRow[j + 1]) || 0; });
-    }
-
-    const subSheet = ss.getSheets().find(s => s.getSheetId() === SUBLET_SHEET_GID);
-    if (subSheet) {
-      const subData = subSheet.getDataRange().getValues();
-      let subTotalRow = null;
-      for (let i = 0; i < subData.length; i++) {
-        if (String(subData[i][0]).trim().toUpperCase() === 'TOTAL') { subTotalRow = subData[i]; break; }
-      }
-      if (subTotalRow) MONTHS_12_.forEach((m, j) => { sublet[m] = Number(subTotalRow[j + 1]) || 0; });
-    }
-  } catch(e) {
-    Logger.log('OtherRev GX2 bootstrap failed: ' + e.message);
-  }
-
-  const data = { atm, sublet };
+  // The one-time GX2-workbook bootstrap that used to live here is gone with the rest of the sheet
+  // reads. It was already spent: otherrev_data has been populated since long before the cut, and
+  // it was verified present (freezestatus.otherrev_stored) before the sheet was disconnected.
+  // An empty record is the honest answer now — the Revenue tab writes real numbers back.
+  const blank = function () { const o = {}; MONTHS_12_.forEach(function (m) { o[m] = 0; }); return o; };
+  const data = { atm: blank(), sublet: blank() };
   props.setProperty(OTHERREV_PROP, JSON.stringify(data));
   return data;
 }
@@ -2605,117 +2508,6 @@ function getRevYearData_(type, year) {
 // Revenue = txns × rate is computed at display time (rate lives in rev_config.atm_rate).
 // Sum-row detection uses INDENTATION: sheet machine rows have leading whitespace;
 // store total rows (uppercase, no indent) are skipped when a store has any indented siblings.
-function bootstrapAtmFromSheet_(year) {
-  const sheetCfg = ATM_SHEET_CONFIG_[String(year)];
-  if (!sheetCfg) { Logger.log('ATM bootstrap: no sheet configured for year ' + year); return; }
-  try {
-    const ss    = SpreadsheetApp.openById(sheetCfg.sid);
-    const sheet = ss.getSheets().find(s => s.getSheetId() === sheetCfg.gid);
-    if (!sheet) { Logger.log('ATM bootstrap: sheet GID ' + sheetCfg.gid + ' not found'); return; }
-    const rows  = sheet.getDataRange().getValues();
-
-    // Scan for header row (col A = "location") and rate row (col A is a number 0.5–5)
-    let sheetRate = 0;
-    let monthColMap = null; // { 'Jan': colIdx, 'May': colIdx, ... }
-    for (const row of rows) {
-      const a = row[0];
-      if (typeof a === 'number' && a > 0.5 && a < 5) {
-        sheetRate = a;
-      } else if (typeof a === 'string' && a.trim().toLowerCase() === 'location') {
-        monthColMap = {};
-        for (let c = 1; c < row.length; c++) {
-          const abbr = MONTH_ABBR_[String(row[c]).trim().toLowerCase()];
-          if (abbr) monthColMap[abbr] = c;
-        }
-      }
-    }
-    // Fallback: no header found → assume Jan=col1…Dec=col12
-    if (!monthColMap || !Object.keys(monthColMap).length) {
-      monthColMap = {};
-      MONTHS_12_.forEach((m, i) => { monthColMap[m] = i + 1; });
-    }
-    const activeCols = Object.values(monthColMap);
-
-    // Collect all matched label rows; track indentation
-    const allMatched = [];
-    for (const row of rows) {
-      const colA = row[0];
-      if (typeof colA === 'string' && colA.trim() !== '') {
-        const key = colA.trim().toLowerCase();
-        if (hasOwn_(ATM_MACHINE_MAP, key)) {
-          allMatched.push({ map: ATM_MACHINE_MAP[key], row, indented: /^\s/.test(colA) });
-        }
-      }
-    }
-    if (!allMatched.length) return;
-
-    // Group by store
-    const storeGroups = {};
-    for (const r of allMatched) {
-      const s = r.map.store;
-      if (!storeGroups[s]) storeGroups[s] = [];
-      storeGroups[s].push(r);
-    }
-
-    // Sum-row detection per group
-    const rowsToUse = [];
-    for (const group of Object.values(storeGroups)) {
-      const indented = group.filter(r => r.indented);
-      if (indented.length > 0) {
-        // Indent-based (2026): keep only rows with leading whitespace
-        rowsToUse.push(...indented);
-      } else if (group.length <= 1) {
-        rowsToUse.push(...group);
-      } else {
-        // Value-based (2025): find the row whose column values = sum of all others
-        const sumIdx = group.findIndex((cand, ci) => {
-          const others = group.filter((_, j) => j !== ci);
-          let checks = 0, matches = 0;
-          for (const colIdx of activeCols) {
-            const cv = Number(cand.row[colIdx]) || 0;
-            const ov = others.reduce((acc, g) => acc + (Number(g.row[colIdx]) || 0), 0);
-            if (cv === 0 && ov === 0) continue;
-            checks++;
-            if (Math.abs(cv - ov) < 0.5) matches++;
-          }
-          return checks > 0 && matches === checks;
-        });
-        rowsToUse.push(...group.filter((_, i) => i !== sumIdx));
-      }
-    }
-
-    // Store txn counts indexed by month using actual column positions
-    const data = {};
-    MONTHS_12_.forEach(month => { data[month] = {}; });
-    for (const { map, row } of rowsToUse) {
-      const { store, machine } = map;
-      MONTHS_12_.forEach(month => {
-        const colIdx = monthColMap[month];
-        if (colIdx === undefined) return;
-        const txns = Number(row[colIdx]) || 0;
-        if (txns <= 0) return;
-        if (!data[month][store]) data[month][store] = {};
-        data[month][store][machine] = (data[month][store][machine] || 0) + txns;
-      });
-    }
-
-    PropertiesService.getScriptProperties().setProperty('rev_atm_' + year, JSON.stringify(data));
-
-    if (sheetRate > 0) {
-      const revCfg = getRevConfig_();
-      if (!revCfg.atm_rate || revCfg.atm_rate === 1.75) {
-        revCfg.atm_rate = sheetRate;
-        PropertiesService.getScriptProperties().setProperty('rev_config', JSON.stringify(revCfg));
-      }
-    }
-
-    cacheDelete_('otherrev');
-    Logger.log('ATM bootstrap ' + year + ': ' + rowsToUse.length + ' rows kept, ' +
-      (allMatched.length - rowsToUse.length) + ' sum rows skipped, months: ' + Object.keys(monthColMap).join(','));
-  } catch(e) {
-    Logger.log('ATM bootstrap error for ' + year + ': ' + e.message);
-  }
-}
 
 function getRevenueDetail(params) {
   const year = params.year || String(new Date().getFullYear());
@@ -2724,12 +2516,11 @@ function getRevenueDetail(params) {
     let   atm    = getRevYearData_('atm', year);
     const sub    = getRevYearData_('sub', year);
 
-    // Bootstrap from sheet on first access (only for years with a configured sheet)
-    const hasAtm = Object.values(atm).some(mo => Object.keys(mo).length > 0);
-    if (!hasAtm && ATM_SHEET_CONFIG_[String(year)]) {
-      bootstrapAtmFromSheet_(year);
-      atm = getRevYearData_('atm', year);
-    }
+    // The first-access bootstrap from the GX2 workbook is gone with the rest of the sheet reads.
+    // It was already spent: rev_atm_2025, rev_atm_2026 and rev_config were all verified present
+    // (freezestatus.rev_props) before the sheet was disconnected, so nothing was still relying on
+    // it. A year with no stored data now returns empty rather than silently reaching for a
+    // spreadsheet this app can no longer open.
 
     return jsonOut_({ ok: true, year, cfg, atm, sub });
   } catch(e) {
@@ -3377,4 +3168,86 @@ function clearBudget_(params) {
   props.deleteProperty(SMART_BUDGET_PROP);
   cacheDelete_('expbudgets');
   return jsonOut_({ ok: true, cleared: 'all', remaining: 0 });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+//  SHEET FREEZE — the last read of the legacy "2026 GX2 Dashboard" workbook
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+//
+// Sky's call (2026-08-30): sever this app from that spreadsheet entirely. It is the legacy workbook
+// the suite conventions already say never to touch, this script only holds READER access to it
+// (`anyone → reader`, owned by another account), and everything it still supplies now has a better
+// home — expense budgets in the smart budget, store goals in GX Core's frozen pay periods.
+//
+// Cutting a live dependency in one step is how a dashboard goes blank, so this is deliberately two
+// steps. FIRST freeze: copy what the sheet currently says into this script's own properties, and
+// have every reader prefer that copy. At that point the app is already independent — the sheet is
+// only a fallback for anything the freeze missed. THEN, once the smart budget is applied, delete
+// the sheet code outright. Between the two the app is fully functional with the sheet disconnected,
+// which is what makes the deletion boring instead of risky.
+//
+// One finding worth stating plainly, because it changes what "freeze the earlier goals" can mean:
+// THE BUDGET SHEET HOLDS ONE YEAR ONLY. getGoals() tags its response with BUDGET_YEAR (2026) and
+// the frontend returns 0 for any other year, so there are no pre-2026 budget goals to preserve —
+// views before 2026 already show no goal and will look identical after the cut. What the freeze
+// actually preserves is the 2026 fallback, which is what serves any window the pay-period ledger
+// does not cover (August's last day, and September onward until those periods are published).
+
+const FROZEN_GOALS_PROP    = 'frozen_goals';
+const FROZEN_EXPBUD_PROP   = 'frozen_expbudgets';
+const FROZEN_QBMAP_PROP    = 'frozen_qbmapping';
+const FROZEN_AT_PROP       = 'frozen_at';
+
+/** Read a frozen snapshot, or null. Never throws — a corrupt snapshot must fall back, not break. */
+function frozenGet_(prop) {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty(prop);
+    if (!raw) return null;
+    const v = JSON.parse(raw);
+    return (v && typeof v === 'object') ? v : null;
+  } catch (e) { return null; }
+}
+
+/** The store-goal rows, straight off the sheet. Same parse getGoals() has always used. */
+
+/** The EXPENSES BUDGET section, straight off the sheet. Same parse getExpenseBudgets() has used. */
+
+/** The QuickBooks account → dashboard category pairs. */
+
+/**
+ * action=freeze_sheet — snapshot everything the workbook still supplies into this script.
+ *
+ * Secret-gated rather than session-gated: this is a one-time migration step that has to be
+ * runnable from a terminal, and it must work whether or not anyone is signed in. Idempotent —
+ * re-running simply re-reads the sheet, which is exactly what you want if the sheet is corrected
+ * before the cut. `dry=1` reports what WOULD be captured without writing, so the parse can be
+ * checked against the live sheet before anything is committed to properties.
+ */
+
+/** action=freezestatus — what is frozen, how much, and when. Read-only. */
+function freezeStatus_() {
+  const g = frozenGet_(FROZEN_GOALS_PROP), e = frozenGet_(FROZEN_EXPBUD_PROP), q = frozenGet_(FROZEN_QBMAP_PROP);
+  const overlay = sbGetOverlay_();
+  const props = PropertiesService.getScriptProperties();
+  return jsonOut_({
+    ok: true,
+    frozen_at: props.getProperty(FROZEN_AT_PROP) || null,
+    goals:      g ? Object.keys(g).length : 0,
+    expbudgets: e ? Object.keys(e).length : 0,
+    qbmapping:  q ? q.length : 0,
+    otherrev_stored: !!props.getProperty(OTHERREV_PROP),
+    smart_budget_applied: overlay && overlay.categories ? Object.keys(overlay.categories).length : 0,
+    // The frozen store goals in full. This is the LAST read of a workbook we are about to
+    // disconnect, so the values have to be checkable, not just counted — the sheet has more than
+    // one row per store label and the parse takes the last match, which is precisely the kind of
+    // thing that freezes a wrong number permanently and silently.
+    goals_frozen: g || null,
+    // ATM per-machine data also comes from that workbook (ATM_SHEET_CONFIG_['2026'].sid IS
+    // BUDGET_SHEET_ID). If these rev_* properties are not already populated, bootstrapAtmFromSheet_
+    // is still load-bearing and cutting the sheet would silently blank ATM revenue.
+    rev_props: props.getKeys().filter(function (k) { return k.indexOf('rev_') === 0; }).sort(),
+    // The cut is only safe once every category the Expenses tab can show has a source that is not
+    // the sheet — either an applied smart budget or a frozen figure.
+    ready_to_cut: !!(g && e && q && props.getProperty(OTHERREV_PROP))
+  });
 }

@@ -115,7 +115,23 @@ ctx.goalsYear = 2026;
 
 console.log('\nthe backend half is present — the gate is dead without it');
 check('dutchie_proxy.gs declares BUDGET_YEAR', /const BUDGET_YEAR\s*=\s*\d{4};/.test(PROXY), true);
-check('getGoals() ships it to the client', /JSON\.stringify\(\{\s*goals,\s*year:\s*BUDGET_YEAR\s*\}\)/.test(PROXY), true);
+// Scoped to getGoals' own body and asserting the INVARIANT — that the response carries
+// `year: BUDGET_YEAR` — rather than one exact serialization. The literal form this used to match
+// broke when getGoals stopped reading the budget spreadsheet and started serving the frozen
+// snapshot (v2.553), even though it still ships the year. A test that fails on a rename of the
+// thing it is not about stops being read as a real signal.
+const GET_GOALS_BODY = (function () {
+  const i = PROXY.indexOf('function getGoals()');
+  if (i < 0) return '';
+  let j = PROXY.indexOf('{', i), depth = 0, k = j;
+  for (; k < PROXY.length; k++) {
+    if (PROXY[k] === '{') depth++;
+    else if (PROXY[k] === '}') { depth--; if (!depth) break; }
+  }
+  return PROXY.slice(i, k + 1);
+})();
+check('getGoals() ships it to the client',
+  /JSON\.stringify\(\{[^}]*year:\s*BUDGET_YEAR/.test(GET_GOALS_BODY), true);
 check('BUDGET_YEAR matches the sheet this repo points at', /const BUDGET_YEAR\s*=\s*2026;/.test(PROXY), true);
 
 console.log('\nthe client stores and reads the year alongside the numbers');
