@@ -232,11 +232,17 @@ check('the per-store path survives as a fallback',
 check('an authoritative empty answer does NOT trigger the fallback',
   /if \(Array\.isArray\(picked\) && !picked\.length\) return out;/.test(PROXY), true);
 check('the ledger span is learned once so an out-of-range walk spends no probes',
-  /function pgCoverageBounds_/.test(PROXY) && /date >= bounds\.min && date <= bounds\.max/.test(PROXY), true);
+  /function pgCoverageBounds_/.test(PROXY) && /date < bounds\.min \|\| date > bounds\.max/.test(PROXY), true);
 check('bounds read only period dates — never a goal value, never a tie-break',
   !/bounds[\s\S]{0,400}dow_targets/.test(PROXY), true);
 check('unknown bounds fall back to probing rather than to silence',
-  /!bounds \|\| \(date >= bounds\.min/.test(PROXY), true);
+  /if \(bounds && \(date < bounds\.min \|\| date > bounds\.max\)\)/.test(PROXY), true);
+// cacheGet_ is two CacheService round-trips. Skipping the probe but still doing the lookup left a
+// 182-day out-of-range walk at 12-22s in pure cache reads.
+check('an out-of-range date skips the cache lookup too, not just the probe',
+  /date < bounds\.min \|\| date > bounds\.max\)\) \{[\s\S]{0,120}uncovered\+\+;[\s\S]{0,60}cursor \+= dayMs;/.test(PROXY), true);
+check('a certain out-of-range miss does not spend probe budget or set truncated',
+  !/date > bounds\.max\)\) \{[\s\S]{0,200}everTruncated/.test(PROXY), true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

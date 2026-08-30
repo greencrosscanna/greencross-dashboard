@@ -1183,14 +1183,25 @@ function getPeriodGoalsRange_(start, end) {
   let misses = 0, everTruncated = false;
 
   while (cursor <= last) {
-    const date   = iso(cursor);
+    const date = iso(cursor);
+
+    // Outside the ledger's known span, BEFORE touching the cache. Nothing can be found there and
+    // nothing can be cached there, so both the probe and the lookup are pure cost. cacheGet_ is two
+    // CacheService round-trips per date, which is what actually made an out-of-range walk slow: with
+    // the probe already skipped, a 182-day 2028 range still took 12-22s in 364 cache reads. It is
+    // also not `truncated` — that word means the walk gave up guessing, and this is the opposite:
+    // Core told us where the ledger ends, so these misses are certain and cost no probe budget.
+    if (bounds && (date < bounds.min || date > bounds.max)) {
+      uncovered++;
+      cursor += dayMs;
+      continue;
+    }
+
     const cached = cacheGet_('pgp_' + date);
     let period   = cached ? JSON.parse(cached) : null;
     if (period && period.none) period = null;
 
-    // Outside the ledger's known span there is nothing to find, so do not spend a probe proving it.
-    const inLedger = !bounds || (date >= bounds.min && date <= bounds.max);
-    if (!period && !cached && inLedger && misses < MISS_LIMIT) {
+    if (!period && !cached && misses < MISS_LIMIT) {
       const loaded = pgLoadPeriod_(date, byStoreId);
       const goals  = loaded.goals;
       const window = loaded.window;
