@@ -531,6 +531,76 @@ function doGet(e) {
     }
   }
 
+
+  // ── expbreakprobe — does the expanded panel agree with the row above it ──────────────────────
+  // The breakdown derives a category's accounts and store split from the by=Classes P&L, while the
+  // tab's own total comes from the by=Month P&L. Two reports, one number: the ONLY assertion worth
+  // making is that they tie. So this runs both in the live runtime over the same window, walks the
+  // month report through the real walkQBRows_, and diffs it against the breakdown category by
+  // category. A structural bug in either walk cannot leave those equal.
+  //
+  // Same trick and same reason as pnlprobe / goalrangeprobe: both halves sit behind the login gate,
+  // so without this the only way to check a deploy is to open a browser and expand rows by hand.
+  // ?action=expbreakprobe&start=YYYY-MM-DD&end=YYYY-MM-DD&secret=...
+  if (params.action === 'expbreakprobe') {
+    const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
+    if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
+    try {
+      const start = pnlDate_(params.start), end = pnlDate_(params.end);
+      if (!start || !end) return jsonOut_({ ok: false, error: 'start and end are required, as YYYY-MM-DD' });
+
+      const bd = JSON.parse(getExpenseBreakdown({ start, end, nocache: '1' }).getContent());
+      if (!bd.ok) return jsonOut_({ ok: false, stage: 'breakdown', error: bd.error });
+
+      // The tab's own attribution, over the same window, through the shipped walk.
+      const mReport = qbProfitAndLoss_(start, end, 'Month').report;
+      const mCols   = ((mReport.Columns && mReport.Columns.Column) || []).map(c => c.ColTitle || '').filter(Boolean);
+      const mRes    = {};
+      walkQBRows_((mReport.Rows && mReport.Rows.Row) || [], mCols, mRes, null, new Set(), getExpenseMapConfig_(), 0);
+      const monthTotal = (cat) => Object.keys(mRes[cat] || {})
+        .filter(c => c !== 'Total')
+        .reduce((s, c) => s + (mRes[cat][c] || 0), 0);
+
+      const cats = Object.keys(bd.categories).concat(Object.keys(mRes))
+        .filter((v, i, a) => a.indexOf(v) === i).sort();
+      const rows = cats.map(cat => {
+        const c   = bd.categories[cat] || { total: 0, byClass: {}, accounts: [], residual: 0 };
+        const mt  = monthTotal(cat);
+        const cls = bd.classes.reduce((s, k) => s + (c.byClass[k] || 0), 0);
+        return {
+          category: cat,
+          by_month: Math.round(mt * 100) / 100,
+          breakdown: Math.round(c.total * 100) / 100,
+          delta: Math.round((c.total - mt) * 100) / 100,
+          classes_sum_ok: Math.abs(cls - c.total) < 0.005,   // the split explains the whole total
+          accounts: c.accounts.length,
+          residual: Math.round(c.residual * 100) / 100
+        };
+      });
+      const mismatched = rows.filter(r => Math.abs(r.delta) > 0.005 || !r.classes_sum_ok);
+      const residuals  = rows.filter(r => r.residual !== 0);
+      return jsonOut_({
+        ok: mismatched.length === 0,
+        ran_in: 'apps script runtime',
+        start, end,
+        classes: bd.classes,
+        categories: rows.length,
+        ties_out: mismatched.length === 0,
+        mismatched,
+        // Nonzero residuals are not a failure — a QB section can carry an amount its children do not
+        // explain — but they are the thing to look at before trusting an account list.
+        with_residual: residuals,
+        totals: {
+          by_month:  Math.round(rows.reduce((s, r) => s + r.by_month, 0) * 100) / 100,
+          breakdown: Math.round(rows.reduce((s, r) => s + r.breakdown, 0) * 100) / 100
+        },
+        rows
+      });
+    } catch (e) {
+      return jsonOut_({ ok: false, stage: 'probe', error: e.message });
+    }
+  }
+
   // Runs the REAL deposits path in the live Apps Script runtime with no session, the same trick and
   // the same reason as pnlprobe: getDeposits sits behind the login gate, so without this the only
   // way to know whether it works in production is to open a browser and log in — and a check that
@@ -715,6 +785,7 @@ function doGet(e) {
   if (params.action === 'save_expense_mapping') { const g = writeGuard_(auth.user, 'save_expense_mapping'); if (!g.ok) return jsonOut_(g); return saveExpenseMapping_(params); }
   if (params.action === 'expenses')    return getExpenses(params);
   if (params.action === 'pnl')         return getPnl(params);
+  if (params.action === 'expense_breakdown') return getExpenseBreakdown(params);
   if (params.action === 'qbmapping')   return getQBMappingSheet();
   if (params.action === 'txfields')    return getTxFields(params);
   if (params.action === 'eodtest')     return getEodTest(params);
@@ -2017,6 +2088,143 @@ function getExpenses(params) {
     output.setContent(content);
   } catch (err) {
     output.setContent(JSON.stringify({ error: err.message }));
+  }
+  return output;
+}
+
+// ── Expense breakdown — what is BEHIND a category ──────────────────────────────────────────────
+//
+// The Expenses tab renders a category's total. This answers the two questions a reader asks next:
+// which QuickBooks accounts make it up, and which stores spent it. Both come from ONE QuickBooks
+// report — the P&L summarized by Classes over the selected window — so a breakdown can never
+// disagree with the total it sits under.
+//
+// It reuses walkQBRows_'s EXACT map semantics rather than a second attribution rule: a matched
+// section summary IS the category's total, and its children are not re-added. Two attribution rules
+// would be two sets of numbers, and the one on the expanded panel is the one nobody reconciles.
+// The children are still LISTED — "which accounts" is the whole question — they are simply listed
+// under the summary's category without being summed into it. Whatever that leaves unexplained comes
+// back as `residual` instead of being quietly absorbed into the last row.
+//
+// CORPORATE is a class here like any other. It is not a store and no store pill selects it, but in
+// August 2026 it carried $297,833 of COGS and all $73,200 of Management — a per-store panel that
+// dropped it would hide most of the money on the screen. This app does not let money vanish off a
+// screen; see the reconciliation tab's unattributed list for the same rule.
+//
+// Verified against the by=Month figures the tab already shows: 17 categories, $566,667 for
+// 2026-08-01..08-30, zero delta. expbreakprobe re-runs that comparison in the live runtime.
+function qbBreakdownWalk_(rows, cols, out, mapConfig, depth, listUnder) {
+  depth = depth || 0;
+  const custom  = (mapConfig && mapConfig.custom)  || {};
+  const ignored = (mapConfig && mapConfig.ignored) || new Set();
+
+  const vals = (colData) => cols.map((_, i) =>
+    parseFloat(((colData && colData[i + 1] && colData[i + 1].value) || '').replace(/,/g, '')) || 0);
+
+  const bucketFor = (cat) => {
+    if (!out[cat]) out[cat] = { byClass: {}, accounts: [] };
+    return out[cat];
+  };
+  const addTo = (b, v) => cols.forEach((c, i) => { b.byClass[c] = (b.byClass[c] || 0) + v[i]; });
+  // QB can repeat a display name across sections; merge rather than push a duplicate row.
+  const pushAcct = (cat, disp, v) => {
+    const b  = bucketFor(cat);
+    const ex = b.accounts.find(a => a.display === disp);
+    if (ex) { cols.forEach((c, i) => { ex.byClass[c] = (ex.byClass[c] || 0) + v[i]; }); return; }
+    const byClass = {};
+    cols.forEach((c, i) => { byClass[c] = v[i]; });
+    b.accounts.push({ display: disp, byClass });
+  };
+
+  for (const row of (rows || [])) {
+    let matchedCat = null;
+
+    if (row.Summary) {
+      const lbl = ((row.Summary.ColData && row.Summary.ColData[0] && row.Summary.ColData[0].value) || '')
+                    .replace(/^Total\s+(for\s+)?/i, '').trim();
+      const raw = lbl.toUpperCase();
+      const cat = custom[raw] || QB_SUMMARY_MAP_[raw];
+      if (cat && !ignored.has(raw)) {
+        matchedCat = cat;
+        addTo(bucketFor(cat), vals(row.Summary.ColData));
+      }
+    }
+
+    if (row.Rows && row.Rows.Row) {
+      qbBreakdownWalk_(row.Rows.Row, cols, out, mapConfig, depth + 1, matchedCat || listUnder);
+    }
+
+    if (row.ColData && !row.Summary) {
+      const raw  = ((row.ColData[0] && row.ColData[0].value) || '').trim().toUpperCase();
+      const disp = ((row.ColData[0] && row.ColData[0].value) || '').trim();
+      if (!raw) continue;
+      const v = vals(row.ColData);
+      // Inside a section whose summary already carried the whole total: list, never re-sum.
+      if (listUnder) { pushAcct(listUnder, disp, v); continue; }
+      const cat = custom[raw] || QB_DETAIL_MAP_[raw];
+      if (cat && !ignored.has(raw)) { addTo(bucketFor(cat), v); pushAcct(cat, disp, v); }
+    }
+  }
+}
+
+/** action=expense_breakdown&start=YYYY-MM-DD&end=YYYY-MM-DD — per-category accounts and class split. */
+function getExpenseBreakdown(params) {
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+  try {
+    const start = pnlDate_(params && params.start);
+    const end   = pnlDate_(params && params.end);
+    if (!start || !end) throw new Error('start and end are required, as YYYY-MM-DD');
+
+    const cacheKey = 'expbreak_' + start + '_' + end + '_v1';
+    if (!(params && params.nocache)) {
+      const cached = cacheGet_(cacheKey);
+      if (cached) { output.setContent(cached); return output; }
+    }
+
+    const qb     = qbProfitAndLoss_(start, end, 'Classes');
+    const report = qb.report;
+    if (report.Fault) throw new Error(JSON.stringify(report.Fault));
+
+    // Column 0 is the account-name column and carries no title; the last money column is TOTAL.
+    const cols     = ((report.Columns && report.Columns.Column) || []).map(c => c.ColTitle || '').slice(1);
+    const totalKey = cols.find(c => String(c).toUpperCase() === 'TOTAL') || null;
+    const classes  = cols.filter(c => c && c !== totalKey);
+
+    const out = {};
+    qbBreakdownWalk_((report.Rows && report.Rows.Row) || [], cols, out, getExpenseMapConfig_(), 0, null);
+
+    const sumClasses = (byClass) => classes.reduce((s, c) => s + (byClass[c] || 0), 0);
+    const categories = {};
+    Object.keys(out).forEach(cat => {
+      const b   = out[cat];
+      const tot = totalKey ? (b.byClass[totalKey] || 0) : sumClasses(b.byClass);
+      const accounts = b.accounts
+        .map(a => ({
+          display: a.display,
+          amount:  totalKey ? (a.byClass[totalKey] || 0) : sumClasses(a.byClass),
+          byClass: classes.reduce((o, c) => {
+            if (Math.abs(a.byClass[c] || 0) > 0.005) o[c] = a.byClass[c];
+            return o;
+          }, {})
+        }))
+        .filter(a => Math.abs(a.amount) > 0.005)
+        .sort((x, y) => Math.abs(y.amount) - Math.abs(x.amount));
+      const listed = accounts.reduce((s, a) => s + a.amount, 0);
+      categories[cat] = {
+        total:   tot,
+        byClass: classes.reduce((o, c) => { o[c] = b.byClass[c] || 0; return o; }, {}),
+        accounts,
+        // Nonzero means the listed accounts do not explain the section total. Reported, never hidden.
+        residual: Math.abs(tot - listed) < 0.005 ? 0 : tot - listed
+      };
+    });
+
+    const content = JSON.stringify({ ok: true, start, end, classes, categories, qb_source: qb.source });
+    cacheSet_(cacheKey, content, 1800); // 30 min, same as the expenses payload it sits beside
+    output.setContent(content);
+  } catch (err) {
+    output.setContent(JSON.stringify({ ok: false, error: err.message }));
   }
   return output;
 }
