@@ -1228,6 +1228,10 @@ function getPeriodGoalsRange_(start, end) {
   return jsonOut_({
     ok: true, start: start, end: end, periods: periods,
     uncovered_days: uncovered,
+    // The ledger span this walk trusted, echoed so a slow range can be diagnosed from outside. null
+    // means the bounds lookup failed and every date was probed; a max far in the future means an
+    // orphan row widened it, which costs probes without ever costing correctness.
+    bounds: bounds,
     // STICKY: true if the walk ever stopped probing on the miss streak, not merely if it was still
     // in one when the range ended. Read live 2026-08-29 for all of 2025, the non-sticky version
     // reported false after a cached December period reset the counter — so it said "fully probed"
