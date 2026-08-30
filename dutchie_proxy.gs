@@ -1041,39 +1041,57 @@ function pgStoreIdMap_() {
 }
 
 /**
- * The first and last date the period_goals ledger covers, as { min, max }, or null if unknowable.
+ * Every [start, end] the period_goals ledger actually covers, sorted, or null if unknowable.
  *
- * One call with BOTH arguments empty returns every row in the tab, and the min/max of period_start
- * and period_end is all this needs. That makes an out-of-range walk free instead of spending its
- * whole MISS_LIMIT budget discovering, one probe at a time, that the ledger does not go there —
- * measured 22.5s for a 2027 range, which is 14 probes at ~1.6s each because every getPeriodGoals
- * call re-reads the whole tab.
+ * Intervals rather than a min/max span, because a span is wrong in a way that costs real time: the
+ * tab holds a sentinel row dated 2000-01-01, so min/max reported the ledger as covering 2000-01-01
+ * to 2026-08-30 and every date in between looked findable. Measured on the deployed route, a 2024
+ * range still took 17.8s discovering otherwise, while 2028 — genuinely past the max — returned in
+ * 1.9s. One orphan row was enough to undo the optimisation for twenty-six years of dates.
  *
- * Only period_start/period_end are read here, never a goal value and never a tie-break. That matters:
- * `rows` is the RAW audit view, orphans included, and picking a goal out of it by hand is precisely
- * the `match[0]`-in-sheet-order bug that forced the v220 re-pin. An orphan row can only WIDEN these
- * bounds, which costs a wasted probe and never a missed period — the safe direction.
+ * With the real intervals, membership is exact: a date in no interval needs no cache read and no
+ * probe, and a date in one names the period to load without guessing at boundaries.
+ *
+ * Only period_start/period_end are read — never a goal value, never a tie-break. `rows` is the RAW
+ * audit view, orphans included, and picking a goal out of it by hand is the match[0]-in-sheet-order
+ * bug that forced the v220 re-pin. An overlapping orphan interval only means this asks Core about a
+ * date it would otherwise skip; the ANSWER still comes from Core's own tie-break, so an orphan can
+ * cost one lookup and never a wrong goal.
  */
-function pgCoverageBounds_() {
-  const cached = cacheGet_('pg_bounds');
-  if (cached) { try { const b = JSON.parse(cached); return b.min ? b : null; } catch (e) {} }
+function pgLedgerIntervals_() {
+  const cached = cacheGet_('pg_intervals');
+  if (cached) { try { const v = JSON.parse(cached); return v.length ? v : null; } catch (e) {} }
   try {
     const all  = GXCore.getPeriodGoals('', '');
     const rows = (all && all.rows) || [];
-    let min = '', max = '';
+    const seen = Object.create(null);
+    const out  = [];
     for (const r of rows) {
-      const ps = String(r.period_start || ''), pe = String(r.period_end || ps);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(ps)) continue;
-      if (!min || ps < min) min = ps;
-      if (!max || pe > max) max = pe;
+      const ps = String(r.period_start || '');
+      const pe = String(r.period_end || ps);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(ps) || !/^\d{4}-\d{2}-\d{2}$/.test(pe) || pe < ps) continue;
+      const k = ps + '|' + pe;
+      if (seen[k]) continue;
+      seen[k] = 1;
+      out.push({ start: ps, end: pe });
     }
-    if (min && max) {
-      const b = { min: min, max: max };
-      cacheSet_('pg_bounds', JSON.stringify(b), 1800); // 30 min: the ledger GROWS, so do not pin it long
-      return b;
+    out.sort(function (a, b) { return a.start < b.start ? -1 : a.start > b.start ? 1 : 0; });
+    if (out.length) {
+      cacheSet_('pg_intervals', JSON.stringify(out), 1800); // 30 min: the ledger GROWS
+      return out;
     }
-  } catch (e) { /* unknown bounds — fall back to probing, which is correct if slow */ }
-  cacheSet_('pg_bounds', JSON.stringify({ min: '' }), 300);
+  } catch (e) { /* unknown — fall back to probing, which is correct if slow */ }
+  cacheSet_('pg_intervals', JSON.stringify([]), 300);
+  return null;
+}
+
+/** The ledger interval containing `date`, or null. Linear over ~30 entries; not worth a bisect. */
+function pgIntervalFor_(intervals, date) {
+  if (!intervals) return null;
+  for (const iv of intervals) {
+    if (iv.start > date) break;      // sorted by start, so nothing later can contain it
+    if (date <= iv.end) return iv;
+  }
   return null;
 }
 
@@ -1163,7 +1181,7 @@ function getPeriodGoalsRange_(start, end) {
     return jsonOut_({ ok: false, error: 'range exceeds ' + PG_RANGE_MAX_DAYS_ + ' days' });
   }
 
-  const bounds    = pgCoverageBounds_();
+  const intervals = pgLedgerIntervals_();
   const byStoreId = pgStoreIdMap_();
   const periods = [];
   let cursor    = at(start);
@@ -1185,13 +1203,13 @@ function getPeriodGoalsRange_(start, end) {
   while (cursor <= last) {
     const date = iso(cursor);
 
-    // Outside the ledger's known span, BEFORE touching the cache. Nothing can be found there and
-    // nothing can be cached there, so both the probe and the lookup are pure cost. cacheGet_ is two
-    // CacheService round-trips per date, which is what actually made an out-of-range walk slow: with
-    // the probe already skipped, a 182-day 2028 range still took 12-22s in 364 cache reads. It is
-    // also not `truncated` — that word means the walk gave up guessing, and this is the opposite:
-    // Core told us where the ledger ends, so these misses are certain and cost no probe budget.
-    if (bounds && (date < bounds.min || date > bounds.max)) {
+    // Not in any ledger interval, decided BEFORE touching the cache. Nothing can be found for such a
+    // date and nothing can be cached for it, so both the probe and the lookup are pure cost —
+    // cacheGet_ alone is two CacheService round-trips, which is what left a 182-day out-of-range
+    // walk at 12-22s even after its probes were skipped. Not `truncated` either: that word means the
+    // walk gave up guessing where the ledger ends, and this is the opposite — Core told us, so the
+    // miss is exact and spends no probe budget.
+    if (intervals && !pgIntervalFor_(intervals, date)) {
       uncovered++;
       cursor += dayMs;
       continue;
@@ -1239,10 +1257,9 @@ function getPeriodGoalsRange_(start, end) {
   return jsonOut_({
     ok: true, start: start, end: end, periods: periods,
     uncovered_days: uncovered,
-    // The ledger span this walk trusted, echoed so a slow range can be diagnosed from outside. null
-    // means the bounds lookup failed and every date was probed; a max far in the future means an
-    // orphan row widened it, which costs probes without ever costing correctness.
-    bounds: bounds,
+    // What this walk knew about the ledger, echoed so a slow range can be diagnosed from outside
+    // rather than reasoned about. null means the lookup failed and every date was probed.
+    ledger_intervals: intervals ? intervals.length : null,
     // STICKY: true if the walk ever stopped probing on the miss streak, not merely if it was still
     // in one when the range ended. Read live 2026-08-29 for all of 2025, the non-sticky version
     // reported false after a cached December period reset the counter — so it said "fully probed"

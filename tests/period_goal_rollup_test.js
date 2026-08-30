@@ -231,18 +231,24 @@ check('the per-store path survives as a fallback',
 // for both paths. An empty `picked` is Core answering, not Core failing.
 check('an authoritative empty answer does NOT trigger the fallback',
   /if \(Array\.isArray\(picked\) && !picked\.length\) return out;/.test(PROXY), true);
-check('the ledger span is learned once so an out-of-range walk spends no probes',
-  /function pgCoverageBounds_/.test(PROXY) && /date < bounds\.min \|\| date > bounds\.max/.test(PROXY), true);
-check('bounds read only period dates — never a goal value, never a tie-break',
-  !/bounds[\s\S]{0,400}dow_targets/.test(PROXY), true);
-check('unknown bounds fall back to probing rather than to silence',
-  /if \(bounds && \(date < bounds\.min \|\| date > bounds\.max\)\)/.test(PROXY), true);
+check('the ledger is learned once, as INTERVALS not a min/max span',
+  /function pgLedgerIntervals_/.test(PROXY) && /function pgIntervalFor_/.test(PROXY), true);
+// A span is not merely coarser, it is wrong here: the tab holds a sentinel row dated 2000-01-01, so
+// min/max reported twenty-six years as findable and a 2024 range still took 17.8s proving otherwise.
+check('membership is exact, not a span comparison',
+  /!pgIntervalFor_\(intervals, date\)/.test(PROXY) && !/bounds\.min/.test(PROXY), true);
+check('intervals read only period dates — never a goal value, never a tie-break',
+  !/pgLedgerIntervals_[\s\S]{0,900}dow_targets/.test(PROXY), true);
+check('overlapping orphan intervals cost a lookup, never a wrong goal',
+  /ANSWER still comes from Core's own tie-break/.test(PROXY), true);
 // cacheGet_ is two CacheService round-trips. Skipping the probe but still doing the lookup left a
 // 182-day out-of-range walk at 12-22s in pure cache reads.
-check('an out-of-range date skips the cache lookup too, not just the probe',
-  /date < bounds\.min \|\| date > bounds\.max\)\) \{[\s\S]{0,120}uncovered\+\+;[\s\S]{0,60}cursor \+= dayMs;/.test(PROXY), true);
-check('a certain out-of-range miss does not spend probe budget or set truncated',
-  !/date > bounds\.max\)\) \{[\s\S]{0,200}everTruncated/.test(PROXY), true);
+check('a date in no interval skips the cache lookup too, not just the probe',
+  /!pgIntervalFor_\(intervals, date\)\) \{[\s\S]{0,80}uncovered\+\+;[\s\S]{0,60}cursor \+= dayMs;/.test(PROXY), true);
+check('an exact miss does not spend probe budget or set truncated',
+  !/!pgIntervalFor_\(intervals, date\)\) \{[\s\S]{0,200}everTruncated/.test(PROXY), true);
+check('an unreadable ledger falls back to probing rather than to silence',
+  /if \(intervals && !pgIntervalFor_/.test(PROXY), true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
