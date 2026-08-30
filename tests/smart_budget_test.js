@@ -387,6 +387,31 @@ console.log('\n6. the month in progress is excluded from history');
   ok('...giving a whole number of months, not a ragged window', /-01$/.test(w.start));
 }
 
+// ── 7. admin_apply_proposed cannot write a number the engine did not produce ──────────────────
+// This route exists for the scripted case — finishing a rollout from a terminal, where there is no
+// browser and so no session to sit behind the normal write guard. That makes its SHAPE the whole
+// safety argument: it accepts category NAMES and fills them from a freshly computed proposal, so
+// there is no parameter through which a fabricated figure could enter the budget. If it ever grows
+// an amounts parameter, the secret-gate stops being defensible and this test should stop passing.
+console.log('\n7. the scripted apply can only apply the engine\'s own numbers');
+{
+  const GS_SRC = require('fs').readFileSync(require('path').join(__dirname, '..', 'dutchie_proxy.gs'), 'utf8');
+  const fn = grab('adminApplyProposed_');
+  ok('adminApplyProposed_ exists', !!fn);
+  ok('...it reads params.categories as NAMES', /params\s*&&\s*params\.categories/.test(fn));
+  ok('...and takes no amounts/monthly/values parameter',
+     !/params\.(monthly|amounts|values|budget)\b/.test(fn));
+  ok('...it builds the payload from the computed proposal, not from input',
+     /payload\[n\]\s*=\s*p\.monthly/.test(fn));
+  ok('...it refuses a category the engine gave no proposal for',
+     /!p\.monthly[\s\S]{0,160}refused\[n\]/.test(fn));
+  ok('...it refuses an unknown category rather than inventing one',
+     /if \(!p\)[\s\S]{0,120}refused\[n\]/.test(fn));
+  ok('...and it delegates the actual write to applyBudget_, not its own setProperty',
+     /applyBudget_\(/.test(fn) && !/setProperty/.test(fn));
+  ok('the route is secret-gated', /action === 'admin_apply_proposed'[\s\S]{0,300}GX_DEPLOY_SECRET/.test(GS_SRC));
+}
+
 console.log('\n──────────────────────────────');
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

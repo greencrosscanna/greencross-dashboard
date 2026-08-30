@@ -638,10 +638,10 @@ function doGet(e) {
   // freeze_sheet is gone with the sheet readers it depended on — the snapshot it took is now the
   // source of truth, not a cache of one. freezestatus remains: it reads only properties and is how
   // you confirm what the app is serving.
-  if (params.action === 'freezestatus') {
+  if (params.action === 'freezestatus' || params.action === 'admin_apply_proposed') {
     const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
     if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
-    return freezeStatus_();
+    return params.action === 'freezestatus' ? freezeStatus_() : adminApplyProposed_(params);
   }
 
   if (params.action === 'budgetprobe') {
@@ -3250,4 +3250,52 @@ function freezeStatus_() {
     // the sheet — either an applied smart budget or a frozen figure.
     ready_to_cut: !!(g && e && q && props.getProperty(OTHERREV_PROP))
   });
+}
+
+/**
+ * action=admin_apply_proposed — apply the engine's OWN proposal for named categories.
+ *
+ * The normal apply_budget sits behind the session gate and the write guard, which is right for a
+ * person clicking Apply. This exists for the scripted case (a migration, finishing a partial
+ * rollout from a terminal) where there is no browser and no session to have.
+ *
+ * Deliberately NARROWER than the route it complements: it takes category NAMES only and fills them
+ * from a freshly computed proposal. There is no way to pass amounts, so it cannot be used to write
+ * a figure the engine did not produce — which is the property that makes a secret-gated write into
+ * financial config defensible at all. Same secret that already gates guardmode, which can disable
+ * the write guard outright, so this grants strictly less than what the secret already carries.
+ *
+ * Refuses a category with no proposal (confidence 'none'), because "apply" must never mean "invent".
+ */
+function adminApplyProposed_(params) {
+  const names = String((params && params.categories) || '')
+    .split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+  if (!names.length) return jsonOut_({ ok: false, error: 'categories= is required (comma-separated)' });
+
+  const year = Number(params.year || BUDGET_YEAR) || BUDGET_YEAR;
+  let built;
+  try {
+    const win = sbHistoryWindow_();
+    built = sbBuildProposal_(year, sbFetchHistory_(win.start, win.end));
+  } catch (e) {
+    return jsonOut_({ ok: false, stage: 'proposal', error: e.message });
+  }
+
+  const byCat = {};
+  built.proposals.forEach(function (p) { byCat[p.category] = p; });
+
+  const payload = {}, applied = [], refused = {};
+  names.forEach(function (n) {
+    const p = byCat[n];
+    if (!p)            { refused[n] = 'no such category in the current proposal'; return; }
+    if (!p.monthly)    { refused[n] = 'no proposal for this category (' + p.confidence + ') — nothing to apply'; return; }
+    payload[n] = p.monthly;
+    applied.push({ category: n, method: p.method, confidence: p.confidence, annual: p.annual });
+  });
+  if (!applied.length) return jsonOut_({ ok: false, error: 'nothing applicable', refused: refused });
+
+  const res = applyBudget_({ categories: payload, year: year, _user: 'admin:secret' });
+  const body = JSON.parse(res.getContent());
+  return jsonOut_({ ok: !!body.ok, applied: applied, refused: refused,
+                    total_overlaid: body.total_overlaid, year: year, error: body.error || null });
 }
