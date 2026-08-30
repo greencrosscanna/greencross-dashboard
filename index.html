@@ -224,6 +224,37 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .exp-map-btn{font-size:11px;background:none;border:.5px solid var(--border);color:var(--muted);cursor:pointer;padding:3px 8px;border-radius:12px;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
 .exp-map-btn:hover{color:var(--text);border-color:var(--border-strong)}
 .exp-unmap-badge{background:#EF4444;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px}
+/* Smart budget planner. Confidence is COLOUR-CODED and also spelled out in words on the row: the
+   whole point of the screen is that a low-confidence number cannot masquerade as an analysed one,
+   and colour alone fails exactly the readers who most need the warning. */
+.sb-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:4px;padding:8px 0;border-bottom:.5px solid var(--border)}
+.sb-row:last-child{border-bottom:0}
+.sb-chk{width:15px;height:15px;accent-color:var(--green);cursor:pointer;flex:0 0 auto}
+.sb-name{flex:1 1 130px;font-size:12px;color:var(--text);min-width:0}
+.sb-num{font-size:12px;font-variant-numeric:tabular-nums;text-align:right;flex:0 0 68px}
+.sb-cur{color:var(--muted)}
+/* On a phone the row wraps and the two money columns end up stacked, far from the header that says
+   which is which — so a bare "$600,000 / $614,400" is unreadable. These inline labels appear only
+   at the width where the wrap happens; the desktop grid keeps its column header instead. */
+.sb-lbl{display:none}
+@media (max-width:767px){
+  .sb-num{flex:0 0 auto;text-align:left}
+  .sb-lbl{display:inline;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-right:3px}
+}
+.sb-delta{font-size:11px;font-variant-numeric:tabular-nums;text-align:right;flex:0 0 58px}
+.sb-tag{font-size:9px;font-weight:700;letter-spacing:.03em;padding:1px 6px;border-radius:8px;white-space:nowrap;text-transform:uppercase}
+.sb-tag.high{background:rgba(29,158,117,.15);color:var(--green)}
+.sb-tag.medium{background:rgba(234,179,8,.15);color:#EAB308}
+.sb-tag.low{background:rgba(249,115,22,.15);color:#F97316}
+.sb-tag.none{background:rgba(255,255,255,.06);color:var(--muted)}
+.sb-tag.applied{background:rgba(29,158,117,.15);color:var(--green)}
+.sb-note{flex:1 0 100%;font-size:10.5px;color:var(--muted);line-height:1.45;padding-left:23px}
+.sb-months{flex:1 0 100%;display:grid;grid-template-columns:repeat(6,1fr);gap:3px;padding:6px 0 2px 23px}
+.sb-mo{font-size:9.5px;color:var(--muted);text-align:center;background:var(--bg);border-radius:4px;padding:3px 1px}
+.sb-mo b{display:block;color:var(--text);font-size:10.5px;font-weight:600;font-variant-numeric:tabular-nums}
+.sb-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.sb-sum{font-size:11px;color:var(--muted)}
+.sb-warn{font-size:11px;color:var(--muted);line-height:1.5;background:var(--bg);border-radius:8px;padding:9px 11px;margin-bottom:10px;border-left:2px solid var(--border-strong)}
 /* ── P&L statement — QB-PDF layout on screen, an actual QB-looking sheet on paper ──────────────
    The numbers are the point here, so the type is tabular-lining: every column of digits has to sit
    in the same place down the page or a reader cannot compare two rows by eye. The account column is
@@ -837,8 +868,10 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   // This app has no single api chokepoint, so gx-dev.js guards at the fetch layer -- requests
   // carrying an action are checked, action-less requests (local assets) pass through untouched.
   // Guarded writes: reportbug, save_expense_mapping, set_otherrev, set_revenue,
-  //                 set_recon, set_recon_assign, set_recon_config
+  //                 set_recon, set_recon_assign, set_recon_config,
+  //                 apply_budget, clear_budget
   window.GX_DEV_READS = [
+    'budget_proposal',
     'cogs', 'cogs_dutchie', 'config', 'deposits', 'expbudgets', 'expenses', 'getdailygoals', 'goals',
     'inventory', 'login', 'otherrev', 'pace', 'period_goals', 'period_goals_range', 'ping', 'pnl', 'published_goals',
     'recon_config', 'revenue_detail',
@@ -1129,7 +1162,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.549';
+const APP_VERSION = 'v2.550';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1222,6 +1255,7 @@ let expensesLoading = false;
 let invGmData = null;   // {cogs:{storeName:total}, byDay, byMonth} — 28d from cogs_dutchie
 let _invGmLoading = false;
 let expBudgets = null;  // loaded from Annual Budget sheet via proxy
+let expBudgetsOverlaid = new Set(); // categories whose budget is an applied smart-budget overlay
 let otherRevData  = null; // { atm: { Jan: 9493, ... }, sublet: { Jan: 0, ... } }
 let revenueDetail = null; // { cfg, atm, sub, year } — full per-machine breakdown
 let periodGoalsCache = {};
@@ -4450,7 +4484,13 @@ async function loadExpenses() {
 
 async function loadExpBudgets() {
   const cached = readCache('expbudgets');
-  if (cached) { expBudgets = cached; return; }
+  // Older cache entries hold the bare budgets map; newer ones wrap it with the overlay list. Read
+  // both shapes so a cached page from before this build doesn't render an empty Expenses tab.
+  if (cached) {
+    expBudgets = cached.budgets || cached;
+    expBudgetsOverlaid = new Set(cached.overlaid || []);
+    return;
+  }
   const proxyUrl = getProxyUrl();
   if (!proxyUrl) return;
   try {
@@ -4458,10 +4498,15 @@ async function loadExpBudgets() {
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     expBudgets = data.budgets;
-    writeCache('expbudgets', data.budgets);
+    // Which categories are showing an APPLIED smart budget rather than the sheet's own number.
+    // Carried through the cache too — dropping it there would make the badges vanish on the next
+    // load while the numbers stayed overlaid, which is the confusing half of both states.
+    expBudgetsOverlaid = new Set(data.overlaid || []);
+    writeCache('expbudgets', { budgets: data.budgets, overlaid: data.overlaid || [] });
   } catch(e) {
     console.warn('ExpBudgets fetch failed:', e.message);
     expBudgets = null;
+    expBudgetsOverlaid = new Set();
   }
 }
 
@@ -4843,6 +4888,7 @@ async function reloadExpenses() {
 
 function renderExpenses() {
   if (expSection === 'mapping') { renderExpenseMapping(); return; }
+  if (expSection === 'budget')  { renderBudgetPlanner();  return; }
 
   if (!expenseData) {
     if (!expensesLoading) {
@@ -4932,9 +4978,12 @@ function renderExpenses() {
 
     <div class="sec-lbl" style="display:flex;align-items:center;justify-content:space-between">
       <span>By category</span>
+      <span style="display:flex;gap:6px">
+      <button class="exp-map-btn" onclick="setExpSection('budget')">✨ Smart budget</button>
       <button class="exp-map-btn" onclick="setExpSection('mapping')">
         ⚙ Mapping${expenseData.unmappedCount > 0 ? ` <span class="exp-unmap-badge">${expenseData.unmappedCount}</span>` : ''}
       </button>
+      </span>
     </div>
     <div class="card">
       ${cats.map(c => {
@@ -4945,7 +4994,7 @@ function renderExpenses() {
         const barColor = over ? '#EF4444' : '#1D9E75';
         const diff = hasBudget ? c.val - c.budget : null;
         return `<div class="srow" style="flex-wrap:wrap;row-gap:3px;opacity:${hidden?'0.3':'1'};cursor:pointer" onclick="toggleExpCat('${escHtml(c.name)}')">
-          <div class="sname" style="flex:1">${escHtml(c.name)}${hidden ? ' <span style="font-size:9px;color:#666">excluded</span>' : ''}</div>
+          <div class="sname" style="flex:1">${escHtml(c.name)}${hidden ? ' <span style="font-size:9px;color:#666">excluded</span>' : ''}${expBudgetsOverlaid.has(c.name) ? ' <span class="sb-tag applied">smart</span>' : ''}</div>
           <div class="sval">${fmtK(c.val)}</div>
           ${!hidden && diff !== null ? `<div class="sdiff ${diff>0?'bad':'good'}">${diff>0?'+':''}${fmtK(diff)}</div>` : ''}
           ${!hidden && hasBudget ? `<div style="width:100%;position:relative;height:3px;background:#333;border-radius:2px;margin-bottom:3px">
@@ -6034,6 +6083,226 @@ async function saveExpenseMappings() {
   }
 }
 
+// ── Smart budget ──────────────────────────────────────────────────────────────
+//
+// Proposes a 12-month budget per expense category from 24 months of QuickBooks actuals, so a line
+// item stops being "annual ÷ 12" or a round guess. The engine lives in dutchie_proxy.gs; this is
+// the review screen, and reviewing is the point — nothing is applied until Sky ticks it.
+//
+// The screen deliberately shows the REASONING next to every number (method, months of history,
+// confidence, what was excluded as an outlier). A proposal you cannot interrogate is just a
+// different guess wearing better clothes, and the categories where the engine is weakest are
+// exactly the ones a reader needs flagged.
+
+let budgetProposal   = null;   // { year, proposals[], projected_revenue, applied[] } from the proxy
+let budgetLoading    = false;
+let budgetChecked    = new Set();   // categories ticked for Apply
+let budgetExpanded   = new Set();   // categories showing their monthly breakdown
+let budgetApplying   = false;
+
+async function loadBudgetProposal() {
+  const proxyUrl = getProxyUrl();
+  if (!proxyUrl) return;
+  try {
+    const res  = await fetch(`${proxyUrl}?action=budget_proposal&token=${encodeURIComponent(getToken())}`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'proposal failed');
+    budgetProposal = data;
+    // Pre-tick everything the engine actually stands behind. A 'low'/'none' row starts unticked on
+    // purpose: applying it should be a decision someone makes, not a default they inherit.
+    budgetChecked = new Set(
+      (data.proposals || [])
+        .filter(pr => pr.monthly && (pr.confidence === 'high' || pr.confidence === 'medium'))
+        .map(pr => pr.category)
+    );
+  } catch (e) {
+    console.warn('[smart-budget] proposal failed:', e.message);
+    budgetProposal = { error: e.message };
+  }
+}
+
+function toggleBudgetCat(cat) {
+  budgetChecked.has(cat) ? budgetChecked.delete(cat) : budgetChecked.add(cat);
+  renderExpenses();
+}
+function toggleBudgetDetail(cat) {
+  budgetExpanded.has(cat) ? budgetExpanded.delete(cat) : budgetExpanded.add(cat);
+  renderExpenses();
+}
+function reloadBudgetProposal() {
+  budgetProposal = null; budgetLoading = false; renderExpenses();
+}
+
+/** Sheet-derived annual for a category — the baseline the proposal is compared against. */
+function _sbCurrentAnnual(cat) {
+  if (!expBudgets || !expBudgets[cat]) return 0;
+  return Object.values(expBudgets[cat]).reduce((a, v) => a + (Number(v) || 0), 0);
+}
+
+async function applyBudgetSelected() {
+  if (budgetApplying) return;
+  const picks = (budgetProposal?.proposals || []).filter(p => p.monthly && budgetChecked.has(p.category));
+  if (!picks.length) { alert('Nothing ticked to apply.'); return; }
+
+  const total = picks.reduce((a, p) => a + (p.annual || 0), 0);
+  if (!confirm(
+      `Apply ${picks.length} categor${picks.length === 1 ? 'y' : 'ies'} — ${fmtK(total)}/yr — as the `
+      + `${budgetProposal.year} budget?\n\nThis is stored by the Sales app and overlays the budget sheet. `
+      + `The sheet itself is not modified, so Revert restores it completely.`)) return;
+
+  budgetApplying = true; renderExpenses();
+  const payload = {};
+  picks.forEach(p => { payload[p.category] = p.monthly; });
+  try {
+    const res = await fetch(
+      `${getProxyUrl()}?action=apply_budget&token=${encodeURIComponent(getToken())}`
+      + `&year=${encodeURIComponent(budgetProposal.year)}`
+      + `&categories=${encodeURIComponent(JSON.stringify(payload))}`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'apply failed');
+    // The overlay changed what expbudgets returns, so both the client cache and the tab's state
+    // have to go — otherwise the Expenses tab keeps rendering the pre-apply numbers for 30 minutes
+    // and the apply looks like it silently failed.
+    localStorage.removeItem('gc_cache_expbudgets');
+    expBudgets = null; budgetProposal = null;
+    await loadExpBudgets();
+  } catch (e) {
+    alert('Apply failed: ' + e.message);
+  }
+  budgetApplying = false;
+  renderExpenses();
+}
+
+async function revertBudget(cat) {
+  const one = cat || '';
+  if (!confirm(one ? `Revert "${one}" to the budget sheet's own numbers?`
+                   : 'Revert ALL categories to the budget sheet? The applied smart budget is discarded.')) return;
+  try {
+    const res = await fetch(`${getProxyUrl()}?action=clear_budget&token=${encodeURIComponent(getToken())}`
+      + (one ? `&category=${encodeURIComponent(one)}` : ''));
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'revert failed');
+    localStorage.removeItem('gc_cache_expbudgets');
+    expBudgets = null; budgetProposal = null;
+    await loadExpBudgets();
+  } catch (e) {
+    alert('Revert failed: ' + e.message);
+  }
+  renderExpenses();
+}
+
+function renderBudgetPlanner() {
+  const el = document.getElementById('main-content');
+
+  if (!budgetProposal) {
+    if (!budgetLoading) {
+      budgetLoading = true;
+      el.innerHTML = `<div class="card"><div class="empty-state"><span class="spinner-inline"></span>
+        Analysing 24 months of QuickBooks history…</div></div>`;
+      loadBudgetProposal().finally(() => {
+        budgetLoading = false;
+        if (section === 'expenses' && expSection === 'budget') renderExpenses();
+      });
+    }
+    return;
+  }
+
+  if (budgetProposal.error) {
+    el.innerHTML = `<div class="sec-lbl"><button class="s-btn" onclick="setExpSection('main')">‹ Back</button></div>
+      <div class="card"><div class="empty-state">Couldn't build a proposal — ${escHtml(budgetProposal.error)}</div>
+      <button class="s-btn full" onclick="reloadBudgetProposal()">Try again</button></div>`;
+    return;
+  }
+
+  const props    = budgetProposal.proposals || [];
+  const usable   = props.filter(p => p.monthly);
+  const skipped  = props.filter(p => !p.monthly);
+  const applied  = new Set(budgetProposal.applied || []);
+  const picked   = usable.filter(p => budgetChecked.has(p.category));
+  const pickTot  = picked.reduce((a, p) => a + (p.annual || 0), 0);
+  const curTot   = picked.reduce((a, p) => a + _sbCurrentAnnual(p.category), 0);
+  const win      = budgetProposal.window || {};
+
+  const row = (p) => {
+    const cur   = _sbCurrentAnnual(p.category);
+    const on    = budgetChecked.has(p.category);
+    const open  = budgetExpanded.has(p.category);
+    const diff  = (cur > 0 && p.annual != null) ? p.annual - cur : null;
+    const dPct  = (cur > 0 && p.annual != null) ? Math.round((p.annual - cur) / cur * 100) : null;
+    const isApp = applied.has(p.category);
+    return `<div class="sb-row">
+      ${p.monthly ? `<input type="checkbox" class="sb-chk" ${on ? 'checked' : ''}
+            onchange="toggleBudgetCat('${escHtml(p.category)}')" aria-label="Apply ${escHtml(p.category)}">`
+                  : `<span class="sb-chk"></span>`}
+      <div class="sb-name" onclick="toggleBudgetDetail('${escHtml(p.category)}')" style="cursor:pointer">
+        ${escHtml(p.category)}
+        ${isApp ? ' <span class="sb-tag applied">applied</span>' : ''}
+      </div>
+      <span class="sb-tag ${p.confidence}">${p.confidence === 'none' ? 'no data' : p.confidence}</span>
+      <div class="sb-num sb-cur"><span class="sb-lbl">Sheet</span>${cur > 0 ? fmtK(cur) : '—'}</div>
+      <div class="sb-num"><span class="sb-lbl">New</span>${p.annual != null ? fmtK(p.annual) : '—'}</div>
+      <div class="sb-delta ${diff == null ? '' : (diff > 0 ? 'bad' : 'good')}">${
+        dPct == null ? '' : (dPct > 0 ? '+' : '') + dPct + '%'}</div>
+      <div class="sb-note">${escHtml(p.note)}${
+        p.n_months ? ` · ${p.n_months} mo of history` : ''}${
+        p.basis && p.basis.outliers_excluded ? ` · ${p.basis.outliers_excluded} outlier${p.basis.outliers_excluded === 1 ? '' : 's'} excluded` : ''}</div>
+      ${open && p.monthly ? `<div class="sb-months">${
+        MONTHS.map(m => `<div class="sb-mo">${m}<b>${fmtK(p.monthly[m] || 0)}</b></div>`).join('')
+      }</div>` : ''}
+    </div>`;
+  };
+
+  el.innerHTML = `
+    <div class="sec-lbl" style="display:flex;align-items:center;justify-content:space-between">
+      <span>Smart budget · ${budgetProposal.year}</span>
+      <button class="s-btn" onclick="setExpSection('main')">‹ Back</button>
+    </div>
+
+    <div class="sb-warn">
+      Built from <b>${budgetProposal.months_of_history || 0} months</b> of QuickBooks actuals
+      (${escHtml(win.start || '')} → ${escHtml(win.end || '')}). A one-off month — an annual premium, a
+      legal bill — is detected and set aside so it can't set the year, while a peak that <i>repeats</i>
+      each year is kept as real seasonality. The month in progress is excluded: a partial month would
+      drag every figure down.
+      <br><br>
+      Applying stores the numbers <b>in this app</b> and overlays them on the budget sheet's own values.
+      The sheet is never written, so Revert is complete.
+    </div>
+
+    <div class="sb-bar">
+      <button class="s-btn primary" style="width:auto;margin:0;padding:7px 14px"
+        onclick="applyBudgetSelected()" ${budgetApplying ? 'disabled' : ''}>
+        ${budgetApplying ? 'Applying…' : `Apply ${picked.length} selected`}
+      </button>
+      ${applied.size ? `<button class="s-btn danger" onclick="revertBudget('')">Revert all (${applied.size})</button>` : ''}
+      <button class="s-btn" onclick="reloadBudgetProposal()">↻ Recompute</button>
+      <span class="sb-sum">${picked.length ? `${fmtK(pickTot)}/yr selected${
+        curTot > 0 ? ` · ${pickTot >= curTot ? '+' : '−'}${fmtK(Math.abs(pickTot - curTot))} vs sheet` : ''}` : 'nothing selected'}</span>
+    </div>
+
+    <div class="card">
+      <div class="sb-row" style="border-bottom-width:1px">
+        <span class="sb-chk"></span>
+        <div class="sb-name"><b>Category</b></div>
+        <span class="sb-tag none">basis</span>
+        <div class="sb-num sb-cur"><b>Sheet</b></div>
+        <div class="sb-num"><b>Proposed</b></div>
+        <div class="sb-delta"></div>
+      </div>
+      ${usable.map(row).join('')}
+    </div>
+
+    ${skipped.length ? `
+    <div class="sec-lbl">No proposal — ${skipped.length} categor${skipped.length === 1 ? 'y' : 'ies'}</div>
+    <div class="sb-warn">These have no spend in the window, so there is nothing to derive a budget from.
+      They are left exactly as the sheet has them rather than given a round number — a made-up figure
+      reads as analysed, which is worse than a visibly missing one.</div>
+    <div class="card">${skipped.map(row).join('')}</div>` : ''}
+
+    <div class="last-sync">Proposal built ${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+  `;
+}
+
 // ── Inventory ─────────────────────────────────────────────────────────────────
 
 async function loadVelocity() {
@@ -6257,6 +6526,7 @@ function hardReset() {
   hiddenExpCats.clear(); localStorage.removeItem('hiddenExpCats');
   hiddenOtherRevs.clear(); localStorage.removeItem('hiddenOtherRevs');
   expenseData = null; expBudgets = null; otherRevData = null; invGmData = null; revenueDetail = null; _invGmLoading = false;
+  expBudgetsOverlaid = new Set(); budgetProposal = null; budgetLoading = false; budgetChecked = new Set(); budgetExpanded = new Set();
   liveData = {};
   updateCacheStatus();
   updateSettingsBadges();
