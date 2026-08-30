@@ -235,7 +235,7 @@ the admit test below passed. Reads unaffected; unauthenticated and forged-token 
 the session gate ABOVE the guard, so a signature failure never reaches the grant lookup. **Roll back in one
 command:** the same `guardmode` call with `mode=log`.
 
-**Now pinned to GXCore v223** (2026-08-25, from v220; deployment `AKfycbzju5He…@176`). Two re-pins the
+**Pinned to GXCore — check the live value, do not trust this line** (`?action=libversion`, or `./gxpins.sh --live` from the hub). It read *v223 (2026-08-25, from v220)* until 2026-08-29, when the app had moved to v241. The history below is still accurate as history. Two re-pins the
 same day, and the second one is the one that finished the job — see the store-key entry below. Verified
 live after the redeploy: `?action=libversion` → `{"ok":true,"gxcore":223}` six consecutive reads (no
 warm-instance lag this time), `gxpin` → `gxcore_version 223` with `qb.last_source` still `gxcore@…`,
