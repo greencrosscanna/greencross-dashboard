@@ -1162,7 +1162,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
   }
 })();
 
-const APP_VERSION = 'v2.550';
+const APP_VERSION = 'v2.551';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -2451,7 +2451,12 @@ async function loadAllStores() {
         stateMap[store.name] = 'err';
       }
       buildStatusGrid(stateMap);
-      render(); // progressive: paint each store as it arrives instead of waiting for all 6
+      // Progressive: paint each store as it arrives instead of waiting for all 6. Guarded because
+      // this sits OUTSIDE the fetch try/catch above — a throw here rejects the store's promise,
+      // which rejects the Promise.all below, which escapes loadAllStores entirely. The visible
+      // result is the app sitting on "Connecting…" forever with nothing logged and no error shown,
+      // because the final render() never runs. A render fault must not be able to kill a data load.
+      try { render(); } catch (e) { console.error('[render] progressive paint failed:', e); }
     });
     await Promise.all(promises);
   }
@@ -2497,6 +2502,17 @@ async function loadAllStores() {
       refreshCompare();   // this auto-select runs AFTER the refreshCompare above, so redo it
     }
   }
+  } catch (e) {
+    // This block had try/finally and no catch. Every throw inside — a render fault, a bad response
+    // shape, anything — propagated out and skipped the final render(), so the app stayed on
+    // "Connecting…" with no message anywhere. The load was dead but looked merely slow, which is
+    // the worst of both: nothing to read, nothing to retry against. Surface it and still paint
+    // whatever did arrive, so a partial load beats a blank screen.
+    console.error('[loadAllStores] failed:', e);
+    pill('red', 'Load failed');
+    showErr('setup-err', 'Load failed: ' + (e && e.message ? e.message : String(e))
+                       + ' — reload, or press Load live data to retry.');
+    try { render(); } catch (e2) { console.error('[loadAllStores] render after failure also threw:', e2); }
   } finally {
     document.getElementById('load-btn').disabled = false;
     document.getElementById('load-btn').textContent = 'Load live data';
