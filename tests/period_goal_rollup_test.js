@@ -214,6 +214,19 @@ check('a miss streak stops the walk instead of probing a year day by day',
   /MISS_LIMIT/.test(PROXY), true);
 check('period boundaries come from GXCore, never from a 14-day stride',
   /GXCore\.getPeriodGoals\(s\.dutchie, date\)/.test(PROXY), true);
+// getPeriodGoals re-reads the whole period_goals tab per call, so asking per store cost six full
+// tab reads per period — 42s for a cold YTD, measured on the deployed route. The store-less form
+// returns `picked`, one row per store, in one read.
+check('one store-less call per period, not six per-store ones',
+  /GXCore\.getPeriodGoals\(''\, date\)/.test(PROXY) || /GXCore\.getPeriodGoals\('', date\)/.test(PROXY), true);
+check('picked rows join on canonical store_id, not the tab\'s aliases',
+  /byStoreId\[String\(r\.store_id/.test(PROXY), true);
+check('the store_id map is resolved through the registry, not hardcoded',
+  /GXCore\.resolveStore\(s\.dutchie\)/.test(PROXY), true);
+check('a row describing a different window is skipped, not folded in',
+  /r\.period_start !== out\.window\.start/.test(PROXY), true);
+check('the per-store path survives as a fallback',
+  /fall through to the per-store path/.test(PROXY), true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

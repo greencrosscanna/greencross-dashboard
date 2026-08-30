@@ -1018,6 +1018,74 @@ const PG_STORE_MAP_ = [
 const PG_RANGE_MAX_DAYS_ = 400; // a full year plus slack — bounds the walk below
 
 /**
+ * Sales store name keyed by GX Core canonical store_id, resolved through the registry.
+ *
+ * Needed because the store-less getPeriodGoals below returns rows keyed by the period_goals tab's
+ * ALIASES — `century`, `baseline`, `portland` — not by anything Sales calls a store. `store_id` is
+ * the canonical form Core resolves both sides to, so it is the only safe join key. Resolved live
+ * rather than hardcoded as a third store table in this file: a spelling added in Command Center
+ * flows through, and an unknown name drops out instead of guessing.
+ */
+function pgStoreIdMap_() {
+  const cached = cacheGet_('pg_storeids');
+  if (cached) { try { return JSON.parse(cached); } catch (e) {} }
+  const map = {};
+  for (const s of PG_STORE_MAP_) {
+    try {
+      const row = GXCore.resolveStore(s.dutchie);
+      if (row && row.store_id) map[String(row.store_id).toLowerCase()] = s.sales;
+    } catch (e) { /* unknown to the registry — it simply will not match, which is the safe direction */ }
+  }
+  if (Object.keys(map).length) cacheSet_('pg_storeids', JSON.stringify(map), 21600);
+  return map;
+}
+
+/**
+ * One pay period's goals for every store, as { window, goals }.
+ *
+ * ONE store-less call, not six per-store ones. getPeriodGoals re-reads the whole period_goals tab on
+ * every call, so asking per store meant six full tab reads per period — measured on the deployed
+ * route, a cold YTD (18 periods) took 42 seconds. The store-less form returns `picked`: the best row
+ * PER STORE for the period, by the same tie-break the single-store branch uses, which is exactly
+ * this shape with none of the repetition.
+ *
+ * The per-store loop is kept as a fallback, not as dead code: it is the path this route shipped on,
+ * and if `picked` ever changes shape the range views should get slower rather than silently empty.
+ */
+function pgLoadPeriod_(date, byStoreId) {
+  const out = { window: null, goals: {} };
+  try {
+    const all    = GXCore.getPeriodGoals('', date);
+    const picked = all && all.picked;
+    if (picked && picked.length) {
+      for (const r of picked) {
+        const sales = byStoreId[String(r.store_id || '').toLowerCase()];
+        if (!sales || !r.dow_targets || r.dow_targets.length !== 7) continue;
+        // Pin to the FIRST period seen and skip any row describing a different window. Stores should
+        // share a pay period, but "should" is not a guarantee, and caching one store's targets under
+        // another store's date range is the kind of off-by-a-period nobody would spot in a total.
+        if (!out.window) out.window = { start: r.period_start, end: r.period_end };
+        if (r.period_start !== out.window.start || r.period_end !== out.window.end) continue;
+        out.goals[sales] = { period_total: r.period_total, dow_targets: r.dow_targets };
+      }
+      if (out.window && Object.keys(out.goals).length) return out;
+    }
+  } catch (e) { /* fall through to the per-store path */ }
+
+  out.window = null; out.goals = {};
+  for (const s of PG_STORE_MAP_) {
+    try {
+      const pg = GXCore.getPeriodGoals(s.dutchie, date);
+      if (pg && pg.dow_targets) {
+        out.goals[s.sales] = { period_total: pg.period_total, dow_targets: pg.dow_targets };
+        if (!out.window) out.window = { start: pg.period_start, end: pg.period_end };
+      }
+    } catch (e2) { /* store not in the ledger for this period — skip, same as the day route */ }
+  }
+  return out;
+}
+
+/**
  * Every pay period overlapping [start, end], each with its frozen per-DOW targets.
  *
  * The client needs this because only the DAY view reads frozen period goals; week, month and YTD
@@ -1051,6 +1119,7 @@ function getPeriodGoalsRange_(start, end) {
     return jsonOut_({ ok: false, error: 'range exceeds ' + PG_RANGE_MAX_DAYS_ + ' days' });
   }
 
+  const byStoreId = pgStoreIdMap_();
   const periods = [];
   let cursor    = at(start);
   const last    = at(end);
@@ -1075,17 +1144,9 @@ function getPeriodGoalsRange_(start, end) {
     if (period && period.none) period = null;
 
     if (!period && !cached && misses < MISS_LIMIT) {
-      const goals = {};
-      let window  = null;
-      for (const s of PG_STORE_MAP_) {
-        try {
-          const pg = GXCore.getPeriodGoals(s.dutchie, date);
-          if (pg && pg.dow_targets) {
-            goals[s.sales] = { period_total: pg.period_total, dow_targets: pg.dow_targets };
-            if (!window) window = { start: pg.period_start, end: pg.period_end };
-          }
-        } catch (e2) { /* store not in the ledger for this period — skip, same as the day route */ }
-      }
+      const loaded = pgLoadPeriod_(date, byStoreId);
+      const goals  = loaded.goals;
+      const window = loaded.window;
       if (window) {
         period = { period_start: window.start, period_end: window.end, goals: goals };
         // Cache under EVERY date the period covers, not just the one asked for: the next range that
