@@ -40,6 +40,9 @@ ok('GX_DEV_READS is present and non-empty', READS.size > 0);
 const WRITES = new Set([
   'reportbug', 'save_expense_mapping', 'set_otherrev', 'set_revenue',
   'set_recon', 'set_recon_assign', 'set_recon_config',
+  // Smart budget. apply_budget stores the overlay, clear_budget drops it — both mutate, both are
+  // write-guarded in the proxy, and neither may be declared a read.
+  'apply_budget', 'clear_budget',
 ]);
 
 // ── Every action the page can request ─────────────────────────────────────────────────────────

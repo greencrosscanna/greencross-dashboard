@@ -623,6 +623,43 @@ function doGet(e) {
   // Same trick and same reason as goalprobe, one range wide: the range route sits behind the login
   // gate, so proving a re-pin still rolls periods up correctly would otherwise mean opening a
   // browser. It is also the only way to see uncovered_days/truncated without a session.
+  // Secret-gated twin of budget_proposal. Same reasoning as pnlprobe/goalprobe/reconprobe: the real
+  // route sits behind the login gate, so without this the only way to check the budget math after a
+  // deploy is to open a browser and sign in — and a check that inconvenient is a check nobody runs.
+  // Returns the SHAPE and the reasoning (method, confidence, n_months, annual), not a 22×12 grid.
+  if (params.action === 'budgetprobe') {
+    const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
+    if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
+    try {
+      const out  = getBudgetProposal({ year: params.year, nocache: '1' });
+      const data = JSON.parse(out.getContent());
+      if (!data.ok) return jsonOut_({ ok: false, stage: 'getBudgetProposal', error: data.error });
+      const byMethod = {}, byConf = {};
+      (data.proposals || []).forEach(function (p) {
+        byMethod[p.method]     = (byMethod[p.method]     || 0) + 1;
+        byConf[p.confidence]   = (byConf[p.confidence]   || 0) + 1;
+      });
+      const annual = (data.proposals || []).reduce(function (a, p) { return a + (p.annual || 0); }, 0);
+      return jsonOut_({
+        ok: true, ran_in: 'apps script runtime',
+        year: data.year, window: data.window, qb_source: data.qb_source,
+        months_of_history: data.months_of_history,
+        categories: (data.proposals || []).length,
+        by_method: byMethod, by_confidence: byConf,
+        proposed_annual_total: annual,
+        revenue_trend: data.revenue_trend,
+        applied: data.applied,
+        rows: (data.proposals || []).map(function (p) {
+          return { category: p.category, method: p.method, confidence: p.confidence,
+                   n_months: p.n_months, annual: p.annual,
+                   outliers_excluded: p.basis ? p.basis.outliers_excluded : null };
+        })
+      });
+    } catch (e) {
+      return jsonOut_({ ok: false, stage: 'probe', error: e.message });
+    }
+  }
+
   if (params.action === 'goalrangeprobe') {
     const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
     if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
@@ -659,6 +696,9 @@ function doGet(e) {
   if (params.action === 'set_otherrev')   { const g = writeGuard_(auth.user, 'set_otherrev'); if (!g.ok) return jsonOut_(g); return setOtherRevenue(params); }
   if (params.action === 'revenue_detail') return getRevenueDetail(params);
   if (params.action === 'set_revenue')    { const g = writeGuard_(auth.user, 'set_revenue'); if (!g.ok) return jsonOut_(g); return setRevenueLine(params); }
+  if (params.action === 'budget_proposal') return getBudgetProposal(params);
+  if (params.action === 'apply_budget')    { const g = writeGuard_(auth.user, 'apply_budget'); if (!g.ok) return jsonOut_(g); params._user = auth.user; return applyBudget_(params); }
+  if (params.action === 'clear_budget')    { const g = writeGuard_(auth.user, 'clear_budget'); if (!g.ok) return jsonOut_(g); return clearBudget_(params); }
   if (params.action === 'clear_atm_cache') { const g = writeGuard_(auth.user, 'clear_atm_cache'); if (!g.ok) return jsonOut_(g); return clearAtmCache_(params, auth.user); }
   if (params.action === 'inventory')     return getInventory(params);
   if (params.action === 'invprobe')      return probeInventoryEndpoints(params);
@@ -2178,7 +2218,23 @@ function getExpenseBudgets() {
       });
     }
 
-    const content = JSON.stringify({ budgets });
+    // Overlay any APPLIED smart budget on top of the sheet's numbers, per category. The sheet is
+    // never written (this script only holds reader access to it — see the SMART BUDGET section), so
+    // it stays the baseline and an un-applied category still reads straight from it. `overlaid`
+    // tells the frontend which rows are showing a proposal rather than the sheet, because a budget
+    // that silently isn't the sheet's is exactly the kind of divergence nobody catches.
+    const overlay  = sbGetOverlay_();
+    const overlaid = [];
+    if (overlay && overlay.year === BUDGET_YEAR && overlay.categories) {
+      Object.keys(overlay.categories).forEach(function (cat) {
+        budgets[cat] = overlay.categories[cat];
+        overlaid.push(cat);
+      });
+    }
+
+    const content = JSON.stringify({ budgets, overlaid,
+                                     overlay_applied_at: overlay ? overlay.applied_at : null,
+                                     overlay_applied_by: overlay ? overlay.applied_by : null });
     cacheSet_('expbudgets', content, 3600); // 1 hour
     output.setContent(content);
   } catch(e) {
@@ -2732,4 +2788,593 @@ function reportBug_(params, reporter) {
   } catch(e) {
     return jsonOut_({ ok: false, error: e.message });
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+//  SMART BUDGET — proposes a 12-month expense budget from actual QuickBooks history
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+//
+// Replaces the two things Sky named as the problem: "dividing an expense by 12" (which asserts a
+// flat month and is wrong for anything seasonal) and "guessing $500 for a line item" (which asserts
+// a number nothing supports). The engine answers the first with a measured seasonal index and the
+// second by REFUSING — a category with no history gets no proposal and says so, rather than a round
+// number that reads as analysed. An unsupported budget is worse than a visibly missing one: the
+// missing one gets filled in by a human who knows, the invented one gets trusted.
+//
+// WHERE IT APPLIES, and why not the sheet. BUDGET_SHEET_ID is the legacy "2026 GX2 Dashboard".
+// Its Drive permissions are `anyone → reader` with the file owned by a different account, so this
+// script CANNOT write it — a setValues() there throws — and the suite conventions say never to
+// touch that sheet anyway. So an applied budget is stored here, in ScriptProperties, exactly like
+// otherrev_data and expense_map, and getExpenseBudgets() overlays it per-category on top of the
+// sheet's own numbers. The sheet stays the untouched baseline, which is what makes revert total:
+// clearing the overlay restores it with nothing to undo.
+//
+// Everything below is deterministic and MEDIAN-based, never mean. One anomalous month — a legal
+// bill, an annual insurance premium paid in a lump — moves a mean enough to set the next twelve
+// months wrong. The median ignores it, and `outliers` reports what was set aside so the exclusion
+// is visible rather than silent.
+
+const SMART_BUDGET_PROP = 'smart_budget';
+
+// Categories whose spend tracks SALES VOLUME rather than the calendar. Budgeting these from their
+// own history would hold them flat against a sales plan that isn't — if the plan is to grow 10%,
+// a COGS budget built from last year's COGS is wrong by construction. These are modelled as a
+// median ratio to revenue and re-projected onto projected revenue instead. Sky's call, 2026-08-30.
+const SB_VOLUME_LINKED = ['COGS', 'COGS - Supplies & Materials', 'Payroll Expenses'];
+
+// Minimum COMPLETE months of history each method needs. Below SB_MIN_ANY there is no proposal at all.
+// 18, not 12. At twelve months there is exactly ONE observation per calendar month, and a single
+// observation cannot distinguish "December is always high" from "December was high once" — both
+// readings fit the data equally. Claiming a seasonal shape there is claiming to know something the
+// history does not contain, so below 18 the months are held flat and the row says so.
+const SB_MIN_SEASONAL = 18;
+const SB_MIN_TREND    = 6;
+const SB_MIN_RATIO    = 3;
+const SB_MIN_ANY      = 1;
+
+// Trend damping. A 6-vs-6-month growth ratio extrapolated twelve months forward compounds whatever
+// noise is in it, so half of it is taken and the result is clamped. A budget that doubles off one
+// good half-year is not a budget anyone can hold a manager to.
+const SB_TREND_DAMP = 0.5;
+const SB_TREND_MIN  = 0.80;
+const SB_TREND_MAX  = 1.25;
+
+// Outlier detection. SB_LIMIT_FLOOR keeps the band from collapsing on a near-constant series (see
+// sbOutlierLimit_); SB_LOCAL_W is how many months either side form the local level a point is
+// checked against. Both were chosen by running the real 24-month QuickBooks series through the
+// candidates, not by taste — W=3 with a 15% floor flags exactly the three true Rent anomalies
+// (a partial month, a double payment, a skipped month) and nothing else.
+const SB_LIMIT_FLOOR = 0.15;
+const SB_LOCAL_W     = 3;
+
+// A category is SPARSE when at least this share of its months had no spend at all. Sparse
+// categories get a run-rate budget instead of a typical-month one — see sbSparseProposal_.
+const SB_SPARSE_ZERO_SHARE = 0.5;
+// Inside a sparse category, a single month bigger than this share of the WHOLE window's spend is a
+// one-off event, not a rate. Miscellaneous is 94% one $26,915 month; Meals' biggest is 24%.
+const SB_SPARSE_EVENT_SHARE = 0.5;
+
+/** Median of a numeric array. Empty → 0. */
+function sbMedian_(arr) {
+  const a = (arr || []).filter(function (v) { return typeof v === 'number' && isFinite(v); })
+                       .slice().sort(function (x, y) { return x - y; });
+  if (!a.length) return 0;
+  const m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+
+/** Median absolute deviation — the robust spread that pairs with a median. */
+function sbMad_(arr, med) {
+  const m = (med == null) ? sbMedian_(arr) : med;
+  return sbMedian_((arr || []).map(function (v) { return Math.abs(v - m); }));
+}
+
+/**
+ * The robust distance beyond which a value is an outlier: 3×MAD from the median.
+ *
+ * The MAD-ZERO FALLBACK is the whole reason this is its own function. MAD is zero whenever MORE
+ * THAN HALF the values are identical — which is not the rare case, it is every fixed cost: rent,
+ * insurance, a flat software subscription. Those are exactly the categories where a single 8×
+ * month is most obviously an anomaly, and a bare `if (!mad) keep everything` switched the check
+ * OFF precisely there. Caught by tests/smart_budget_test.js on a rent series of 23×50k and one
+ * 400k month, where nothing was flagged at all.
+ *
+ * So when MAD is zero, fall back to the MEAN absolute deviation from the median. On that series it
+ * gives 14,583 and a limit of 43,750, which catches the 400k and keeps every 50k. When both are
+ * zero the series is genuinely flat and nothing is an outlier — which is the case the old guard
+ * was actually written for.
+ */
+function sbOutlierLimit_(vals) {
+  const med = sbMedian_(vals);
+  const devs = (vals || []).map(function (v) { return Math.abs(v - med); });
+  let scale = sbMedian_(devs);
+  if (!scale && devs.length) {
+    scale = devs.reduce(function (a, b) { return a + b; }, 0) / devs.length;
+  }
+  // RELATIVE FLOOR. 3×MAD alone collapses on a series whose recent months are near-identical: the
+  // real Rent Expense window gave a limit of $1,755 across values spanning $0 to $73,762, so a
+  // perfectly ordinary $2,400 month read as an outlier. Measured against the live series, anything
+  // from 10–25% behaves the same; 15% sits in the middle of that plateau.
+  const floor = Math.abs(med) * SB_LIMIT_FLOOR;
+  const base  = scale ? 3 * scale : 0;
+  const lim   = Math.max(base, floor);
+  return { med: med, lim: lim || Infinity };
+}
+
+/** Split into the values to use and the ones to set aside. Never returns an empty `kept`. */
+function sbSplitOutliers_(vals) {
+  const o = sbOutlierLimit_(vals);
+  const kept = [], outliers = [];
+  (vals || []).forEach(function (v) { (Math.abs(v - o.med) > o.lim ? outliers : kept).push(v); });
+  return { kept: kept.length ? kept : (vals || []).slice(), outliers: outliers };
+}
+
+/**
+ * Winsorize a series: a genuinely anomalous month keeps its slot but takes the median's VALUE.
+ *
+ * The hard part is that "far from the median" does NOT mean "anomalous". A category with a real
+ * summer peak — advertising at 10k for nine months and 30k for three — has six months sitting far
+ * from its own median, and a plain outlier filter flattens every one of them. That is not a
+ * cosmetic loss: it deletes the exact seasonality this whole feature exists to find, and it does it
+ * silently, handing back a confident flat budget for a category that is anything but.
+ *
+ * What separates the two cases is RECURRENCE. A seasonal peak repeats in the same calendar month
+ * across years; a one-off does not. So a point is winsorized only when it is far from the overall
+ * median AND far from the same calendar month in OTHER years. July 2025 advertising is far from the
+ * overall median but sits right on July 2024, so it survives. March 2025 rent is far from both, so
+ * it does not. When a month has no peer year the peer test is skipped — but seasonality is not
+ * claimed at that little history either (see SB_MIN_SEASONAL), so a survivor can only move the
+ * level, which is a mean over cleaned values and barely notices one month.
+ *
+ * Replacing rather than dropping keeps the month count honest: drop March 2025 and March has one
+ * observation instead of two, so its index is built from a single month.
+ */
+function sbCleanSeries_(series) {
+  const all = (series || []).map(function (p) { return p.v; });
+  const o   = sbOutlierLimit_(all);
+
+  // Same-calendar-month values from OTHER years, per index — the recurrence test.
+  const peerMed = (series || []).map(function (p, i) {
+    const peers = (series || []).filter(function (q, j) { return j !== i && q.mo === p.mo; })
+                                .map(function (q) { return q.v; });
+    return peers.length ? sbMedian_(peers) : null;
+  });
+
+  // The LOCAL level: the median of the two months either side, excluding this one. A level SHIFT is
+  // persistent — a new lease, a rent increase, a store opening — so its months agree with their
+  // immediate neighbours. A true anomaly does not. Without this test the rule cannot tell "rent went
+  // up in 2025" from "one weird month", and on the real Rent series it called 10 of 23 months
+  // outliers when only three were: Aug 2024 (partial), Dec 2024 (double payment), Apr 2025 (zero).
+  // The other seven were simply the old, lower rent.
+  // The neighbours BEFORE and AFTER are looked at separately, and agreeing with EITHER side is
+  // enough to be kept. A centred window cannot survive a step change: at the first month of a new
+  // lease, half the window is the old level and half the new, so the median lands between them and
+  // the month reads as an outlier against its own regime. One-sided, the new month agrees with what
+  // FOLLOWS it and is kept — which is the whole point, because a recent step up is exactly what a
+  // budget has to capture and the easiest thing to erase.
+  const side = function (i, dir) {
+    const near = [];
+    for (let k = 1; k <= SB_LOCAL_W; k++) { const q = series[i + dir * k]; if (q) near.push(q.v); }
+    return near.length ? sbMedian_(near) : null;
+  };
+
+  let replaced = 0;
+  const out = (series || []).map(function (p, i) {
+    const before = side(i, -1), after = side(i, 1);
+    const farFromAll  = Math.abs(p.v - o.med) > o.lim;
+    const farFromPeer = peerMed[i] === null ? true : Math.abs(p.v - peerMed[i]) > o.lim;
+    const fitsBefore  = before !== null && Math.abs(p.v - before) <= o.lim;
+    const fitsAfter   = after  !== null && Math.abs(p.v - after)  <= o.lim;
+    if (farFromAll && farFromPeer && !fitsBefore && !fitsAfter) {
+      replaced++;
+      // Filled with the level around it, not the window median: an anomaly inside a shifted stretch
+      // should be replaced by what that stretch was doing, not by an average of two regimes.
+      const fill = after !== null ? after : (before !== null ? before : o.med);
+      return { mo: p.mo, yr: p.yr, v: fill };
+    }
+    return p;
+  });
+  return { series: out, replaced: replaced };
+}
+
+/** Arithmetic mean. Empty → 0. */
+function sbMean_(arr) {
+  const a = (arr || []).filter(function (v) { return typeof v === 'number' && isFinite(v); });
+  return a.length ? a.reduce(function (x, y) { return x + y; }, 0) / a.length : 0;
+}
+
+/** 'Aug 2026' → { mo: 7 (0-indexed), yr: 2026 }, or null if it isn't a month column. */
+function sbParseCol_(label) {
+  const m = /^([A-Za-z]{3})\s+(\d{4})$/.exec(String(label || '').trim());
+  if (!m) return null;
+  const mo = MONTHS_12_.indexOf(m[1]);
+  return mo < 0 ? null : { mo: mo, yr: Number(m[2]) };
+}
+
+/**
+ * Damped, clamped growth factor from the last 6 complete months against the 6 before them.
+ * Medians on both sides so a single spike cannot manufacture a trend.
+ */
+function sbTrendFactor_(series) {
+  if (series.length < SB_MIN_TREND * 2) return 1;
+  const vals  = series.map(function (p) { return p.v; });
+  const recent = vals.slice(-SB_MIN_TREND);
+  const prior  = vals.slice(-SB_MIN_TREND * 2, -SB_MIN_TREND);
+  const rm = sbMedian_(recent), pm = sbMedian_(prior);
+  if (!pm) return 1;
+  const raw = rm / pm;
+  if (!isFinite(raw) || raw <= 0) return 1;
+  const damped = 1 + (raw - 1) * SB_TREND_DAMP;
+  return Math.max(SB_TREND_MIN, Math.min(SB_TREND_MAX, damped));
+}
+
+/**
+ * Seasonal index per calendar month, normalised to average 1 so applying it redistributes the year
+ * without resizing it. Months with no observation get exactly 1 rather than 0 — "no data for March"
+ * must not become "budget nothing in March".
+ *
+ * MEANS, not medians, and only because the series reaching here has already been cleaned. A budget
+ * has to TOTAL correctly: for a category that is 10k nine months a year and 30k for three, the
+ * median month is 10k and twelve of those under-budgets the year by 20%. The median's job was to
+ * find the distortion; once it is gone the mean is the right estimator.
+ */
+function sbSeasonalIndex_(series) {
+  const overall = sbMean_(series.map(function (p) { return p.v; }));
+  const idx = new Array(12).fill(1);
+  if (!overall) return idx;
+  for (let mo = 0; mo < 12; mo++) {
+    const forMo = series.filter(function (p) { return p.mo === mo; }).map(function (p) { return p.v; });
+    if (forMo.length) idx[mo] = sbMean_(forMo) / overall;
+  }
+  const avg = idx.reduce(function (a, b) { return a + b; }, 0) / 12;
+  return avg ? idx.map(function (v) { return v / avg; }) : idx;
+}
+
+/** Zero-filled Jan..Dec object. */
+function sbBlankYear_() {
+  const o = {};
+  MONTHS_12_.forEach(function (m) { o[m] = 0; });
+  return o;
+}
+
+/**
+ * Project a series forward over the 12 months of `year` using level × seasonality × trend.
+ * `level` is the median of the kept (non-outlier) values, so it is the typical month, not the
+ * average month — those differ most exactly where it matters, on lumpy categories.
+ */
+function sbProjectSeries_(series, year) {
+  // Clean FIRST, then derive all three of level, seasonality and trend from the cleaned series.
+  // A spike left in any one of them leaks into the budget by a different route: the level directly,
+  // the seasonal index by inventing a peak month and depressing the rest, the trend by landing in
+  // one half of the 6-vs-6 comparison.
+  const cleaned = sbCleanSeries_(series);
+  const cs      = cleaned.series;
+  // LEVEL comes from the trailing 12 months, SEASONALITY from the whole window. They want different
+  // spans and averaging them together is what makes a level shift disappear: rent that rose from
+  // ~40k to ~44k has a 24-month mean of ~42k, so a budget built on it is under by 4% every month
+  // for a cost that is known exactly. Twelve months is also a whole cycle, so the mean is not itself
+  // seasonally skewed. Seasonality needs the longer window for the opposite reason — it takes
+  // repeated observations of the same calendar month to establish a shape at all.
+  const recent  = cs.slice(-Math.min(12, cs.length));
+  const level   = sbMean_(recent.map(function (p) { return p.v; }));
+  const trend   = sbTrendFactor_(cs);
+  const seas    = cs.length >= SB_MIN_SEASONAL ? sbSeasonalIndex_(cs) : new Array(12).fill(1);
+  const out     = sbBlankYear_();
+  MONTHS_12_.forEach(function (m, i) { out[m] = Math.round(level * seas[i] * trend); });
+  return { monthly: out, level: level, trend: trend, seasonal: seas, outliers: cleaned.replaced };
+}
+
+/**
+ * Budget for a SPARSE category — one with no spend in half its months or more.
+ *
+ * These have no "typical month", and the main engine gets them badly wrong: with the median at
+ * zero, every month that DID have spend reads as an outlier, cleaning replaces it with the
+ * surrounding zeros, and the category is budgeted at $0. Meals & Entertainment came out of the live
+ * data at exactly that — $0 a year against $7,014 of real spend, with 11 of 12 months "excluded".
+ * A confident zero is the worst possible answer here: it reads as a decision.
+ *
+ * What such a category actually has is an annual RATE, so that is what it gets — total spend spread
+ * evenly, no seasonal claim. The only thing removed is a single month large enough to be an event
+ * rather than a rate: Miscellaneous is 94% one $26,915 line, which must not become a recurring
+ * budget, while Meals' largest month is 24% of its total and is simply a busy month.
+ *
+ * Deliberately NOT the MAD machinery. On small skewed values it produces a limit of a few hundred
+ * dollars and throws away half the real spend — the same collapse this function exists to avoid.
+ */
+function sbSparseProposal_(cat, series, windowMonths) {
+  const vals  = series.map(function (p) { return p.v; });
+  const total = vals.reduce(function (a, b) { return a + b; }, 0);
+  const events = [];
+  let used = total;
+  if (total > 0) {
+    vals.forEach(function (v) {
+      if (v > 0 && v / total > SB_SPARSE_EVENT_SHARE) { events.push(v); used -= v; }
+    });
+  }
+  const perMonth = windowMonths > 0 ? Math.max(0, used / windowMonths) : 0;
+  const monthly  = sbBlankYear_();
+  MONTHS_12_.forEach(function (m) { monthly[m] = Math.round(perMonth); });
+  const annual = MONTHS_12_.reduce(function (a, m) { return a + monthly[m]; }, 0);
+  const spent  = series.filter(function (p) { return p.v > 0; }).length;
+  return {
+    category: cat, method: 'run_rate', confidence: 'low', n_months: spent,
+    monthly: monthly, annual: annual,
+    basis: { total_in_window: Math.round(total), one_off_excluded: events.length,
+             one_off_amount: events.length ? Math.round(events[0]) : 0,
+             outliers_excluded: events.length },
+    note: 'Irregular — only ' + spent + ' of ' + windowMonths + ' months had any spend, so there is '
+        + 'no typical month. Budgeted at the run rate'
+        + (events.length ? ', after setting aside a one-off of $'
+             + Math.round(events[0]).toLocaleString() + ' that was most of the window\'s total' : '')
+        + '. Flat by design, not by analysis.'
+  };
+}
+
+/**
+ * Pull mapped expense categories AND total income, by month, over an arbitrary range.
+ * Deliberately reuses walkQBRows_ and the user's own mapping config so a proposal is expressed in
+ * exactly the categories the Expenses tab shows — a budget in different buckets than the actuals
+ * it will be compared against is not a budget.
+ */
+function sbFetchHistory_(start, end) {
+  const qb     = qbProfitAndLoss_(start, end, 'Month');
+  const report = qb.report;
+  if (report.Fault) throw new Error(JSON.stringify(report.Fault));
+
+  const cols = (report.Columns && report.Columns.Column ? report.Columns.Column : [])
+    .map(function (c) { return c.ColTitle || ''; }).filter(Boolean);
+
+  const expenses = {};
+  walkQBRows_(report.Rows && report.Rows.Row ? report.Rows.Row : [], cols, expenses, [], new Set(),
+              getExpenseMapConfig_(), 0);
+
+  // Total Income, straight off the flattened P&L — the same basis as the expense rows above, which
+  // is what makes a spend/revenue ratio meaningful. Mixing in Dutchie net sales here would divide
+  // two numbers that don't share a definition of revenue.
+  const flat = [];
+  flattenPnlRows_(report.Rows && report.Rows.Row ? report.Rows.Row : [], cols.length, flat, 0);
+  const incomeRow = flat.find(function (r) { return r.label === 'Total Income'; });
+  const income = {};
+  cols.forEach(function (c, i) { income[c] = incomeRow ? (incomeRow.values[i] || 0) : 0; });
+
+  return { columns: cols, expenses: expenses, income: income, qb_source: qb.source };
+}
+
+/**
+ * Build the proposal. `year` is the budget year; `throughMonth` is the last COMPLETE month of
+ * history (exclusive of the month in progress).
+ *
+ * Excluding the current month is load-bearing and easy to miss: on the 30th of a month, that
+ * month's column holds ~29 days of spend. Left in the series it drags the level and the trend
+ * down every single time the proposal is generated, and the closer to the 1st you run it the
+ * worse the answer — a failure that looks like a plausible number and never errors.
+ */
+function sbBuildProposal_(year, history) {
+  const series = {};   // cat → [{mo, yr, v}]
+  const incomeSeries = [];
+
+  history.columns.forEach(function (col) {
+    const p = sbParseCol_(col);
+    if (!p) return;                                  // 'Total' and anything unparsed
+    incomeSeries.push({ mo: p.mo, yr: p.yr, v: Number(history.income[col]) || 0 });
+  });
+
+  const cats = Object.keys(history.expenses);
+  cats.forEach(function (cat) {
+    series[cat] = [];
+    history.columns.forEach(function (col) {
+      const p = sbParseCol_(col);
+      if (!p) return;
+      series[cat].push({ mo: p.mo, yr: p.yr, v: Number(history.expenses[cat][col]) || 0 });
+    });
+  });
+
+  // Revenue projected by the same engine, so the volume-linked ratio has something to land on.
+  const incomeProj = sbProjectSeries_(incomeSeries, year);
+
+  const proposals = cats.map(function (cat) {
+    const s        = series[cat] || [];
+    const nonZero  = s.filter(function (p) { return p.v > 0; });
+    const n        = nonZero.length;
+    const isVolume = SB_VOLUME_LINKED.indexOf(cat) !== -1;
+
+    // No history at all → no proposal. This is the "$500 guess" rule, and it is a refusal on
+    // purpose: the caller keeps whatever the sheet already holds and is told why.
+    if (n < SB_MIN_ANY) {
+      return { category: cat, method: 'none', confidence: 'none', n_months: 0,
+               monthly: null, annual: null,
+               note: 'No spend in the history window — nothing to derive a budget from. Left as-is.' };
+    }
+
+    // Sparse categories are decided BEFORE the volume/seasonal paths — both of those assume a
+    // meaningful central value, which a mostly-zero series does not have.
+    const windowMonths = s.length;
+    const zeroShare    = windowMonths ? (windowMonths - n) / windowMonths : 1;
+    if (zeroShare >= SB_SPARSE_ZERO_SHARE) return sbSparseProposal_(cat, s, windowMonths);
+
+    if (isVolume && n >= SB_MIN_RATIO) {
+      // Ratio per month, then the MEDIAN ratio — not total spend over total revenue, which is a
+      // revenue-weighted average and lets the biggest month set the rate for all twelve.
+      const ratios = [];
+      s.forEach(function (p, i) {
+        const inc = incomeSeries[i] ? incomeSeries[i].v : 0;
+        if (inc > 0 && p.v > 0) ratios.push(p.v / inc);
+      });
+      // Mean of the KEPT ratios, for the same reason the level is a mean: the split has already
+      // removed the distortion, and a budget that under-totals is not a budget.
+      const rs    = sbSplitOutliers_(ratios);
+      const ratio = sbMean_(rs.kept);
+      const monthly = sbBlankYear_();
+      MONTHS_12_.forEach(function (m) { monthly[m] = Math.round(ratio * (incomeProj.monthly[m] || 0)); });
+      const annual = MONTHS_12_.reduce(function (a, m) { return a + monthly[m]; }, 0);
+      return {
+        category: cat, method: 'pct_of_revenue',
+        confidence: n >= SB_MIN_SEASONAL ? 'high' : 'medium', n_months: n,
+        monthly: monthly, annual: annual,
+        basis: { ratio: ratio, ratio_pct: Math.round(ratio * 1000) / 10,
+                 projected_revenue: incomeProj.monthly, outliers_excluded: rs.outliers.length },
+        note: 'Median ' + (Math.round(ratio * 1000) / 10) + '% of revenue, applied to projected revenue.'
+      };
+    }
+
+    const proj   = sbProjectSeries_(s, year);
+    const annual = MONTHS_12_.reduce(function (a, m) { return a + proj.monthly[m]; }, 0);
+
+    let method, confidence, note;
+    if (n >= SB_MIN_SEASONAL) {
+      method = 'seasonal_trend'; confidence = 'high';
+      note = 'Typical month $' + Math.round(proj.level).toLocaleString() +
+             ', shaped by ' + n + ' months of seasonality' +
+             (proj.trend !== 1 ? ' and a ' + (proj.trend > 1 ? '+' : '−') +
+              Math.abs(Math.round((proj.trend - 1) * 100)) + '% trend' : '') + '.';
+    } else if (n >= SB_MIN_TREND) {
+      method = 'trend_only'; confidence = 'medium';
+      note = n + ' months of history — enough for a level and a trend, not enough to claim a ' +
+             'seasonal shape, so the months are held flat.';
+    } else {
+      method = 'level_only'; confidence = 'low';
+      note = 'Only ' + n + ' month' + (n === 1 ? '' : 's') + ' of history. Flat at the median; ' +
+             'treat as a placeholder, not an analysis.';
+    }
+
+    return {
+      category: cat, method: method, confidence: confidence, n_months: n,
+      monthly: proj.monthly, annual: annual,
+      basis: { level: proj.level, trend: proj.trend,
+               seasonal: n >= SB_MIN_SEASONAL ? proj.seasonal : null,
+               outliers_excluded: proj.outliers },
+      note: note
+    };
+  });
+
+  proposals.sort(function (a, b) { return (b.annual || 0) - (a.annual || 0); });
+  return { year: year, proposals: proposals, projected_revenue: incomeProj.monthly,
+           revenue_trend: incomeProj.trend };
+}
+
+/** The applied overlay, or null. Shape: { year, categories:{cat:{Jan..Dec}}, applied_at, applied_by }. */
+function sbGetOverlay_() {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty(SMART_BUDGET_PROP);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+
+/**
+ * The 24-month window ending with the last COMPLETE month. Dates are built with
+ * Utilities.formatDate in Los Angeles, never toISOString — from 17:00 PT onward the UTC date is
+ * already tomorrow, which here would silently pull an extra month on some evenings and not others.
+ */
+function sbHistoryWindow_() {
+  const tz    = 'America/Los_Angeles';
+  const today = new Date();
+  const y     = Number(Utilities.formatDate(today, tz, 'yyyy'));
+  const m     = Number(Utilities.formatDate(today, tz, 'MM'));   // 1–12
+  // Last complete month = the month before the current one.
+  const endD  = new Date(y, m - 1, 0);                  // day 0 of this month = last day of previous
+  const startD= new Date(y, m - 1 - 24, 1);             // 24 complete months back
+  const fmt   = function (d) { return Utilities.formatDate(d, tz, 'yyyy-MM-dd'); };
+  return { start: fmt(startD), end: fmt(endD) };
+}
+
+/** action=budget_proposal — compute (never store) a proposal. Cached 1h; the inputs move monthly. */
+function getBudgetProposal(params) {
+  try {
+    const year = Number((params && params.year) || BUDGET_YEAR) || BUDGET_YEAR;
+    const win  = sbHistoryWindow_();
+    const key  = 'sbprop_' + year + '_' + win.start + '_' + win.end + '_v1';
+    if (!params || !params.nocache) {
+      const cached = cacheGet_(key);
+      if (cached) return jsonOut_(JSON.parse(cached));
+    }
+    const history = sbFetchHistory_(win.start, win.end);
+    const built   = sbBuildProposal_(year, history);
+    const overlay = sbGetOverlay_();
+    const out = {
+      ok: true, year: year, window: win,
+      qb_source: history.qb_source,
+      months_of_history: history.columns.filter(function (c) { return sbParseCol_(c); }).length,
+      proposals: built.proposals,
+      projected_revenue: built.projected_revenue,
+      revenue_trend: built.revenue_trend,
+      applied: overlay && overlay.year === year ? Object.keys(overlay.categories || {}) : []
+    };
+    cacheSet_(key, JSON.stringify(out), 3600);
+    return jsonOut_(out);
+  } catch (e) {
+    return jsonOut_({ ok: false, error: e.message });
+  }
+}
+
+/**
+ * action=apply_budget — store accepted categories as the overlay. Write-guarded like every other
+ * write here. Merges rather than replaces, so applying one category at a time is safe and a second
+ * apply cannot silently drop the first.
+ */
+function applyBudget_(params) {
+  let incoming;
+  try {
+    const raw = params.categories;
+    incoming = (raw && typeof raw === 'object') ? raw : JSON.parse(raw || '{}');
+  } catch (e) { return jsonOut_({ ok: false, error: 'Invalid categories JSON' }); }
+  if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+    return jsonOut_({ ok: false, error: 'categories must be an object' });
+  }
+
+  const year = Number(params.year || BUDGET_YEAR) || BUDGET_YEAR;
+  const prev = sbGetOverlay_();
+  // A year change replaces rather than merges — carrying last year's overlaid months into a new
+  // budget year would be indistinguishable from having applied them deliberately.
+  const cats = (prev && prev.year === year && prev.categories) ? prev.categories : {};
+
+  const applied = [];
+  for (const name of Object.keys(incoming)) {
+    const row = incoming[name];
+    if (!row || typeof row !== 'object') continue;
+    const clean = {};
+    let any = false;
+    MONTHS_12_.forEach(function (m) {
+      const v = Number(row[m]);
+      clean[m] = (isFinite(v) && v >= 0) ? Math.round(v * 100) / 100 : 0;
+      if (clean[m] > 0) any = true;
+    });
+    if (!any) continue;                 // an all-zero row is a no-op, not a budget of nothing
+    cats[name] = clean;
+    applied.push(name);
+  }
+  if (!applied.length) return jsonOut_({ ok: false, error: 'nothing to apply' });
+
+  const rec = {
+    year: year, categories: cats,
+    applied_at: Utilities.formatDate(new Date(), 'America/Los_Angeles', "yyyy-MM-dd'T'HH:mm:ssXXX"),
+    applied_by: String(params._user || '') || 'unknown',
+    source: 'smart_budget'
+  };
+  PropertiesService.getScriptProperties().setProperty(SMART_BUDGET_PROP, JSON.stringify(rec));
+  cacheDelete_('expbudgets');
+  return jsonOut_({ ok: true, applied: applied, total_overlaid: Object.keys(cats).length, year: year });
+}
+
+/**
+ * action=clear_budget — drop the whole overlay, or one category. The sheet was never written, so
+ * this is a complete revert with nothing to reconstruct.
+ */
+function clearBudget_(params) {
+  const props = PropertiesService.getScriptProperties();
+  const cur   = sbGetOverlay_();
+  if (!cur) return jsonOut_({ ok: true, cleared: 'nothing', remaining: 0 });
+
+  const one = String((params && params.category) || '').trim();
+  if (one) {
+    if (!cur.categories || !(one in cur.categories)) {
+      return jsonOut_({ ok: false, error: 'not overlaid: ' + one });
+    }
+    delete cur.categories[one];
+    props.setProperty(SMART_BUDGET_PROP, JSON.stringify(cur));
+    cacheDelete_('expbudgets');
+    return jsonOut_({ ok: true, cleared: one, remaining: Object.keys(cur.categories).length });
+  }
+  props.deleteProperty(SMART_BUDGET_PROP);
+  cacheDelete_('expbudgets');
+  return jsonOut_({ ok: true, cleared: 'all', remaining: 0 });
 }
