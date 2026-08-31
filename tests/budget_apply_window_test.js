@@ -132,7 +132,7 @@ const full = (v) => Object.fromEntries(MONTHS.map(m => [m, v]));
 }
 
 // ── A $0 proposal is a real answer, and must be applyable ────────────────────────────────────
-// This is how a stale figure gets retired. The previous behaviour skipped an all-zero row, so the
+// This is how a stale figure gets retired. The previous behavior skipped an all-zero row, so the
 // old number survived by being left alone — which is exactly how an $18,000 Startup Expense stays
 // in a budget nobody chose.
 {

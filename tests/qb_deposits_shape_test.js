@@ -119,7 +119,7 @@ ok('...and carries the memo that explains the variance it will cause',
    !!ins && ins.memo.indexOf('Insurance Reimbursement') !== -1);
 
 // ── The class is never folded ─────────────────────────────────────────────────────────────────
-// Guarding the same mistake that cost this repo four ATM machines: fold or normalise the class and
+// Guarding the same mistake that cost this repo four ATM machines: fold or normalize the class and
 // every store bucket empties, silently.
 const FOLDED = RAW.map(d => ({ ...d, lines: d.lines.map(l => ({ ...l, class: l.class.replace(/ (ST|DR|RD)$/, '') })) }));
 const folded = ctx.group(FOLDED);

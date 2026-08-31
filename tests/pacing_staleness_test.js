@@ -88,7 +88,7 @@ now = atClock('2026-08-23T22:00:00');
 ctx.paceFracsAt = now;
 check('exactly 22:00 (close) reads 100%', pacing(), 100);
 
-console.log('\nbefore close, a FRESH frac is honoured');
+console.log('\nbefore close, a FRESH frac is honored');
 now = atClock('2026-08-23T15:00:00');
 ctx.paceFracs = { Commercial: 0.50, Century: 0.50, River: 0.50 };
 ctx.paceFracsAt = now;

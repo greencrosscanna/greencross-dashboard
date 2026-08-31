@@ -371,7 +371,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .sbp-num.strong{color:var(--text);font-weight:600}
 .sbp-basis{display:flex;flex-direction:column;gap:3px;align-items:flex-start;min-width:0}
 .sbp-hist{font-size:10px;color:var(--muted)}
-/* 12 bars, height = that month's share of the row's own max. Closed months are grey so the shape
+/* 12 bars, height = that month's share of the row's own max. Closed months are gray so the shape
    reads as "what is still yours to set" at a glance. */
 .sbp-shape{display:flex;gap:2px;height:30px;align-items:flex-end}
 .sbp-sbar{flex:1;min-width:0;border-radius:2px 2px 0 0;background:var(--border-strong)}
@@ -408,9 +408,9 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
 /* The id is load-bearing: the desktop query sets .gx-subnav.dsk-chrome{display:flex!important},
    which out-specifies a lone class even with !important on both. */
 #dsk-subnav.dsk-subnav-off{display:none!important}
-/* Smart budget planner. Confidence is COLOUR-CODED and also spelled out in words on the row: the
+/* Smart budget planner. Confidence is COLOR-CODED and also spelled out in words on the row: the
    whole point of the screen is that a low-confidence number cannot masquerade as an analysed one,
-   and colour alone fails exactly the readers who most need the warning. */
+   and color alone fails exactly the readers who most need the warning. */
 .sb-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:4px;padding:8px 0;border-bottom:.5px solid var(--border)}
 .sb-row:last-child{border-bottom:0}
 .sb-chk{width:15px;height:15px;accent-color:var(--green);cursor:pointer;flex:0 0 auto}
@@ -572,7 +572,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
 .ic-dsk{display:none}
 /* Hero card */
 .ic-hero-card{background:var(--card);border-radius:12px;padding:18px 16px;position:relative}
-/* Swipe cue. The neighbour buttons under the hero used to be both the discoverability hint and the
+/* Swipe cue. The neighbor buttons under the hero used to be both the discoverability hint and the
    "you have dragged far enough" signal, and they were removed to give the store progress bars their
    row back. These replace the signal without taking any: absolutely positioned, so they add ZERO
    height. Invisible at rest, they fade in with the drag and go green past the commit threshold. */
@@ -673,7 +673,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
 .ic-chart-top-lbl{font-size:11px;font-weight:500;color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
 /* ── Desktop sidebar ────────────────────────────────────────────────────────── */
 .dsk-logo-row{display:none;align-items:center;justify-content:space-between;margin-bottom:14px}
-/* Live/refresh control. Styled as a pill button so it reads as clickable — the colour is still set
+/* Live/refresh control. Styled as a pill button so it reads as clickable — the color is still set
    from pill() to reflect connection state, so the border/background here are neutral and only the
    text and dot carry status. */
 .dsk-live{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:500;color:var(--green);
@@ -762,9 +762,9 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
 /* Store PILLS — the same filter-row treatment the Leaderboard uses (.pill there): a horizontal
    row of rounded toggles instead of the checkbox list this used to be. Two things are deliberately
    NOT copied from the Leaderboard: selection stays MULTI-select here (these toggle activeStoreSet,
-   they are not radio buttons), and each store keeps its own palette colour in the leading dot —
-   the pill's own on-state is green for every store, because a few of the store colours are too
-   dim to read as 12px text on this background. Colour identity lives in the dot, state in the pill. */
+   they are not radio buttons), and each store keeps its own palette color in the leading dot —
+   the pill's own on-state is green for every store, because a few of the store colors are too
+   dim to read as 12px text on this background. Color identity lives in the dot, state in the pill. */
 .store-pills{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .store-pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border-strong);
   color:var(--dim);background-color:transparent;border-radius:999px;padding:5px 12px;font-size:12px;
@@ -793,7 +793,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
    This means phones are excluded even when GAS serves inside a wide iframe. */
 @media(min-width:768px) and (hover:hover) and (pointer:fine){
   /* Single column now — the 264px sidebar became the top nav, which lives outside .w so the bar
-     spans the window while the content below stays centred. */
+     spans the window while the content below stays centered. */
   .w{max-width:1400px;padding:24px;display:block}
   header.gx-topnav.dsk-chrome{display:flex!important;position:sticky;top:0;z-index:50;}
   /* The period popover is absolutely positioned inside .dsk-period and hangs BELOW this row, so
@@ -916,7 +916,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
    and Leaderboard carried their own copies of the same 21 rules).
 
    .bug-fab and .bug-inline above STAY: they are Sales' own triggers, and their visibility (post-auth,
-   hidden under 768px) is this app's behaviour, not the shared form's.
+   hidden under 768px) is this app's behavior, not the shared form's.
 
    The modal rules below ALSO stay, renamed .sx-modal-*. They were written for the bug modal but the
    Other Revenue / ATM editor reuses every one of them, so deleting them with the bug form silently
@@ -938,8 +938,8 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
 .sx-submit:disabled{opacity:0.45;cursor:not-allowed}
 .sx-status{font-size:11px;color:var(--muted);margin-top:8px;text-align:center;min-height:16px}
 /* ── Deposit reconciliation ──────────────────────────────────────────────────────────────────
-   State is carried by a LEFT BORDER plus a word, never by colour alone — the four states have to
-   survive a colourblind reader and a projector, and "Off" is the one you must not miss. */
+   State is carried by a LEFT BORDER plus a word, never by color alone — the four states have to
+   survive a colorblind reader and a projector, and "Off" is the one you must not miss. */
 .recon-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .recon-tally{display:flex;gap:8px;flex-wrap:wrap}
 .recon-actions{display:flex;gap:8px}
@@ -1030,7 +1030,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
           kiosk downloaded a dev-only script it can never use.
        2. A RELATIVE src cannot resolve on a GAS-served page -- HtmlService sandboxes the document to a
           different origin -- so on that path the guard was silently ABSENT rather than inert. Nothing
-          signalled it, which is worse than the 404.
+          signaled it, which is worse than the 404.
 
      Loading it only on localhost fixes both: production never makes the request at all, and the URL is
      absolute so it resolves from any origin, GAS included. Nothing to commit per repo, which also
@@ -1066,7 +1066,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
 <body>
 <!-- ── Chrome ─────────────────────────────────────────────────────────────────────────────────
      Was a 264px sidebar. Now the shared top nav, so this app reads like the rest of the suite.
-     It sits OUTSIDE .w deliberately: .w is a centred max-width wrapper, and a bar rendered inside
+     It sits OUTSIDE .w deliberately: .w is a centered max-width wrapper, and a bar rendered inside
      it stops short of the window edges on a wide display while its own border ends with it.
 
      Period and store pickers keep their ORIGINAL ids and move to a .gx-subnav row underneath —
@@ -1441,7 +1441,7 @@ let _invGmLoading = false;
 let expBudgets = null;  // loaded from Annual Budget sheet via proxy
 let expBudgetsOverlaid = new Set(); // categories whose budget is an applied smart-budget overlay
 // Categories that BILL ONCE in the period rather than accruing daily — rent, insurance,
-// licences, management. Server-side (set in the budget planner) because this tab is the
+// licenses, management. Server-side (set in the budget planner) because this tab is the
 // consumer: pacing a once-billed category against a day-30 fraction calls it "over" every month.
 let expBillsOnce = new Set();
 let otherRevData  = null; // { atm: { Jan: 9493, ... }, sublet: { Jan: 0, ... } }
@@ -1505,7 +1505,7 @@ function toggleExpCat(name) {
  * renders "—" rather than comparing against nothing.
  *
  * `goalsYear` null means the backend did not report a year (a proxy older than this build, or a
- * server-side cache entry written before it). That falls through to the old behaviour on purpose:
+ * server-side cache entry written before it). That falls through to the old behavior on purpose:
  * Pages and clasp deploy separately, and blanking every goal for an hour is a worse failure than
  * the one being fixed.
  */
@@ -2337,7 +2337,7 @@ async function refreshDutchieData() {
 }
 
 // Paints the Live button's in-flight state. Kept separate from pill() because pill() owns the
-// CONNECTION colour and this owns the BUSY affordance; they change on different schedules.
+// CONNECTION color and this owns the BUSY affordance; they change on different schedules.
 function setLiveBusy(on) {
   const el = document.getElementById('dsk-live-pill');
   if (el) el.classList.toggle('busy', !!on);
@@ -2771,7 +2771,7 @@ function setSection(s) {
 // match a selector that had one panel per field. periodApply() replaced all five: it takes a WHOLE
 // selection, so a week that crosses a month and a day that crosses a year each land in one call
 // instead of needing the caller to remember to fix the fields above them. Deleted 2026-08-25 once
-// the last caller went with the four-field panel; their behaviour (which changes reload, which
+// the last caller went with the four-field panel; their behavior (which changes reload, which
 // only re-render, when pace fracs refresh) is preserved in periodApply.
 
 function setStore(s) {
@@ -2817,7 +2817,7 @@ function buildStoreTabs() {
 // One inherited quirk, kept deliberately: a week number of 0 (possible in the first days of
 // January) reads as falsy, so `activeWeek` truthiness is the week test — the same test
 // getPeriodTotals, getStorePeriodNet and the chart builders already use. Switching this one place
-// to `!== null` would make the selector claim a week grain that the data path would not honour.
+// to `!== null` would make the selector claim a week grain that the data path would not honor.
 
 function periodGrain() {
   if (activeDay)  return 'day';
@@ -2976,8 +2976,8 @@ function periodActivePreset() {
 /** The next/previous period AT THE CURRENT GRAIN — day ±1 day, week ±1 week (crossing months and
  *  years), month ±1 month (crossing years), YTD ±1 year.
  *
- *  ALWAYS names the neighbour, even one that cannot be reached: `allowed` is what greys the ‹ ›
- *  buttons and the mobile neighbour labels. A greyed "Sep" says why you cannot go there; a blank
+ *  ALWAYS names the neighbor, even one that cannot be reached: `allowed` is what grays the ‹ ›
+ *  buttons and the mobile neighbor labels. A grayed "Sep" says why you cannot go there; a blank
  *  button just looks broken. */
 function periodStepTarget(dir) {
   const t = todayMidnight(), g = periodGrain();
@@ -4018,7 +4018,7 @@ function _incomeKpiDskHtml(net, gross, orders, disc, cost, aov, dnet, dcost) {
 
 // ── Swipe-to-step (mobile) ────────────────────────────────────────────────────
 // Dragging the mobile hero moves to the next/previous period of whatever grain is selected, so a
-// phone never has to open the sheet just to walk a series. The neighbour buttons that used to sit
+// phone never has to open the sheet just to walk a series. The neighbor buttons that used to sit
 // under the hero are gone — they cost a row that the store progress bars needed — so the cue is now
 // the chevrons inside the hero, which are absolutely positioned and take no height. The bottom
 // bar's period button remains the tap fallback for anyone who never tries the gesture.
@@ -4029,7 +4029,7 @@ function _incomeKpiDskHtml(net, gross, orders, disc, cost, aov, dnet, dcost) {
 const P_SWIPE_COMMIT = 56;   // px of travel that counts as a step
 const P_SWIPE_TRAVEL = 0.92; // the card tracks the finger almost 1:1 — at 0.6 the drag read as a
                              // twitch rather than as dragging the card
-const P_SWIPE_DAMP   = 0.25; // rubber-band, not travel, when the neighbour is in the future
+const P_SWIPE_DAMP   = 0.25; // rubber-band, not travel, when the neighbor is in the future
 const P_SWIPE_OUT_MS = 150;  // the throw. Short — this is dead time before the new figure appears
 const P_SWIPE_IN_MS  = 260;  // the arrival. Longer, so the eye follows the card in and lands on it
 let _pDrag = null;           // { x, y, dx } while a drag is live
@@ -4059,7 +4059,7 @@ function _pDragEnd() {
   _pCommit(dx < 0 ? 1 : -1);
 }
 
-// A committed swipe used to snap the card back to centre and swap the numbers underneath it in the
+// A committed swipe used to snap the card back to center and swap the numbers underneath it in the
 // same frame, so the only evidence anything happened was the figures being different — easy to miss
 // entirely, and indistinguishable from a swipe that did not take.
 //
@@ -5318,7 +5318,7 @@ function renderExpenses() {
     .map(name => {
       const val    = (expenseData.expenses[name] || {})[colKey] || 0;
       const budget = getBudget(name);
-      // Rent, insurance, licences and management BILL ONCE — they land at a point in the period
+      // Rent, insurance, licenses and management BILL ONCE — they land at a point in the period
       // rather than accruing daily, so pacing them against a day-30 fraction calls them "over" by
       // construction every single month. Flagged categories compare against the whole period's
       // budget instead. The flag is server-side (set in the budget planner) precisely so this
@@ -5719,7 +5719,7 @@ function drawExpMonthlyChart() {
   });
   const desktop = expIsDesktop();
   const isActive = (c) => activeMonth === 0 || c.startsWith(MONTHS[activeMonth - 1] + ' ');
-  // On desktop the bar colour carries over/under against that month's own budget; the active month
+  // On desktop the bar color carries over/under against that month's own budget; the active month
   // is the saturated variant. The phone keeps the original orange — its layout was out of scope.
   const bgColors = cols.map((c, i) => {
     if (!desktop) return isActive(c) ? '#D85A30' : 'rgba(216,90,48,0.35)';
@@ -5808,7 +5808,7 @@ let reconAllWeeks = localStorage.getItem('gc_recon_all_weeks') === '1';
 
 // Deposits carrying a QuickBooks class that maps to no store (CORPORATE refunds, and the like).
 // They are real money and this tab exists partly to stop money vanishing off a reconciliation
-// screen — so "ignore" hides the itemised card but never the FACT: a one-line count stays, and one
+// screen — so "ignore" hides the itemized card but never the FACT: a one-line count stays, and one
 // click brings the detail back. Defaults to ignoring, which is what Sky asked for.
 let reconIgnoreUnatt = localStorage.getItem('gc_recon_ignore_unatt') !== '0';
 
@@ -6986,7 +6986,7 @@ async function sbpToggleBillsOnce(cat) {
 
 /** The budget a category currently has — the overlay if it was applied, otherwise the frozen
  *  figure. Deliberately NOT _sbCurrentAnnual's old reading of expBudgets, which is already overlaid
- *  and so showed the overlay in a column labelled "Sheet". */
+ *  and so showed the overlay in a column labeled "Sheet". */
 function _sbCurrentAnnual(cat) {
   const src = (budgetProposal && (budgetProposal.overlay?.[cat] || budgetProposal.current?.[cat])) || null;
   if (!src) return 0;
@@ -7060,7 +7060,7 @@ function renderBudgetPlanner() {
     if (!budgetLoading) {
       budgetLoading = true;
       el.innerHTML = `<div class="card"><div class="empty-state"><span class="spinner-inline"></span>
-        Analysing 24 months of QuickBooks history…</div></div>`;
+        Analyzing 24 months of QuickBooks history…</div></div>`;
       loadBudgetProposal().finally(() => {
         budgetLoading = false;
         if (section === 'expenses' && expSection === 'budget') renderExpenses();
@@ -7304,7 +7304,7 @@ function _sbpEditor(p, months, once) {
       <input type="checkbox" class="sb-chk" ${once ? 'checked' : ''}
              onchange="sbpToggleBillsOnce('${escHtml(cat)}')">
       Lands at the start of the period — don't pace it on the Expenses tab.
-      <span class="exp-hint">Rent, insurance and licences bill once, so a day-30 comparison calls them "over" every month.</span>
+      <span class="exp-hint">Rent, insurance and licenses bill once, so a day-30 comparison calls them "over" every month.</span>
     </label>
   </div>`;
 }

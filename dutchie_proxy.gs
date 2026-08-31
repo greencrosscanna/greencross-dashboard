@@ -1181,7 +1181,7 @@ function pgStoreIdMap_() {
  * tab holds a sentinel row dated 2000-01-01, so min/max reported the ledger as covering 2000-01-01
  * to 2026-08-30 and every date in between looked findable. Measured on the deployed route, a 2024
  * range still took 17.8s discovering otherwise, while 2028 — genuinely past the max — returned in
- * 1.9s. One orphan row was enough to undo the optimisation for twenty-six years of dates.
+ * 1.9s. One orphan row was enough to undo the optimization for twenty-six years of dates.
  *
  * With the real intervals, membership is exact: a date in no interval needs no cache read and no
  * probe, and a date in one names the period to load without guessing at boundaries.
@@ -1250,7 +1250,7 @@ function pgLoadPeriod_(date, byStoreId) {
     // no pay period covering this date, which is the normal reply for anything outside the ledger —
     // and outside it is where the walk spends every one of its MISS_LIMIT probes. Falling through to
     // the per-store loop on an empty array made a miss cost SEVEN calls instead of one, measured at
-    // 39s for the 123 uncovered days after 2026-08-30. Only an exception or an unrecognisable shape
+    // 39s for the 123 uncovered days after 2026-08-30. Only an exception or an unrecognizable shape
     // earns the fallback.
     if (Array.isArray(picked) && !picked.length) return out;
     if (picked && picked.length) {
@@ -2977,7 +2977,7 @@ function reportBug_(params, reporter) {
 // flat month and is wrong for anything seasonal) and "guessing $500 for a line item" (which asserts
 // a number nothing supports). The engine answers the first with a measured seasonal index and the
 // second by REFUSING — a category with no history gets no proposal and says so, rather than a round
-// number that reads as analysed. An unsupported budget is worse than a visibly missing one: the
+// number that reads as analyzed. An unsupported budget is worse than a visibly missing one: the
 // missing one gets filled in by a human who knows, the invented one gets trusted.
 //
 // WHERE IT APPLIES, and why not the sheet. BUDGET_SHEET_ID is the legacy "2026 GX2 Dashboard".
@@ -3121,12 +3121,12 @@ function sbCleanSeries_(series) {
 
   // The LOCAL level: the median of the two months either side, excluding this one. A level SHIFT is
   // persistent — a new lease, a rent increase, a store opening — so its months agree with their
-  // immediate neighbours. A true anomaly does not. Without this test the rule cannot tell "rent went
+  // immediate neighbors. A true anomaly does not. Without this test the rule cannot tell "rent went
   // up in 2025" from "one weird month", and on the real Rent series it called 10 of 23 months
   // outliers when only three were: Aug 2024 (partial), Dec 2024 (double payment), Apr 2025 (zero).
   // The other seven were simply the old, lower rent.
-  // The neighbours BEFORE and AFTER are looked at separately, and agreeing with EITHER side is
-  // enough to be kept. A centred window cannot survive a step change: at the first month of a new
+  // The neighbors BEFORE and AFTER are looked at separately, and agreeing with EITHER side is
+  // enough to be kept. A centered window cannot survive a step change: at the first month of a new
   // lease, half the window is the old level and half the new, so the median lands between them and
   // the month reads as an outlier against its own regime. One-sided, the new month agrees with what
   // FOLLOWS it and is kept — which is the whole point, because a recent step up is exactly what a
@@ -3188,7 +3188,7 @@ function sbTrendFactor_(series) {
 }
 
 /**
- * Seasonal index per calendar month, normalised to average 1 so applying it redistributes the year
+ * Seasonal index per calendar month, normalized to average 1 so applying it redistributes the year
  * without resizing it. Months with no observation get exactly 1 rather than 0 — "no data for March"
  * must not become "budget nothing in March".
  *

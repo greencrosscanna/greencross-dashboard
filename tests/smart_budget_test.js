@@ -91,7 +91,7 @@ console.log('\n1. one anomalous month must not set the year');
   ok('a flat series keeps every month (MAD 0 must not exclude everything)', split.outliers.length === 0 && split.kept.length === 12);
 }
 
-// ── 2. Seasonal index is normalised ───────────────────────────────────────────────────────────
+// ── 2. Seasonal index is normalized ───────────────────────────────────────────────────────────
 console.log('\n2. seasonality redistributes the year, it must not resize it');
 {
   // A strongly seasonal series: summer triple the winter, two full years.
@@ -206,7 +206,7 @@ console.log('\n5. end to end — the refusal, the ratio, and the seasonal shape 
 
   // 5d. Advertising — genuinely seasonal, and it should say so.
   const adv = by['Advertising & Promotion'];
-  ok('Advertising is recognised as seasonal with 24 months behind it',
+  ok('Advertising is recognized as seasonal with 24 months behind it',
      adv.method === 'seasonal_trend' && adv.confidence === 'high');
   ok('...and budgets summer above winter', adv.monthly.Jul > adv.monthly.Feb * 1.5);
 

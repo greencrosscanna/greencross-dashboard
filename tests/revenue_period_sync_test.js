@@ -121,7 +121,7 @@ function select(year, month) {
 console.log('\n1. the reported step: ‹ from January 2026');
 select(2026, 1);
 check('starts on Jan 2026', revCell(), '2026/Jan');
-check('the ‹ neighbour is named Dec', vm.runInContext('periodStepTarget(-1).label', ctx), 'Dec');
+check('the ‹ neighbor is named Dec', vm.runInContext('periodStepTarget(-1).label', ctx), 'Dec');
 check('and it is reachable', vm.runInContext('periodStepTarget(-1).allowed', ctx), true);
 vm.runInContext('periodStep(-1)', ctx);
 check('the shared selection is Dec 2025', ctx.activeYear + '/' + ctx.activeMonth, '2025/12');
@@ -200,7 +200,7 @@ console.log('\n8. a cache entry that disagrees with its own key cannot loop');
   ctx.getToken    = () => 't';
   ctx.writeCache  = () => {};
   ctx.fetch       = () => { fetched++; return Promise.reject(new Error('no network in test')); };
-  // Stands in for the real renderRevenue's one relevant behaviour: stale → ask again.
+  // Stands in for the real renderRevenue's one relevant behavior: stale → ask again.
   ctx.renderRevenue = () => {
     if (++renderCalls > 50) { guardTripped = true; throw new Error('render/load loop'); }
     if (vm.runInContext('revDetailStale_()', ctx)) vm.runInContext('loadRevenueDetail()', ctx);

@@ -15,7 +15,7 @@
  *
  * The fixture below is REAL data from that probe, not invented: the four periods covering March
  * 2026, with each store's actual dow_targets. So the expected March totals are the numbers the app
- * must now show, and a regression prints a figure Sky can recognise.
+ * must now show, and a regression prints a figure Sky can recognize.
  *
  * Runs the real functions out of index.html; a modelled copy would keep passing after the shipped
  * code regressed, which is the only way this could lie.
@@ -175,7 +175,7 @@ check('an entirely uncovered window also falls back',
 console.log('\nthe week target now reflects WHICH week, not the month average');
 // Both weeks are inside March and fully covered, but they sit in different pay periods, so a real
 // week target must differ between them. The budget fallback returns the same number for every week
-// in the month — that is the behaviour being replaced.
+// in the month — that is the behavior being replaced.
 const w1 = ctx.getWeeklyGoal('Bend', 3, 2026, 31, '2026-03-02', '2026-03-08');
 const w3 = ctx.getWeeklyGoal('Bend', 3, 2026, 31, '2026-03-16', '2026-03-22');
 const flat = BUDGET['Bend'][2] * 7 / 31;
@@ -198,10 +198,10 @@ check('a date with no frozen target still uses the DOW-weighted budget',
   Math.round(ctx.getDailyGoal('Bend', 4, 7, 2026, 31, '2026-07-02')),
   Math.round(BUDGET['Bend'][6] * 7 / 31 / 7));
 
-console.log('\nthe memo cannot outlive the data it summarised');
-// pgTotal memoises, including its nulls. If the cache were not cleared when pgDaily grows, a window
+console.log('\nthe memo cannot outlive the data it summarized');
+// pgTotal memoizes, including its nulls. If the cache were not cleared when pgDaily grows, a window
 // that missed before the fetch landed would stay missing for the life of the page.
-check('a null is memoised', ctx.pgTotal('Bend', '2026-07-01', '2026-07-31'), null);
+check('a null is memoized', ctx.pgTotal('Bend', '2026-07-01', '2026-07-31'), null);
 check('loadPeriodGoalRange clears the memo when pgDaily grows',
   /_pgTotalMemo\.clear\(\)/.test(SRC), true);
 
