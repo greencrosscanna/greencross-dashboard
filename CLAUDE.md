@@ -30,7 +30,7 @@ failing test blocks the push exactly like a dev leftover does.
 silently. Six EXECUTE the shipped source: `pnl_statement`, `deposit_reconciliation`, `pacing_staleness`,
 `qb_deposits_shape` and `goal_attainment` `grab()` named functions out of the file and run them in a `vm`
 context, and `write_guard` rebuilds them with `new Function` — so a renamed function fails the suite instead of quietly
-falling out of coverage. The other two, `orphan_css_classes` and `dev_guard_actions`, analyse the source
+falling out of coverage. The other two, `orphan_css_classes` and `dev_guard_actions`, analyze the source
 text rather than running it. `.claude/gx-posttool-tests.sh` reruns all of them after every edit to those
 two files, which is why a broken edit surfaces mid-session instead of at push time.
 
@@ -96,7 +96,7 @@ ScriptProperties overlay that `getExpenseBudgets()` merges per-category over `fr
 - **COGS / Payroll are % of projected revenue**, not their own history — budgeting them off last
   year's spend holds them flat against a sales plan that isn't.
 - **A category with no history gets NO proposal.** That refusal is the point: a made-up figure reads
-  as analysed, which is worse than a visibly missing one.
+  as analyzed, which is worse than a visibly missing one.
 - **Sparse categories (no spend in half their months) get a run rate**, not a typical month. With
   the median at 0 every month that DID spend read as an outlier and Meals & Entertainment came out
   at **$0/yr against $7,014 of real spend**. A confident zero is the worst answer available.
@@ -335,7 +335,7 @@ is no longer read at all (see the severance section above).
   $43,564; from 2026-01-19 the window cleared the gap. Since 2026-04-27 one extra window day held it
   0.7% light instead.
 
-  Fixed in `greencross-leaderboard` **v1.667** (2026-08-30) by normalising on the shape's own
+  Fixed in `greencross-leaderboard` **v1.667** (2026-08-30) by normalizing on the shape's own
   two-week total. Verified at the source: GX Core's `period_goals` row for 2026-08-17 now reads
   `period_total 41500 | 2xdow 41500`. **The two distorted periods were NOT corrected** — a closed
   period is locked, `writeGoalLedger_` refuses it and there is no unlock route, and that is
@@ -577,7 +577,7 @@ any group loses nothing; all the damage is in the drops.
 `center st`+`center`" figures were **core-admin's**, not Sky's, produced by reading the map through
 `grep -A 20` — which truncated it — and retracted the same day. This app caught the error twice: first by
 parsing the literal, then by refusing to let core-admin's replacement number harden while it was still
-modelled. Modelling undercounts survivors, because `resolveStore` token-folds before matching and strips a
+modelled. Modeling undercounts survivors, because `resolveStore` token-folds before matching and strips a
 trailing ` rd`/` st` — so `center st` resolves to `center` even though that store publishes only
 `["Center"]`.*
 
@@ -633,4 +633,4 @@ secret, all without perturbing the current mode.
 
 **What to build next — `/gxwhatsnext`:** run `/gxwhatsnext` in this chat to pull this app's next prioritized work — the Command Center's dependency-ordered build sequence, filtered to this app — so you can build here without switching to the CC. It reads the app key above automatically.
 
-**Close the loop when you're done:** When a dispatched or `/gxwhatsnext`-started task's goals look met — the moment you'd naturally say "that should do it" — proactively tell Sky and **offer to ship/close it out; don't wait to be asked.** Shipping (spoke apps: open/return the PR → `dev_update … status=in_review`; on merge → `dev_ship`; `core-admin` deploys directly → `dev_ship`) auto-completes the Asana to-do and clears it from the Command Center. Find the job via `dev_queue` (filtered to this app) when you need its id for the `curl` — but **refer to it by its `title`, never its id**. `job_mtg9vyxs_ewd9` means nothing to Sky; every job carries the to-do text in the same response the id came from, so say that instead, summarised if it's long ("the employee email column"). Same for `bug_…` and note ids.
+**Close the loop when you're done:** When a dispatched or `/gxwhatsnext`-started task's goals look met — the moment you'd naturally say "that should do it" — proactively tell Sky and **offer to ship/close it out; don't wait to be asked.** Shipping (spoke apps: open/return the PR → `dev_update … status=in_review`; on merge → `dev_ship`; `core-admin` deploys directly → `dev_ship`) auto-completes the Asana to-do and clears it from the Command Center. Find the job via `dev_queue` (filtered to this app) when you need its id for the `curl` — but **refer to it by its `title`, never its id**. `job_mtg9vyxs_ewd9` means nothing to Sky; every job carries the to-do text in the same response the id came from, so say that instead, summarized if it's long ("the employee email column"). Same for `bug_…` and note ids. **Then re-list what's open, numbered `[1] [2] [3]…`, instead of proposing a next task** — re-fetch `action=whats_next` (the board moved while you worked) and let Sky pick by number rather than from memory.
