@@ -7,9 +7,9 @@
  * So this file runs the REAL shipped functions (lifted out of index.html, not restated here) over
  * dates chosen to sit on the failure boundaries:
  *
- *   1. Week windows must honour the PER-STORE start day. Some stores run Tue->Mon and some Wed->Tue
+ *   1. Week windows must honor the PER-STORE start day. Some stores run Tue->Mon and some Wed->Tue
  *      because that is when Shawn deposits; a Monday-week assumption silently shifts a day of sales
- *      into the neighbouring week, and both weeks then disagree with the bank by that day's takings.
+ *      into the neighboring week, and both weeks then disagree with the bank by that day's takings.
  *   2. The window maths must not touch the local timezone. `new Date('2026-08-18')` is midnight UTC
  *      and is the 17th anywhere west of Greenwich, so a naive implementation misfiles the boundary
  *      day for every user in Oregon. Asserted by running the boundary cases under TZ=America/

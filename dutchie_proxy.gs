@@ -1,75 +1,106 @@
 // Green Cross — Dutchie API Proxy
 // Deploy as Web App: Execute as "Me", Who has access "Anyone"
-// Paste your API keys below — these never leave your Google account
 
-// ── DUTCHIE CREDENTIALS — NEVER IN SOURCE ────────────────────────────────────────
-// The six POS keys used to live here as literals. They were committed to a PUBLIC repo and sat at
-// HEAD from the first commit of this file until 2026-08-29. They now live in Script Properties
-// under DUTCHIE_STORE_KEYS_JSON, the same place leaderboard and inventory keep theirs.
-// To set or rotate them, run setDutchieStoreKeys() from the script editor and paste the JSON —
-// the value never enters the repo. Do NOT reintroduce a literal here, even "temporarily".
-const DUTCHIE_STORE_KEYS_PROP_ = 'DUTCHIE_STORE_KEYS_JSON';
-let _storeKeysCache_ = null;   // request-scoped; a GAS execution is short-lived
-
-function getStoreKeys_() {
-  if (_storeKeysCache_) return _storeKeysCache_;
-  const raw = PropertiesService.getScriptProperties().getProperty(DUTCHIE_STORE_KEYS_PROP_);
-  if (!raw) {
-    // Fail CLOSED and say so. Returning {} makes every storeKey_ lookup null, which surfaces as
-    // "Unknown store" at the gate rather than an outbound call with an undefined credential.
-    Logger.log('DUTCHIE_STORE_KEYS_JSON is not set — every store will read as unknown.');
-    return (_storeKeysCache_ = {});
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    _storeKeysCache_ = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
-  } catch (e) {
-    Logger.log('DUTCHIE_STORE_KEYS_JSON is not valid JSON — every store will read as unknown.');
-    _storeKeysCache_ = {};
-  }
-  return _storeKeysCache_;
-}
-
-/**
- * One-time / rotation setter. Run from the script editor:
- *   setDutchieStoreKeys('{"Bend":"...","Center":"..."}')
+// ── DUTCHIE CREDENTIALS — NOT HERE, AND NOT IN THIS PROJECT AT ALL ───────────────
+// The six POS keys lived here as literals, in a PUBLIC repo, from this file's first commit until
+// 2026-08-29. They then moved to this project's own Script Properties — which was better, and still
+// one of five copies that all had to be rotated together. Since 2026-08-31 they live ONLY in GX
+// Core; this app asks it for data and never holds a credential. There is nothing here to rotate.
+/* ─── DUTCHIE, THROUGH GX CORE. THIS APP HOLDS NO CREDENTIAL. ────────────────────────────────────
  *
- * Labels are this app's store names, which are identical to GX Core's `dutchie_name` column and to
- * Inventory's — verified 2026-08-29 by comparing key material across all three repos. Leaderboard
- * uses a different (transposed) label set and has since moved to store_id keying; Sales has NOT,
- * so do not paste a store_id-keyed JSON in here. Returns the labels written, never the values.
- */
-function setDutchieStoreKeys(json) {
-  if (!json) throw new Error('Pass the store-keys JSON as the argument.');
-  const parsed = JSON.parse(json);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Store keys must be a JSON object of { storeKey: apiKey }.');
-  }
-  PropertiesService.getScriptProperties().setProperty(DUTCHIE_STORE_KEYS_PROP_, JSON.stringify(parsed));
-  _storeKeysCache_ = null;
-  return { ok: true, stores: Object.keys(parsed) };
+ * The six POS keys used to live here as literals, then in this project's own
+ * DUTCHIE_STORE_KEYS_JSON — one of five copies across the suite. Rotating them meant five paste
+ * jobs, and the May leak survived a cleanup pass because a copy nobody remembered was left behind.
+ * GX Core holds them alone now, and this app asks it for DATA, never for a key.
+ *
+ * WHY dutchie_get AND NOT dutchieTransactions: this app windows transactions by
+ * fromLastModifiedDateUTC, not by transaction date, deliberately — so an edit to an older sale is
+ * picked up. GX Core's named transactions route windows by DATE. Routing through it would have
+ * succeeded, returned plausible transactions, and quietly changed WHICH sales this app sees, in the
+ * app that reconciles bank deposits. dutchie_get forwards this app's own query verbatim.
+ *
+ * The deploy secret, not the connector secret: these routes return rows. Only Inventory and
+ * Leaderboard hold key access, because only they batch in ways a proxy cannot serve.
+ * ------------------------------------------------------------------------------------------------ */
+function gxDeploySecret_() {
+  const s = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET');
+  if (!s) throw new Error('GX_DEPLOY_SECRET is not set on this script — cannot reach GX Core');
+  return s;
 }
 
-// ── A LOOKUP TABLE IS NOT A WHITELIST ────────────────────────────────────────────
-// Every plain object inherits constructor, __proto__, toString, valueOf, hasOwnProperty and
-// isPrototypeOf, so MAP[userInput] returns a truthy FUNCTION for those names and any `if (MAP[x])`
-// gate waves them straight through. Reported as a suite-wide idiom by pricecards (whose router
-// returned a whole pricing sheet to ?action=toString) and fixed in GX Core v170.
-// Measured here before fixing: all SIX inherited names passed `if (!STORE_KEYS[store])`. Core got
-// away with toString and valueOf only because it lowercases keys first; we do not slug, so nothing
-// was covering us. The gate is post-auth, so this was never the Price Cards hole — an
-// unauthenticated request reaches no read or write here — but a caller could still turn a clean
-// "Unknown store" into an outbound Dutchie call carrying a stringified function as its credential.
-// Every read of STORE_KEYS now goes through storeKey_, so an inherited name resolves to null and
-// fails the gate like any other unknown store.
+/* One Dutchie read through GX Core. `params` are forwarded verbatim, so each caller keeps its own
+   query semantics. Returns the rows array, or the raw object for endpoints that answer with one. */
+function gxDutchieGet_(store, path, params) {
+  let qs = '?action=dutchie_get'
+         + '&store=' + encodeURIComponent(store)
+         + '&path=' + encodeURIComponent(path)
+         + '&secret=' + encodeURIComponent(gxDeploySecret_());
+  Object.keys(params || {}).forEach(k => {
+    qs += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+  });
+
+  let lastErr = '';
+  for (let i = 0; i < 5; i++) {
+    const resp = UrlFetchApp.fetch(GXCORE_EXEC_ + qs, { muteHttpExceptions: true });
+    let data = null;
+    try { data = JSON.parse(resp.getContentText()); } catch (e) { lastErr = 'unparseable body'; }
+    if (data && data.ok === true) return Array.isArray(data.rows) ? data.rows : (data.data != null ? data.data : []);
+    // A refusal is final. Retrying a bad secret or a disallowed path buries the message explaining it.
+    if (data && data.ok === false) throw new Error('GX Core dutchie_get ' + path + ': ' + (data.error || 'refused'));
+    lastErr = lastErr || 'no payload';
+    Utilities.sleep(400);   // the /exec second hop 404s on ~6% of rapid calls
+  }
+  throw new Error('GX Core dutchie_get ' + path + ' unreachable after 5 tries — ' + lastErr);
+}
+
+/* The store vocabulary, from the shared registry rather than from the keys of a local credential
+   map. That map was doubling as the store list, so a stale label silently became a store this app
+   believed in. Cached per execution; a GAS execution is short-lived. */
+let _gxStoreNames_ = null;
+function gxStoreNames_() {
+  if (_gxStoreNames_) return _gxStoreNames_;
+  let names = [];
+  try {
+    names = (GXCore.getStores() || [])
+      .map(s => String(s.dutchie_name || '').trim())
+      .filter(Boolean);
+  } catch (e) {
+    throw new Error('GX Core store registry unreachable: ' + ((e && e.message) || e));
+  }
+  if (!names.length) throw new Error('GX Core returned no stores');
+  return (_gxStoreNames_ = names);
+}
+
+/* Probe helper for the diagnostic routes below. They exist to ask Dutchie what a path returns, and
+   they used to do it with a local key. GX Core answers now, so a path outside its allowlist comes
+   back as a refusal naming the path — which is exactly the answer a probe wants, rather than a
+   silent nothing. Never throws: a probe that dies on the first bad path stops being a probe. */
+function gxProbe_(store, path, qs) {
+  const params = {};
+  String(qs || '').replace(/^\?/, '').split('&').filter(Boolean).forEach(pair => {
+    const i = pair.indexOf('=');
+    if (i > 0) params[decodeURIComponent(pair.slice(0, i))] = decodeURIComponent(pair.slice(i + 1));
+  });
+  try {
+    const out = gxDutchieGet_(store, path, params);
+    const body = JSON.stringify(out);
+    return { status: 200, preview: body.slice(0, 800), count: Array.isArray(out) ? out.length : null };
+  } catch (e) {
+    return { status: 'via-gx-core', error: String((e && e.message) || e) };
+  }
+}
+
+/* Replaces storeKey_ as the validity check, and keeps the property that mattered about it: an
+   INHERITED name ('constructor', 'toString') must NOT pass. An array membership test is
+   prototype-safe by construction, where a bare `map[store]` truthiness check never was. */
+function knownStore_(store) {
+  return gxStoreNames_().indexOf(String(store)) !== -1;
+}
+
 function hasOwn_(obj, key) {
   return !!obj && Object.prototype.hasOwnProperty.call(obj, String(key));
 }
 
-function storeKey_(store) {
-  const keys = getStoreKeys_();
-  return hasOwn_(keys, store) ? keys[store] : null;
-}
 
 const BASE = 'https://api.pos.dutchie.com';
 
@@ -345,7 +376,7 @@ function doGet(e) {
   if (params.action === 'storekeys') {
     const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
     if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
-    const labels = Object.keys(getStoreKeys_()).sort();
+    const labels = gxStoreNames_().slice().sort();
     return jsonOut_({ ok: true, configured: labels.length > 0, count: labels.length, labels: labels });
   }
 
@@ -650,7 +681,7 @@ function doGet(e) {
       // the SHARED aggregation path every tab reads, so it is worth proving in production rather
       // than inferring from a green test. Reports the shape, not the money.
       let sales = null;
-      if (params.store && storeKey_(params.store)) {
+      if (params.store && knownStore_(params.store)) {
         const sr = JSON.parse(getStoreSales_(params.store, data.start, data.end).getContent());
         const daily = sr.daily || [];
         const withTax = daily.filter(function (d) { return typeof d.tax === 'number'; });
@@ -825,7 +856,7 @@ function doGet(e) {
   const from  = params.from;
   const to    = params.to;
 
-  if (!store || !storeKey_(store)) return jsonOut_({ error: 'Unknown store: ' + store });
+  if (!store || !knownStore_(store)) return jsonOut_({ error: 'Unknown store: ' + store });
 
   return getStoreSales_(store, from, to);
 }
@@ -947,23 +978,16 @@ function getStoreSales_(store, from, to) {
 
 // Live intraday Dutchie fetch — today only, same logic as the old full handler.
 function dutchieTodayFetch_(store, todayPT, toISO) {
-  const apiKey = storeKey_(store);
-  const auth   = Utilities.base64Encode(apiKey + ':');
   // Wide lastModified window (approx Pacific midnight); filter by transaction date below.
+  // WINDOWED BY LAST MODIFIED, NOT BY DATE — an edit to an older sale has to be picked up. This is
+  // why the call goes through dutchie_get rather than GX Core's named transactions route, which
+  // windows by transaction date: that swap would have quietly changed which sales this app sees.
   const fromUTC = todayPT + 'T07:00:00Z';
-  const url = BASE + '/reporting/transactions'
-    + '?fromLastModifiedDateUTC=' + encodeURIComponent(fromUTC)
-    + '&toLastModifiedDateUTC='   + encodeURIComponent(toISO)
-    + '&includeItems=true';
-
-  const resp = UrlFetchApp.fetch(url, {
-    method: 'get',
-    headers: { Authorization: 'Basic ' + auth, Accept: 'application/json' },
-    muteHttpExceptions: true,
+  const rows = gxDutchieGet_(store, '/reporting/transactions', {
+    fromLastModifiedDateUTC: fromUTC,
+    toLastModifiedDateUTC:   toISO,
+    includeItems:            'true',
   });
-
-  const raw  = JSON.parse(resp.getContentText());
-  const rows = Array.isArray(raw) ? raw : (raw.data || raw.items || []);
 
   const sales = rows.filter(r => {
     if (r.isVoid) return false;
@@ -1181,7 +1205,7 @@ function pgStoreIdMap_() {
  * tab holds a sentinel row dated 2000-01-01, so min/max reported the ledger as covering 2000-01-01
  * to 2026-08-30 and every date in between looked findable. Measured on the deployed route, a 2024
  * range still took 17.8s discovering otherwise, while 2028 — genuinely past the max — returned in
- * 1.9s. One orphan row was enough to undo the optimisation for twenty-six years of dates.
+ * 1.9s. One orphan row was enough to undo the optimization for twenty-six years of dates.
  *
  * With the real intervals, membership is exact: a date in no interval needs no cache read and no
  * probe, and a date in one names the period to load without guessing at boundaries.
@@ -1250,7 +1274,7 @@ function pgLoadPeriod_(date, byStoreId) {
     // no pay period covering this date, which is the normal reply for anything outside the ledger —
     // and outside it is where the walk spends every one of its MISS_LIMIT probes. Falling through to
     // the per-store loop on an empty array made a miss cost SEVEN calls instead of one, measured at
-    // 39s for the 123 uncovered days after 2026-08-30. Only an exception or an unrecognisable shape
+    // 39s for the 123 uncovered days after 2026-08-30. Only an exception or an unrecognizable shape
     // earns the fallback.
     if (Array.isArray(picked) && !picked.length) return out;
     if (picked && picked.length) {
@@ -1850,7 +1874,7 @@ function getReconConfig_() {
   try { cfg = JSON.parse(PropertiesService.getScriptProperties().getProperty(RECON_CFG_PROP_) || '{}'); }
   catch (e) { cfg = {}; }
   const out = {};
-  for (const name of Object.keys(getStoreKeys_())) {
+  for (const name of gxStoreNames_()) {
     const v = Number(cfg[name]);
     if (Number.isInteger(v) && v >= 0 && v <= 6) { out[name] = v; continue; }
     out[name] = hasOwn_(RECON_WEEK_START_BY_STORE_, name)
@@ -1874,9 +1898,9 @@ function getReconConfig(params) {
 function setReconConfig_(params) {
   const store = String(params.store || '');
   const dow   = Number(params.week_start);
-  // storeKey_ is the repo's own guard: an INHERITED name ('constructor', 'toString') resolves to
-  // null instead of sailing through a bare truthiness check on STORE_KEYS[store].
-  if (!storeKey_(store)) return jsonOut_({ ok: false, error: 'unknown store' });
+  // knownStore_ carries forward storeKey_'s guard: an INHERITED name ('constructor', 'toString')
+  // must NOT pass. Array membership is prototype-safe where a bare map lookup never was.
+  if (!knownStore_(store)) return jsonOut_({ ok: false, error: 'unknown store' });
   if (!Number.isInteger(dow) || dow < 0 || dow > 6) return jsonOut_({ ok: false, error: 'week_start must be an integer 0..6' });
   try {
     const cfg = getReconConfig_();
@@ -1896,7 +1920,7 @@ function setRecon_(params, user) {
   const start = reconDate_(params.start);
   const end   = reconDate_(params.end);
   const on    = String(params.reconciled) !== 'false';
-  if (!storeKey_(store)) return jsonOut_({ ok: false, error: 'unknown store' });
+  if (!knownStore_(store)) return jsonOut_({ ok: false, error: 'unknown store' });
   if (!start || !end) return jsonOut_({ ok: false, error: 'start and end must be YYYY-MM-DD' });
   if (end < start)    return jsonOut_({ ok: false, error: 'end is before start' });
   try {
@@ -2379,8 +2403,6 @@ function getEodTest(params) {
   output.setMimeType(ContentService.MimeType.JSON);
   try {
     const store  = params.store || 'River';
-    const apiKey = storeKey_(store);
-    const auth   = Utilities.base64Encode(apiKey + ':');
     const date   = params.date || '2026-04-20'; // use yesterday by default
     const today2 = new Date();
     const from   = new Date(today2.getFullYear(), today2.getMonth(), 1).toISOString().replace('.000','');
@@ -2402,15 +2424,7 @@ function getEodTest(params) {
     ];
     const results = {};
     for (const [path, qs] of paths) {
-      const resp = UrlFetchApp.fetch(BASE + path + qs, {
-        method: 'get',
-        headers: { Authorization: 'Basic ' + auth, Accept: 'application/json' },
-        muteHttpExceptions: true,
-      });
-      const code = resp.getResponseCode();
-      // For 200s grab more content to see fields; for others just status
-      const body = code === 200 ? resp.getContentText().slice(0, 800) : '';
-      results[path + (qs ? ' ' + qs.slice(0,30) : '')] = { status: code, preview: body };
+      results[path + (qs ? ' ' + qs.slice(0,30) : '')] = gxProbe_(store, path, qs);
     }
     output.setContent(JSON.stringify(results));
   } catch(e) {
@@ -2425,22 +2439,15 @@ function getTxFields(params) {
   output.setMimeType(ContentService.MimeType.JSON);
   try {
     const store  = params.store || 'River';
-    const apiKey = storeKey_(store);
-    const auth   = Utilities.base64Encode(apiKey + ':');
     const today  = new Date();
     const from   = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().replace('.000','');
     const to     = today.toISOString().replace('.000','');
-    const url    = BASE + '/reporting/transactions'
-      + '?fromLastModifiedDateUTC=' + encodeURIComponent(from)
-      + '&toLastModifiedDateUTC='   + encodeURIComponent(to)
-      + '&includeItems=true&includeItemDetails=true';
-    const resp = UrlFetchApp.fetch(url, {
-      method: 'get',
-      headers: { Authorization: 'Basic ' + auth, Accept: 'application/json' },
-      muteHttpExceptions: true,
+    const rows = gxDutchieGet_(store, '/reporting/transactions', {
+      fromLastModifiedDateUTC: from,
+      toLastModifiedDateUTC:   to,
+      includeItems:            'true',
+      includeItemDetails:      'true',
     });
-    const raw  = JSON.parse(resp.getContentText());
-    const rows = Array.isArray(raw) ? raw : (raw.data || raw.items || []);
     const tx   = rows.find(r => !r.isVoid && (r.transactionType||'').toLowerCase() === 'retail') || rows[0];
     if (!tx) { output.setContent(JSON.stringify({ error: 'no transactions found' })); return output; }
     const items = tx.items || tx.lineItems || tx.orderItems || [];
@@ -2572,9 +2579,7 @@ function getTxDetail(params) {
   const output = ContentService.createTextOutput();
   output.setMimeType(ContentService.MimeType.JSON);
   const store  = params.store || 'River';
-  const apiKey = storeKey_(store);
-  const auth   = Utilities.base64Encode(apiKey + ':');
-  const hdrs   = { Authorization: 'Basic ' + auth, Accept: 'application/json' };
+
   // Dutchie's fromDate/toDate are CALENDAR days, so yesterday has to be yesterday in Pacific —
   // toISOString() is UTC whatever the project timezone is, and from 17:00 PDT it returns tomorrow,
   // which made this probe read the wrong day for seven hours out of every one. Same idiom as
@@ -2582,13 +2587,9 @@ function getTxDetail(params) {
   const todayPT = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM-dd');
   const yd      = dayBefore_(todayPT);
   // Try fromDate/toDate instead of lastModified
-  const resp = UrlFetchApp.fetch(
-    BASE + '/reporting/transactions?fromDate=' + yd + '&toDate=' + yd + '&includeItems=true',
-    { method: 'get', headers: hdrs, muteHttpExceptions: true }
-  );
-  const code  = resp.getResponseCode();
-  const raw   = JSON.parse(resp.getContentText());
-  const rows  = Array.isArray(raw) ? raw : (raw.data || raw.items || []);
+  // fromDate/toDate here, NOT the lastModified window — this route exists to compare the two.
+  const rows  = gxDutchieGet_(store, '/reporting/transactions',
+    { fromDate: yd, toDate: yd, includeItems: 'true' });
   const retail = rows.filter(r => !r.isVoid && (r.transactionType||'').toLowerCase() === 'retail');
   const first  = retail.find(r => (r.items||r.lineItems||r.orderItems||[]).length > 0) || retail[0];
   const fi     = first ? (first.items || first.lineItems || first.orderItems || []) : [];
@@ -2607,9 +2608,6 @@ function probeInventoryEndpoints(params) {
   const output = ContentService.createTextOutput();
   output.setMimeType(ContentService.MimeType.JSON);
   const store  = params.store || 'River';
-  const apiKey = storeKey_(store);
-  const auth   = Utilities.base64Encode(apiKey + ':');
-  const hdrs   = { Authorization: 'Basic ' + auth, Accept: 'application/json' };
   const paths  = [
     '/inventory/product',
     '/inventory',
@@ -2625,10 +2623,7 @@ function probeInventoryEndpoints(params) {
   const results = {};
   for (const path of paths) {
     try {
-      const resp = UrlFetchApp.fetch(BASE + path, { method: 'get', headers: hdrs, muteHttpExceptions: true });
-      const code = resp.getResponseCode();
-      const body = resp.getContentText();
-      results[path] = { status: code, preview: body.slice(0, 300) };
+      results[path] = gxProbe_(store, path, '');
     } catch(e) {
       results[path] = { status: 'error', preview: e.message };
     }
@@ -2642,21 +2637,16 @@ function getItemsTest(params) {
   const output = ContentService.createTextOutput();
   output.setMimeType(ContentService.MimeType.JSON);
   const store  = params.store || 'River';
-  const apiKey = storeKey_(store);
-  const auth   = Utilities.base64Encode(apiKey + ':');
-  const hdrs   = { Authorization: 'Basic ' + auth, Accept: 'application/json' };
   const today  = new Date();
   const from   = new Date(today - 2 * 86400000).toISOString().replace('.000', '');
   const to     = today.toISOString().replace('.000', '');
 
   // Fetch with includeLineItems param variant
-  const resp1 = UrlFetchApp.fetch(
-    BASE + '/reporting/transactions?fromLastModifiedDateUTC=' + encodeURIComponent(from)
-      + '&toLastModifiedDateUTC=' + encodeURIComponent(to) + '&includeLineItems=true',
-    { method: 'get', headers: hdrs, muteHttpExceptions: true }
-  );
-  const raw1  = JSON.parse(resp1.getContentText());
-  const rows1 = Array.isArray(raw1) ? raw1 : (raw1.data || raw1.items || []);
+  const rows1 = gxDutchieGet_(store, '/reporting/transactions', {
+    fromLastModifiedDateUTC: from,
+    toLastModifiedDateUTC:   to,
+    includeLineItems:        'true',
+  });
   const retail1 = rows1.filter(r => !r.isVoid && (r.transactionType||'').toLowerCase() === 'retail');
   const withItems1 = retail1.filter(r => (r.items||r.lineItems||r.orderItems||[]).length > 0);
 
@@ -2672,15 +2662,7 @@ function getInvFields(params) {
   const output = ContentService.createTextOutput();
   output.setMimeType(ContentService.MimeType.JSON);
   const store  = params.store || 'River';
-  const apiKey = storeKey_(store);
-  const auth   = Utilities.base64Encode(apiKey + ':');
-  const resp   = UrlFetchApp.fetch(BASE + '/reporting/inventory', {
-    method: 'get',
-    headers: { Authorization: 'Basic ' + auth, Accept: 'application/json' },
-    muteHttpExceptions: true,
-  });
-  const raw   = JSON.parse(resp.getContentText());
-  const items = Array.isArray(raw) ? raw : (raw.data || raw.items || []);
+  const items = gxDutchieGet_(store, '/reporting/inventory', {});
   const sample = items.slice(0, 3);
   output.setContent(JSON.stringify({
     totalItems: items.length,
@@ -2698,7 +2680,7 @@ function getInventory(params) {
   output.setMimeType(ContentService.MimeType.JSON);
 
   const store = params.store;
-  if (!store || !storeKey_(store)) {
+  if (!store || !knownStore_(store)) {
     output.setContent(JSON.stringify({ error: 'Unknown store: ' + store }));
     return output;
   }
@@ -2708,24 +2690,9 @@ function getInventory(params) {
   if (cached) { output.setContent(cached); return output; }
 
   try {
-    const apiKey = storeKey_(store);
-    const auth   = Utilities.base64Encode(apiKey + ':');
-    const hdrs   = { Authorization: 'Basic ' + auth, Accept: 'application/json' };
-
-    const invResp = UrlFetchApp.fetch(BASE + '/reporting/inventory', {
-      method: 'get', headers: hdrs, muteHttpExceptions: true,
-    });
-    const invCode = invResp.getResponseCode();
-    if (invCode !== 200) {
-      output.setContent(JSON.stringify({
-        error: 'Inventory endpoint returned HTTP ' + invCode
-          + '. Body: ' + invResp.getContentText().slice(0, 300),
-        store,
-      }));
-      return output;
-    }
-    const invRaw   = JSON.parse(invResp.getContentText());
-    const invItems = Array.isArray(invRaw) ? invRaw : (invRaw.data || invRaw.items || []);
+    // gxDutchieGet_ throws on a non-200 or a refusal, and the catch below turns that into the same
+    // shaped error payload this route always returned.
+    const invItems = gxDutchieGet_(store, '/reporting/inventory', {});
 
     // Aggregate all packages by productName (including qty=0 for OOS detection).
     // Keep OOS entries modified within 1 year so recently-sold-out products count.
@@ -2977,7 +2944,7 @@ function reportBug_(params, reporter) {
 // flat month and is wrong for anything seasonal) and "guessing $500 for a line item" (which asserts
 // a number nothing supports). The engine answers the first with a measured seasonal index and the
 // second by REFUSING — a category with no history gets no proposal and says so, rather than a round
-// number that reads as analysed. An unsupported budget is worse than a visibly missing one: the
+// number that reads as analyzed. An unsupported budget is worse than a visibly missing one: the
 // missing one gets filled in by a human who knows, the invented one gets trusted.
 //
 // WHERE IT APPLIES, and why not the sheet. BUDGET_SHEET_ID is the legacy "2026 GX2 Dashboard".
@@ -3121,12 +3088,12 @@ function sbCleanSeries_(series) {
 
   // The LOCAL level: the median of the two months either side, excluding this one. A level SHIFT is
   // persistent — a new lease, a rent increase, a store opening — so its months agree with their
-  // immediate neighbours. A true anomaly does not. Without this test the rule cannot tell "rent went
+  // immediate neighbors. A true anomaly does not. Without this test the rule cannot tell "rent went
   // up in 2025" from "one weird month", and on the real Rent series it called 10 of 23 months
   // outliers when only three were: Aug 2024 (partial), Dec 2024 (double payment), Apr 2025 (zero).
   // The other seven were simply the old, lower rent.
-  // The neighbours BEFORE and AFTER are looked at separately, and agreeing with EITHER side is
-  // enough to be kept. A centred window cannot survive a step change: at the first month of a new
+  // The neighbors BEFORE and AFTER are looked at separately, and agreeing with EITHER side is
+  // enough to be kept. A centered window cannot survive a step change: at the first month of a new
   // lease, half the window is the old level and half the new, so the median lands between them and
   // the month reads as an outlier against its own regime. One-sided, the new month agrees with what
   // FOLLOWS it and is kept — which is the whole point, because a recent step up is exactly what a
@@ -3188,7 +3155,7 @@ function sbTrendFactor_(series) {
 }
 
 /**
- * Seasonal index per calendar month, normalised to average 1 so applying it redistributes the year
+ * Seasonal index per calendar month, normalized to average 1 so applying it redistributes the year
  * without resizing it. Months with no observation get exactly 1 rather than 0 — "no data for March"
  * must not become "budget nothing in March".
  *

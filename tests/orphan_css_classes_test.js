@@ -3,7 +3,7 @@
  * The page renders, nothing throws, no test fails — the element just quietly falls back to the
  * browser's default look. That is how `.pill-btn` survived: it was never defined anywhere, so the
  * P&L's "Try again" and the Expenses tab's "Save Mappings" primary CTA had been rendering as raw
- * grey browser buttons, in an app whose whole point is looking like the rest of the suite.
+ * gray browser buttons, in an app whose whole point is looking like the rest of the suite.
  *
  * It is the same shape of bug as a lookup miss: the name resolves to nothing, and nothing is not an
  * error. So this asserts that every class the page puts in a `class="..."` attribute is defined —

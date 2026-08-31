@@ -37,7 +37,7 @@ const MONTHS_SRC = /const MONTHS = \[[^\]]*\];/.exec(SRC)[0];
 const YTD_SRC    = /const MONTH_YTD = 0;/.exec(SRC)[0];
 
 const STORES = ['Bend', 'Center', 'Commercial', 'Hillsboro', 'Portland Rd', 'River'];
-// The real 2026 figures the goals tab returns, so a failure prints numbers Sky can recognise.
+// The real 2026 figures the goals tab returns, so a failure prints numbers Sky can recognize.
 const BUDGET = {
   'Bend':        [143823, 130172, 144416, 140045, 145011, 140623, 145609, 145909, 141494, 146511, 142077, 147115],
   'Center':      [ 50631,  45826,  50840,  49301,  51050,  49505,  51260,  51366,  49811,  51578,  50017,  51790],
@@ -108,7 +108,7 @@ console.log('\nthe gate opens only when the backend actually named a year');
 // Pages and clasp deploy separately, and getGoals() caches server-side for an hour. A frontend that
 // blanked every goal because the proxy had not caught up would be a worse outage than the bug.
 ctx.goalsYear = null;
-check('no year reported → 2025 falls through to the old behaviour',
+check('no year reported → 2025 falls through to the old behavior',
   ctx.getMonthlyGoal('Bend', 3, 2025), BUDGET['Bend'][2]);
 check('no year reported → 2026 still correct', ctx.getMonthlyGoal('Bend', 3, 2026), BUDGET['Bend'][2]);
 ctx.goalsYear = 2026;
