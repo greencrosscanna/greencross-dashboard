@@ -53,6 +53,31 @@ function gxDutchieGet_(store, path, params) {
   throw new Error('GX Core dutchie_get ' + path + ' unreachable after 5 tries — ' + lastErr);
 }
 
+/* Non-Dutchie GX Core reads that also cannot be library calls.
+ *
+ * GXCore.expectedSalesFrac() and GXCore.dutchieClosingReport() were called as library functions and
+ * could never have worked: both reach gxDutchieAuth_ -> gxDutchieKeys_ -> getScriptProperties(),
+ * which scopes to the CALLING project. From here that looks for Dutchie keys this app no longer
+ * holds, so every call threw. Both sites swallow the throw, so nothing ever looked wrong:
+ * the pacing endpoint quietly returned {} and today's COGS was quietly absent. */
+function gxCoreRoute_(action, params) {
+  let url = GXCORE_EXEC_ + '?action=' + encodeURIComponent(action)
+          + '&secret=' + encodeURIComponent(gxDeploySecret_());
+  Object.keys(params || {}).forEach(k => {
+    if (params[k] == null || params[k] === '') return;
+    url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+  });
+  for (let i = 0; i < 3; i++) {
+    const resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    let data = null;
+    try { data = JSON.parse(resp.getContentText()); } catch (e) {}
+    if (data && data.ok === true) return data;
+    if (data && data.ok === false) throw new Error(action + ': ' + (data.error || 'refused'));
+    Utilities.sleep(300);
+  }
+  throw new Error('GX Core ' + action + ' unreachable');
+}
+
 /* The store vocabulary, from the shared registry rather than from the keys of a local credential
    map. That map was doubling as the store list, so a stale label silently became a store this app
    believed in. Cached per execution; a GAS execution is short-lived. */
@@ -1594,7 +1619,8 @@ function getPacingFracs_() {
   const fracs = {};
   for (const s of STORE_MAP) {
     try {
-      const frac = GXCore.expectedSalesFrac(s.dutchie, hour, minute);
+      const r = gxCoreRoute_('expected_frac', { store: s.dutchie, hour: hour, minute: minute });
+      const frac = r && r.frac;
       if (typeof frac === 'number' && frac >= 0) fracs[s.sales] = frac;
     } catch(e) { /* store not in shape table yet — skip */ }
   }
@@ -2526,7 +2552,9 @@ function getCogsDutchie(params) {
       // Today: call Closing Report directly — returns live intra-day COGS (a valid partial, not an error)
       if (includesToday) {
         try {
-          const cr = GXCore.dutchieClosingReport(dutchie, todayPT);
+          // Through the route: this reads Dutchie, so it needs GX Core's own context.
+          const crr = gxCoreRoute_('dutchie_closing_report', { store: dutchie, date: todayPT });
+          const cr = crr && (crr.data || (crr.rows && crr.rows[0]));
           results.push({ date: todayPT, store: sales, cogs: Math.round(Number(cr && cr.cost || 0) * 100) / 100 });
         } catch(e) {
           Logger.log('getCogsDutchie: today CR failed for ' + dutchie + ': ' + e.message);
