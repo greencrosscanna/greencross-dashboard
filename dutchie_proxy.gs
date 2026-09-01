@@ -117,9 +117,44 @@ function gxProbe_(store, path, qs) {
 
 /* Replaces storeKey_ as the validity check, and keeps the property that mattered about it: an
    INHERITED name ('constructor', 'toString') must NOT pass. An array membership test is
-   prototype-safe by construction, where a bare `map[store]` truthiness check never was. */
+   prototype-safe by construction, where a bare `map[store]` truthiness check never was.
+
+   THE EXACT MATCH IS NOT ENOUGH, and River Rd is why. The vocabulary used to be the KEYS of this
+   app's own credential map, which were Sales' internal names — including `River`. Moving the keys
+   into GX Core replaced that list with the registry's `dutchie_name` values, and five of six stores
+   happen to spell the same both ways. River does not: the frontend asks for `River`, the registry
+   says `River Rd`, so from 2026-08-31 the one store whose two names differ answered
+   "Unknown store: River" on every sales load while the other five were fine.
+
+   The second chance goes through GXCore.resolveStore rather than a local alias table, deliberately:
+   an alias table here would make Sales look right while leaving the same mismatch wrong for every
+   other reader, and a spelling added in Command Center would never reach us. resolveStore is the
+   registry's own folding — `River` and `River Rd` both land on store_id `river-rd`. An inherited
+   name still fails: resolveStore is handed a string and answers with a row or nothing, and the
+   result is only accepted when it carries a store_id the registry actually lists. */
+let _gxStoreIds_ = null;
+function gxStoreIds_() {
+  if (_gxStoreIds_) return _gxStoreIds_;
+  const ids = [];
+  gxStoreNames_().forEach(function (n) {
+    try {
+      const row = GXCore.resolveStore(n);
+      if (row && row.store_id) ids.push(String(row.store_id).toLowerCase());
+    } catch (e) { /* unknown to the registry — it simply will not match, the safe direction */ }
+  });
+  return (_gxStoreIds_ = ids);
+}
+
 function knownStore_(store) {
-  return gxStoreNames_().indexOf(String(store)) !== -1;
+  const s = String(store);
+  if (gxStoreNames_().indexOf(s) !== -1) return true;
+  try {
+    const row = GXCore.resolveStore(s);
+    const id  = row && row.store_id ? String(row.store_id).toLowerCase() : '';
+    return !!id && gxStoreIds_().indexOf(id) !== -1;
+  } catch (e) {
+    return false;
+  }
 }
 
 function hasOwn_(obj, key) {
@@ -402,7 +437,19 @@ function doGet(e) {
     const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
     if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
     const labels = gxStoreNames_().slice().sort();
-    return jsonOut_({ ok: true, configured: labels.length > 0, count: labels.length, labels: labels });
+    /* &store= answers the question that cost River Rd a day of blank sales: does the name the
+       FRONTEND sends pass this app's gate? The labels alone did not answer it — they looked
+       complete and correct while `River` was being refused, because the registry spells that one
+       store `River Rd`. Ask with the name the caller actually uses. */
+    const out = { ok: true, configured: labels.length > 0, count: labels.length, labels: labels };
+    if (params.store) {
+      out.probe = { store: params.store, known: knownStore_(params.store), exact: labels.indexOf(String(params.store)) !== -1 };
+      try {
+        const row = GXCore.resolveStore(String(params.store));
+        out.probe.store_id = row && row.store_id ? row.store_id : null;
+      } catch (e) { out.probe.store_id = null; }
+    }
+    return jsonOut_(out);
   }
 
   if (params.action === 'gxpin') {
