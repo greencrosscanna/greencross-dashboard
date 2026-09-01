@@ -57,6 +57,39 @@ caught `refreshCompare` being undefined in the pill handlers. Both would have sh
 **gx-theme** via `./gx-sync.sh`, filled from `.gx_app`. Edit them **there**, then re-sync. This CLAUDE.md is
 intentionally **not** synced.
 
+## The store VOCABULARY is GX Core's now, and River Rd is the store that proves it
+
+`knownStore_` decides whether `?store=X` is a store at all. Until v2.558 the list was the keys of
+this app's own Dutchie credential map — Sales' internal names. Moving the keys into GX Core replaced
+it with the registry's **`dutchie_name`** values, and five of six stores are spelled identically
+both ways. **River is the one that is not**: the frontend sends `River`, the registry says
+`River Rd`, so on 2026-08-31 every sales load answered `Unknown store: River` and that store
+disappeared from every tab, total and goal comparison.
+
+**It never looked like an outage.** The status grid marked one store red and the pill read `5/6`,
+which reads as a slow store rather than a missing one, while the company figure was short a store
+all day. That is the shape to watch for: a per-store failure degrades into a smaller number, not an
+error.
+
+- **The second chance goes through `GXCore.resolveStore`, never a local alias table.** An alias
+  table here makes Sales look right while the same mismatch stays wrong for every other reader, and
+  a spelling added in Command Center never reaches us — the same lesson as the v223 `getPeriodGoals`
+  fix. The prototype guard survives: `resolveStore`'s answer is accepted only when it carries a
+  `store_id` the registry actually lists, so `constructor` / `__proto__` still fail.
+- **The registry's `display_name` for river-rd is `River`**, which is why `GXCore.getSalesDaily`
+  never had this problem — it resolves on store_id / dutchie_name / display_name. Only the exact
+  string gate did.
+- **`?action=storekeys&store=…&secret=…`** now reports `known` / `exact` / `store_id`. The bare
+  label list looked complete and correct while River was being refused; ask with the name the caller
+  actually sends.
+- `tests/store_vocabulary_test.js` runs every name in `index.html`'s `STORES` through the SHIPPED
+  `knownStore_`. **The two lists live in different repos and nothing compared them** — that, not the
+  spelling, is the defect. Verified to fail against the old gate.
+
+Measured 2026-08-31: Core's `dutchie_get` resolves both `River` and `River Rd` to `river-rd`;
+`sales_coverage` shows river-rd holding 974 days, 2024-01-01 → 2026-08-31, **zero missing**. The
+data was always there.
+
 ## The budget sheet is GONE — everything comes from this script's own properties
 
 **Severed 2026-08-30 (Sky's call). `dutchie_proxy.gs` contains ZERO `SpreadsheetApp` calls.** The
