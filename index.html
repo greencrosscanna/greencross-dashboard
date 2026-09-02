@@ -409,7 +409,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
    which out-specifies a lone class even with !important on both. */
 #dsk-subnav.dsk-subnav-off{display:none!important}
 /* Smart budget planner. Confidence is COLOR-CODED and also spelled out in words on the row: the
-   whole point of the screen is that a low-confidence number cannot masquerade as an analysed one,
+   whole point of the screen is that a low-confidence number cannot masquerade as an analyzed one,
    and color alone fails exactly the readers who most need the warning. */
 .sb-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:4px;padding:8px 0;border-bottom:.5px solid var(--border)}
 .sb-row:last-child{border-bottom:0}
@@ -7397,7 +7397,7 @@ function renderBudgetPlannerMobile() {
     <div class="sec-lbl">No proposal — ${skipped.length} categor${skipped.length === 1 ? 'y' : 'ies'}</div>
     <div class="sb-warn">These have no spend in the window, so there is nothing to derive a budget from.
       They are left exactly as they are rather than given a round number — a made-up figure
-      reads as analysed, which is worse than a visibly missing one.</div>
+      reads as analyzed, which is worse than a visibly missing one.</div>
     <div class="card">${skipped.map(row).join('')}</div>` : ''}
 
     <div class="last-sync">Proposal built ${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
