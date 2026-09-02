@@ -3039,7 +3039,7 @@ const SMART_BUDGET_PROP = 'smart_budget';
 
 // Categories whose spend tracks SALES VOLUME rather than the calendar. Budgeting these from their
 // own history would hold them flat against a sales plan that isn't — if the plan is to grow 10%,
-// a COGS budget built from last year's COGS is wrong by construction. These are modelled as a
+// a COGS budget built from last year's COGS is wrong by construction. These are modeled as a
 // median ratio to revenue and re-projected onto projected revenue instead. Sky's call, 2026-08-30.
 const SB_VOLUME_LINKED = ['COGS', 'COGS - Supplies & Materials', 'Payroll Expenses'];
 

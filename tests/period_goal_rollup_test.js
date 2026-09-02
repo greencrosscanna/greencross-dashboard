@@ -17,7 +17,7 @@
  * 2026, with each store's actual dow_targets. So the expected March totals are the numbers the app
  * must now show, and a regression prints a figure Sky can recognize.
  *
- * Runs the real functions out of index.html; a modelled copy would keep passing after the shipped
+ * Runs the real functions out of index.html; a modeled copy would keep passing after the shipped
  * code regressed, which is the only way this could lie.
  */
 'use strict';

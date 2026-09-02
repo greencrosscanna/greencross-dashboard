@@ -30,7 +30,7 @@ function check(desc, got, want) {
   console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${desc}` + (ok ? '' : `  — got ${got}, wanted ${want}`));
 }
 
-console.log('\nthe gate is loaded and initialised');
+console.log('\nthe gate is loaded and initialized');
 check('gx-maintenance.js is loaded from gx-theme',
       /<script src="https:\/\/greencrosscanna\.github\.io\/greencross-gx-theme\/gx-maintenance\.js"><\/script>/.test(SRC), true);
 check('it is NOT deferred — the gate must not wait on the rest of the page',

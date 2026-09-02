@@ -191,7 +191,7 @@ console.log('\n5. end to end — the refusal, the ratio, and the seasonal shape 
 
   // 5b. COGS as a ratio to revenue.
   const cogs = by['COGS'];
-  ok('COGS is modelled as a % of revenue, not from its own level', cogs.method === 'pct_of_revenue');
+  ok('COGS is modeled as a % of revenue, not from its own level', cogs.method === 'pct_of_revenue');
   ok('...at ~42%', Math.abs(cogs.basis.ratio_pct - 42) < 0.6);
   ok('...and its budget follows revenue: June above January',
      cogs.monthly.Jun > cogs.monthly.Jan);

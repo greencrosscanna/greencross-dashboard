@@ -68,7 +68,7 @@ const ctx = {
   activeYear: 2026, activeMonth: 1, activeWeek: null, activeDay: null,
   revenueDetail: null,
   liveData: {},
-  // periodApply's fan-out. Recorded, not modelled: what matters is that the revenue tab's own
+  // periodApply's fan-out. Recorded, not modeled: what matters is that the revenue tab's own
   // controls reach the shared write-point at all.
   buildTimeNav:    () => calls.push('buildTimeNav'),
   render:          () => calls.push('render'),

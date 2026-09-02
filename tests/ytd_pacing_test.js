@@ -9,7 +9,7 @@
  *
  * pacedGoal = periodGoal × pacingPct therefore discounts an already-discounted goal, and every
  * store row inherits it. The fix is getGoalPacingPct(): whole elapsed months at 100%, current month
- * pro-rated. This test runs the REAL functions grabbed out of index.html — a modelled copy would go
+ * pro-rated. This test runs the REAL functions grabbed out of index.html — a modeled copy would go
  * on passing after the shipped code regressed, which is the only way it could lie.
  *
  * The other half is a separation the fix depends on and nothing else enforces: the EXPENSES tab's

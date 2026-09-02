@@ -597,7 +597,7 @@ record a version and a sha that never coexisted. `GX_VERSION=vX.YYY` records an 
 re-pin notes carry a blanket line saying to use `resolveStore()` if you fold store names yourself; it does
 not apply here. That map keys **ATM machine labels**, not stores, and `resolveStore` has no machine concept.
 **Measured by EXECUTION** (2026-08-22) — the real `gxResolveStore_` run against the live `stores` rows,
-not modelled from `?action=stores`. Of the map's **22** labels the swap drops **13 to null**, leaving 9.
+not modeled from `?action=stores`. Of the map's **22** labels the swap drops **13 to null**, leaving 9.
 **All 9 ATM 2 labels are among the drops; every survivor is ATM 1**, so Bend, Commercial, Hillsboro and
 River each lose their second machine entirely. ATM revenue would quietly shrink with no error anywhere —
 in a lookup map `null` does not mean "wrong bucket", it means the row **vanishes**.
@@ -610,7 +610,7 @@ any group loses nothing; all the damage is in the drops.
 `center st`+`center`" figures were **core-admin's**, not Sky's, produced by reading the map through
 `grep -A 20` — which truncated it — and retracted the same day. This app caught the error twice: first by
 parsing the literal, then by refusing to let core-admin's replacement number harden while it was still
-modelled. Modeling undercounts survivors, because `resolveStore` token-folds before matching and strips a
+modeled. Modeling undercounts survivors, because `resolveStore` token-folds before matching and strips a
 trailing ` rd`/` st` — so `center st` resolves to `center` even though that store publishes only
 `["Center"]`.*
 
