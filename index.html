@@ -33,9 +33,10 @@
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-changelog.js"></script>
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-bugreport.js"></script>
 <!-- Shared maintenance gate — the "out back" screen that covers the app when it is deliberately
-     down. NOT deferred, unlike gx-client.js below: the gate overlays at z-index 10000 (above this
-     app's #gc-login-overlay at 999), and being told the app is down should not wait on the rest of
-     the page. init() is called further down, where GXCORE exists. -->
+     down. NOT deferred: the gate overlays at z-index 10000 (above this app's #gc-login-overlay at
+     999), and being told the app is down should not wait on the rest of the page. init() is called
+     further down, where GXCORE exists — and, since v2.559, after gx-client.js has run, so the GX
+     Core kv lever is reachable on the first try rather than through the shared 6s poll. -->
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-maintenance.js"></script>
 <style>
 :root{
@@ -1323,8 +1324,21 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
 
 <!-- Chart.js 4.4.1 — vendored on our own Pages (byte-identical to the cdnjs build) so cdnjs is not a render dependency. -->
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/vendor/chartjs@4.4.1/chart.umd.js"></script>
-<!-- Resilient GX Core client (retries the Drive-HTML two-hop failure). Same-origin (org Pages). -->
-<script defer src="https://greencrosscanna.github.io/greencross-gx-theme/gx-client.js"></script>
+<!-- Resilient GX Core client (retries the Drive-HTML two-hop failure). Same-origin (org Pages).
+
+     DO NOT put `defer` back on this tag. A deferred script runs after the whole document is parsed,
+     but this is a monolith with INLINE JS — the boot block at the bottom of <body> executes DURING
+     parsing, so `defer` here means every line of this app's own startup code runs with GXClient
+     still undefined. That is not theoretical: paintSalesUserTray() builds the avatar-editor config
+     with an eager GXClient(GXCORE) call, which threw ReferenceError on boot and took the rest of
+     the boot block with it — loadAllStores() never ran and the app sat on "Connecting…" until
+     someone pressed Load live data. It only ever bit a RETURNING session, because a fresh login
+     happens seconds later when the deferred script has long since run, which is why it read as
+     intermittent and got reported three times.
+
+     This script touches the DOM only inside jsonp() at call time, so loading it synchronously here
+     is safe; Chart.js directly above is already blocking and far larger. -->
+<script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-client.js"></script>
 <script>
 // Re-inject tags that GAS strips from <head>
 (function(){
@@ -1346,7 +1360,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.558';
+const APP_VERSION = 'v2.559';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1411,19 +1425,24 @@ const GXCORE = 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO
  * The core-admin note's snippet says `gxcore: GXCORE_URL` — that is the shared doc's placeholder
  * name; this app calls it GXCORE, and the literal snippet would throw.
  *
- * The DOMContentLoaded re-check is this app's own wrinkle, not boilerplate: gx-client.js loads with
- * `defer`, so GXClient does not exist yet while this inline script runs, and fromCore() skips the kv
- * lever whenever GXClient is missing — silently, by design. Without the forced re-check the cockpit's
- * instant lever would do nothing here until something happened to fire a visibilitychange, and the
- * Pages flag would be the only one that worked. */
+ * This app used to need a DOMContentLoaded re-check here, because gx-client.js was deferred and so
+ * GXClient did not exist while this inline script ran — fromCore() skips the kv lever whenever
+ * GXClient is missing, silently and by design, so the cockpit's instant lever did nothing until
+ * something happened to fire a visibilitychange. Both halves of that are gone: gx-theme learned to
+ * wait (see below), and as of v2.559 the client is no longer deferred at all. */
 if (window.GXMaintenance) {
-  /* No DOMContentLoaded re-check here any more. Sales loads gx-client.js with `defer`, so GXClient
-     did not exist when init() first ran and the GX Core kv lever was never consulted — half a gate,
-     failing in the direction nobody notices. That was fixed IN THE SHARED LAYER instead
-     (gx-theme b1b12d0, 2026-08-28): fromCore() now polls up to 6s for a deferred client, so every
-     app gets it without knowing why. Deferred scripts run before DOMContentLoaded, so the local
-     re-check can only ever fire after the shared wait has already succeeded — it just bought a
-     second config fetch per load. Removed so no spoke copies it thinking it is load-bearing. */
+  /* No DOMContentLoaded re-check here, and now two independent reasons for that.
+     Historically: Sales loaded gx-client.js with `defer`, so GXClient did not exist when init()
+     first ran and the GX Core kv lever was never consulted — half a gate, failing in the direction
+     nobody notices. That was fixed IN THE SHARED LAYER (gx-theme b1b12d0, 2026-08-28): fromCore()
+     polls up to 6s for a deferred client, so every app gets it without knowing why. The local
+     re-check could only ever fire after that wait had already succeeded, and just bought a second
+     config fetch per load.
+     Since v2.559 the premise is gone too — `defer` came off the gx-client.js tag because it was
+     starving this app's own inline boot code of GXClient and hanging the dashboard on
+     "Connecting…" (see that tag, and tests/boot_sequence_test.js). GXClient now exists before
+     init() runs, so the lever is consulted on the first attempt. The shared poll stays the safety
+     net for apps that still defer; do not reintroduce a local re-check here. */
   GXMaintenance.init({ app: 'sales', appName: 'Sales / Cashflow', gxcore: GXCORE });
 }
 
@@ -2091,8 +2110,14 @@ function paintSalesUserTray() {
     avatar: window.GXAvatar ? GXAvatar.chip(sess.avatarConfig, name, sess.user || name) : null,
     /* Opt-in avatar row — omitted unless we can actually SAVE, so the row never appears with a
        Save button that cannot work. seed matches the chip above so the editor preview and the
-       rendered chip agree; the stored session carries no employee_number to use instead. */
-    avatarEdit: (window.GXAvatar && sess.token) ? {
+       rendered chip agree; the stored session carries no employee_number to use instead.
+
+       GXClient is part of "can we save": the row needs a client to save THROUGH, and the config
+       below builds one EAGERLY. Test for it here rather than letting GXClient(GXCORE) throw out of
+       an object literal — that throw is what left the dashboard on "Connecting…", because it
+       escaped this function into the boot block. If gx-theme has not loaded, the honest outcome is
+       a tray with no avatar editor, not a dead app. */
+    avatarEdit: (window.GXAvatar && sess.token && typeof GXClient === 'function') ? {
       token:  sess.token,
       app:    'sales',
       client: GXClient(GXCORE),
@@ -8064,16 +8089,33 @@ window.gcShowUpdate = gcShowUpdate; window.gcCheckVersion = gcCheckVersion;
   };
 })();
 
+/* Boot for a RETURNING session.
+ *
+ * The data load goes FIRST and every decoration around it is individually guarded. This is the same
+ * rule loadAllStores() already follows internally — a render fault must never kill a data load —
+ * applied one level up, where it was missing.
+ *
+ * It was missing for months and cost three bug reports. These calls used to run in a bare sequence
+ * with paintSalesUserTray() ahead of loadAllStores(); the tray threw ReferenceError on GXClient (see
+ * the gx-client.js tag), the exception escaped, and the two statements after it never ran. The app
+ * showed "Connecting…" forever with the console error as the only evidence, and pressing Load live
+ * data in Settings fixed it every time — because that button calls the one statement the throw had
+ * skipped. Ordering alone would have fixed that specific throw; the try/catch is what stops the NEXT
+ * decoration from doing the same thing. Painting a name chip is not worth a blank dashboard. */
 if (GC_SALES_AUTH.isAuthed()) {
-  var _initSession = GC_SALES_AUTH.load();
-  var _initUserEl = document.getElementById('s-logged-in-user');
-  if (_initUserEl && _initSession && _initSession.user) _initUserEl.textContent = 'Signed in as ' + _initSession.user;
-  document.getElementById('bug-fab').classList.add('visible');
-  paintSalesUserTray();          // returning session — paint the chip on boot too, not just at login
-  updateRevVisibility();
-  startSalesHeartbeat();
-  loadAllStores();
-  loadWhatsNewSales();
+  try { loadAllStores(); } catch (e) { console.error('[boot] loadAllStores threw synchronously:', e); }
+
+  try {
+    var _initSession = GC_SALES_AUTH.load();
+    var _initUserEl = document.getElementById('s-logged-in-user');
+    if (_initUserEl && _initSession && _initSession.user) _initUserEl.textContent = 'Signed in as ' + _initSession.user;
+    document.getElementById('bug-fab').classList.add('visible');
+    paintSalesUserTray();        // returning session — paint the chip on boot too, not just at login
+    updateRevVisibility();
+  } catch (e) { console.error('[boot] user chrome failed to paint:', e); }
+
+  try { startSalesHeartbeat(); } catch (e) { console.error('[boot] heartbeat failed to start:', e); }
+  try { loadWhatsNewSales(); }  catch (e) { console.error('[boot] what\'s-new failed to load:', e); }
 } else {
   showLoginScreen();
 }

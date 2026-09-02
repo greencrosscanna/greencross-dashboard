@@ -50,23 +50,33 @@ check('it does NOT use the note\'s placeholder name, which is undefined here',
 check('GXCORE is declared before init runs',
       SRC.indexOf("const GXCORE =") < SRC.indexOf('GXMaintenance.init('), true);
 
-console.log('\nthe kv lever works despite the deferred client — now the SHARED layer\'s job');
-/* This block used to require a local DOMContentLoaded re-check, and the measurement recorded above
-   is why it existed. That defect was fixed IN gx-theme instead (b1b12d0, 2026-08-28): fromCore()
-   polls up to 6s for a deferred gx-client.js rather than skipping the kv lever the moment GXClient
-   is missing. Core-admin chose the shared fix over documenting the extra line precisely because the
-   failure is invisible per-app — an app looks correctly wired while the cockpit toggle does nothing.
+console.log('\nthe kv lever no longer depends on a deferred client — belt AND braces');
+/* This block used to require a local DOMContentLoaded re-check, and it asserted that gx-client.js
+   really was deferred, because that defer is what made the lever fragile: fromCore() skips the kv
+   lever the moment GXClient is missing, so the cockpit toggle did nothing while the app looked
+   correctly wired. Two separate fixes have since removed that hazard from both ends.
 
-   So the assertion INVERTS. The local re-check is now redundant (deferred scripts run before
-   DOMContentLoaded, so the shared wait has always already succeeded by then) and it cost a second
-   config fetch on every load. It is asserted ABSENT so nobody reintroduces it from the old note, or
-   copies it into another spoke as though it were load-bearing.
+   FIRST, in gx-theme (b1b12d0, 2026-08-28): fromCore() polls up to 6s for a deferred client instead
+   of giving up. Core-admin chose the shared fix over documenting an extra line per app precisely
+   because the failure is invisible per-app. That made the local re-check redundant — deferred
+   scripts run before DOMContentLoaded, so the shared wait has always already succeeded by then —
+   and it cost a second config fetch every load. It stays asserted ABSENT below so nobody
+   reintroduces it from the old note or copies it into another spoke as load-bearing.
 
-   The defer fact stays asserted: if this app ever drops `defer`, this whole block stops being about
-   anything, and a future reader should be able to see that from here. */
+   SECOND, here in v2.559: `defer` came OFF the gx-client.js tag. It was not only starving the
+   maintenance gate — it was starving this app's own inline boot code, which is the real cost, since
+   this is a monolith whose startup js runs during parsing. paintSalesUserTray() called
+   GXClient(GXCORE) eagerly, threw ReferenceError, and took loadAllStores() down with it; the
+   dashboard hung on "Connecting…" until someone pressed Load live data. Three bug reports.
+
+   So the assertion INVERTS AGAIN, and this time it is pinning the fix rather than the hazard: the
+   tag must NOT be deferred. tests/boot_sequence_test.js owns the full story and the boot-order
+   guards; this one line is here so a reader of THIS file is not left believing the old premise. */
 const clientTag = /<script[^>]*gx-client\.js[^>]*>/.exec(SRC);
-check('gx-client.js really is deferred (what made the kv lever fragile)',
-      !!clientTag && /\bdefer\b/.test(clientTag[0]), true);
+check('gx-client.js is NOT deferred — GXClient exists before init() runs (see boot_sequence_test)',
+      !!clientTag && /\bdefer\b/.test(clientTag[0]), false);
+check('...and the tag really does come before GXMaintenance.init()',
+      SRC.indexOf('gx-client.js"></script>') < SRC.indexOf('GXMaintenance.init('), true);
 check('no local DOMContentLoaded re-check — gx-theme waits for the deferred client now',
       /DOMContentLoaded[\s\S]{0,80}GXMaintenance\.check\(/.test(SRC), false);
 check('and no throttled re-check either, which would have been swallowed by the 60s idle window',

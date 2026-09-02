@@ -236,6 +236,38 @@ exit did not, which left the period bar hidden on every other tab. The rule need
 `#dsk-subnav.dsk-subnav-off` — the desktop query's `.gx-subnav.dsk-chrome{display:flex!important}`
 out-specifies a lone class even with `!important` on both.
 
+## `defer` is a bug in this app, and the boot block must survive its own decorations
+
+**Fixed v2.559 (2026-09-02) — reported three times before anyone caught it.** The dashboard hung on
+"Connecting…" on every load; pressing **Load live data** in Settings fixed it every time.
+
+`gx-client.js` carried `defer`. A deferred script runs only after the whole document is parsed —
+but **this app is a monolith with INLINE js**, so all of its own startup code runs *during*
+parsing, ahead of the deferred file. `paintSalesUserTray()` builds the avatar-editor config with an
+eager `GXClient(GXCORE)` call; that threw `ReferenceError`, and because the boot block was a bare
+sequence with `paintSalesUserTray()` ahead of `loadAllStores()`, the throw took the rest of the
+block with it. The load never started. The Settings button worked because it calls the one
+statement the throw had skipped.
+
+- **Never put `defer` (or `async`) on a shared script this app's inline code calls.** The rule that
+  makes gx-theme's async loading safe elsewhere is exactly wrong here, and the failure is silent:
+  one console error, no UI, and an app that looks merely slow.
+- **The boot block starts the data load FIRST and wraps every decoration in its own try/catch.**
+  Ordering alone would have fixed that one throw; the guards are what stop the *next* decoration
+  doing the same thing. Painting a name chip is not worth a blank dashboard — the same rule
+  `loadAllStores()` already followed internally, applied one level up where it was missing.
+- **It only ever bit a RETURNING session,** which is why it read as intermittent. A fresh login
+  happens seconds later, by which point the deferred script has long since run. Anyone with a
+  stored token — i.e. Sky, always — hit it every single load.
+- **`avatarEdit` now tests for `GXClient` before building one.** A gx-theme outage should cost the
+  avatar row, not the app.
+- Dropping `defer` also removed the reason the **maintenance gate** needed gx-theme's 6-second poll
+  here; `GXMaintenance.init()` runs after the tag now, so the GX Core kv lever is reachable on the
+  first try. `tests/maintenance_wiring_test.js` asserted the *defer* as a fact about this app and
+  had to invert — it now pins the fix. Don't "restore" it.
+- `tests/boot_sequence_test.js` (15 assertions) pins all three guards against the shipped
+  `index.html`. **Verified to fail against the pre-fix source** (10 of 15).
+
 ## Two load-bearing render rules, both learned the hard way
 
 - **A render fault must never kill a data load.** `loadAllStores()` had `try/finally` with no
