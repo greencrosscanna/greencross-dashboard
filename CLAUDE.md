@@ -220,7 +220,7 @@ had (the overlay's figure if applied before, else the frozen one).
 - `tests/budget_apply_window_test.js` (29 assertions) executes the shipped `applyBudget_`.
 
 **`bills_once` is a SERVER-side flag because its consumer is the EXPENSES tab.** Rent, insurance,
-licences and management bill at a point in the period, so pacing them against a day-30 fraction calls
+licenses and management bill at a point in the period, so pacing them against a day-30 fraction calls
 them "over" by construction every month — Rent read +$2,608 over on 30 August where the honest figure
 is +$1,324. A flag kept only in the planner would leave that wrong on the screen people read. It
 rides along on `expbudgets` (and through that cache) so the tab needs no second call.
@@ -528,7 +528,7 @@ lookup miss indistinguishable from a store with no goals. Four of six stores sil
 for as long as the tab had been keyed that way. Found here 2026-08-25 while verifying the v220 re-pin,
 raised as `note_mt99ji06_9as`, fixed in **v223** — `getPeriodGoals` now resolves BOTH sides through
 `gxResolveStore_`, additively (`store` stays as the sheet holds it, canonical `store_id` alongside), and
-an unknown store still returns null rather than guessing at a neighbour.
+an unknown store still returns null rather than guessing at a neighbor.
 
 **The lesson, not the incident:** the fix belonged in Core and the workaround belonged nowhere. A
 store-alias table in this repo would have made Sales look correct while four stores kept paying for a
