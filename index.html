@@ -1360,7 +1360,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.561';
+const APP_VERSION = 'v2.562';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -2449,7 +2449,26 @@ function refreshLiveData() {
     if (activeMonth === 0) { for (let m = 1; m <= 12; m++) localStorage.removeItem(salesCacheKey(s.name, activeYear, m)); } // YTD/full-year
     else localStorage.removeItem(salesCacheKey(s.name, activeYear, activeMonth));
   });
-  clearLiveData();     // an explicit Refresh is a re-fetch from scratch, so the shimmer is honest here
+  /* NOTHING IS BLANKED HERE, deliberately, and this is THE line that decides whether the dashboard
+     flickers every minute.
+     
+     This function is not only the Refresh button — the 60-second auto-refresh tick calls it too
+     (scheduleAutoRefresh, below). It used to clearLiveData() first, so every poll wiped six stores
+     that were already on screen and correct, and the reader watched the whole page rebuild itself.
+     v2.560 keyed the wipe inside loadAllStores on the period, which was the right idea applied to
+     the wrong call site: clearLiveData() also resets _liveDataKey, so this line walked straight
+     through that guard and the flicker survived the fix. Sky, on v2.560: "poll refresh should
+     quietly update the numbers, not refresh the whole page. seems like it's blanking itself still."
+     
+     Busting the localStorage cache above is what makes this a real re-fetch; blanking the in-memory
+     copy was never what forced the fetch, only what emptied the screen while it ran. loadAllStores
+     overwrites each store as its answer lands, so the numbers change under the reader instead of
+     disappearing and coming back — and a store that fails keeps its last known figure rather than
+     dropping to a shimmer.
+     
+     A genuine "forget everything" still exists and still blanks: clearAllCache, clearDutchieCache
+     and hardReset all go through clearLiveData(). Those are answers to "this data is wrong", where
+     showing nothing is the honest state. A poll is not that. */
   _invalidateDerivedCaches();
   loadPaceFracs(true); // sales and pace have to move together, or the projection drifts
   loadAllStores();

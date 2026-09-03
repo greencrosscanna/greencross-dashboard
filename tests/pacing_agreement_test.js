@@ -215,4 +215,7 @@ for (const c of CASES) {
 }
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
-process.exit(fail ? 1 : 0);
+// exitCode, not process.exit(): exit() can cut off a buffered stdout write, and a suite that
+// prints NOTHING while exiting 0 reads as a pass to gx-preflight.sh. A silent green is worse
+// than a red one.
+  process.exitCode = fail ? 1 : 0;

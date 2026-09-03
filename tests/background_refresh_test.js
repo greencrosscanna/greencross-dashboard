@@ -38,13 +38,20 @@ function grab(name) {
   return SRC.slice(m.index, j + 1);
 }
 
+/** Code with comments removed. Several of these functions describe the very pattern they must not
+ *  contain, and a test that reads prose as code fails the correct implementation for documenting
+ *  itself — which teaches the next person to delete the explanation. */
+function stripComments(src) {
+  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+}
+
 let pass = 0, fail = 0;
 function ok(cond, msg) { if (cond) { pass++; } else { fail++; console.log('  FAIL: ' + msg); } }
 function eq(a, b, msg) { ok(a === b, msg + ' (got ' + JSON.stringify(a) + ', want ' + JSON.stringify(b) + ')'); }
 
 // ── 1. The poll must not blank what is already on screen ─────────────────────
 {
-  const load = grab('loadAllStores');
+  const load = stripComments(grab('loadAllStores'));
 
   ok(/_liveDataKey\s*!==\s*loadKey/.test(load),
      'loadAllStores wipes liveData only when the period key changed');
@@ -68,6 +75,25 @@ function eq(a, b, msg) { ok(a === b, msg + ' (got ' + JSON.stringify(a) + ', wan
   for (const fn of ['clearAllCache', 'clearDutchieCache', 'hardReset']) {
     ok(/clearLiveData\(\)/.test(grab(fn)), fn + ' still clears liveData outright');
   }
+
+  // THE ONE THAT ACTUALLY CAUSED THE FLICKER. refreshLiveData is not just the Refresh button — the
+  // 60-second auto-refresh tick calls it. Clearing there defeats the period key entirely, because
+  // clearLiveData() also nulls it, so loadAllStores wipes on the very next line. v2.560 fixed the
+  // guard and left this path blanking; the screen looked exactly as it had before.
+  // Strip comments first: this function EXPLAINS at length why it must not clear, and matching that
+  // prose would fail a correct implementation for saying so.
+  const refresh = stripComments(grab('refreshLiveData'));
+  ok(!/clearLiveData\(\)/.test(refresh),
+     'refreshLiveData does NOT blank liveData — it is the polling path, not a "forget everything"');
+  ok(!/(^|[^.\w])liveData\s*=\s*\{\s*\}/.test(refresh),
+     'refreshLiveData does not blank liveData by hand either');
+  ok(/localStorage\.removeItem\(salesCacheKey/.test(refresh),
+     'it still busts the localStorage cache — that, not blanking, is what forces the re-fetch');
+
+  // And the poll really does route through it, which is why the above matters.
+  const sched = grab('scheduleAutoRefresh');
+  ok(/refreshLiveData\(\)/.test(sched),
+     'the auto-refresh tick calls refreshLiveData — so that path must never blank the screen');
   ok(/liveData = \{\};\s*_liveDataKey = null;/.test(grab('clearLiveData')),
      'clearLiveData resets the key too — a wipe the loader cannot see is worse than no wipe');
 }
@@ -190,7 +216,7 @@ const HTML_BOUNCE = '<!DOCTYPE html><html><head><title>Page Not Found</title></h
 
   // ── 2c. The per-store load uses it too — that is where the stall was seen ──
   {
-    const load = grab('loadAllStores');
+    const load = stripComments(grab('loadAllStores'));
     ok(/gasFetchJson\(url, 2, 15000\)/.test(load),
        'each store fetch is bounded and retried — one hung store must not shimmer forever');
     // The budget has to stay inside one poll interval, or the in-flight guard blocks the very
@@ -231,5 +257,8 @@ const HTML_BOUNCE = '<!DOCTYPE html><html><head><title>Page Not Found</title></h
   }
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
-  process.exit(fail ? 1 : 0);
+  // exitCode, not process.exit(): exit() can cut off a buffered stdout write, and a suite that
+// prints NOTHING while exiting 0 reads as a pass to gx-preflight.sh. A silent green is worse
+// than a red one.
+  process.exitCode = fail ? 1 : 0;
 })();
