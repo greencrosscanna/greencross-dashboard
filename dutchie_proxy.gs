@@ -1655,22 +1655,43 @@ function getPacingFracs_() {
   const now    = new Date();
   const hour   = now.getHours();
   const minute = now.getMinutes();
+  /* ONE GX Core call, not six.
+   *
+   * This looped over the stores and made a separate /exec round trip for each. GX Core's request
+   * telemetry measured what that cost on 2026-09-03: expected_frac was 46% of ALL traffic reaching
+   * GX Core, the single largest caller of anything, and this loop plus Leaderboard's was most of it.
+   *
+   * The round trips are what matter, not the work: GX Core's /exec has intermittent bad spells, and
+   * every trip is an independent roll against them. Six rolls to paint one pacing row is six chances
+   * to lose. Leaderboard was the app stuck on a 75-day-old cache that morning for exactly this
+   * reason, while spiff, which makes one call, loaded fine.
+   *
+   * KEYED BY store_id NOW, not by the Dutchie name. The batched route resolves any alias and returns
+   * canonical ids, which is what lets this app and Leaderboard read the same payload — Sales used to
+   * ask with Dutchie names ('River Rd') and Leaderboard with store_ids, and before GX Core v293 the
+   * map came back keyed by whatever the caller typed. `sales` stays the label this app renders. */
   const STORE_MAP = [
-    { dutchie: 'Bend',        sales: 'Bend'        },
-    { dutchie: 'Center',      sales: 'Center'      },
-    { dutchie: 'Commercial',  sales: 'Commercial'  },
-    { dutchie: 'Hillsboro',   sales: 'Hillsboro'   },
-    { dutchie: 'Portland Rd', sales: 'Portland Rd' },
-    { dutchie: 'River Rd',    sales: 'River'       },
+    { core: 'bend',        sales: 'Bend'        },
+    { core: 'center',      sales: 'Center'      },
+    { core: 'commercial',  sales: 'Commercial'  },
+    { core: 'hillsboro',   sales: 'Hillsboro'   },
+    { core: 'portland-rd', sales: 'Portland Rd' },
+    { core: 'river-rd',    sales: 'River'       },
   ];
   const fracs = {};
-  for (const s of STORE_MAP) {
-    try {
-      const r = gxCoreRoute_('expected_frac', { store: s.dutchie, hour: hour, minute: minute });
-      const frac = r && r.frac;
+  try {
+    const r = gxCoreRoute_('expected_frac', {
+      stores: STORE_MAP.map(function (s) { return s.core; }).join(','),
+      hour: hour, minute: minute,
+    });
+    const got = (r && r.fracs) || {};
+    // Same per-store tolerance as before: a store with no curve is skipped, not zeroed, so the
+    // caller keeps its own fallback rather than being told the day expects nothing.
+    STORE_MAP.forEach(function (s) {
+      const frac = got[s.core];
       if (typeof frac === 'number' && frac >= 0) fracs[s.sales] = frac;
-    } catch(e) { /* store not in shape table yet — skip */ }
-  }
+    });
+  } catch (e) { /* GX Core unreachable — return what we have, exactly as the per-store loop did */ }
   return jsonOut_({ ok: true, fracs, hour, minute });
 }
 
