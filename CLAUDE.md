@@ -512,13 +512,34 @@ and it is the answer to "why does this feel congested".
   expiring cache fake and asserts on the NUMBER of live pulls. Verified to fail against the pre-fix
   source.
 
-**`serve.js` must never reach Apps Script, and `.claspignore` is the only thing stopping it.** The
-shared dev-file sync (2026-09-03, `bd7f5e2`) dropped a Node dev server at the repo root; `rootDir`
-is `"."` and nothing excludes JS by extension, so `clasp push` shipped it as `serve.gs`, where
-`#!/usr/bin/env node` on line 1 is a parse error that **fails the entire push**. Third instance of
-this exact failure after `tests/` (2026-08-22) and `design_handoff_*/` (2026-08-25). **Every spoke
-that has run `./gx-sync.sh` since then carries the same armed landmine**, and `.claspignore` is
-deliberately not a synced file, so each one needs its own fix.
+**`serve.js` must never reach Apps Script, and here `.claspignore` is the only thing stopping it.**
+The shared dev-file sync (2026-09-03, `bd7f5e2`) dropped a Node dev server at the repo root; this
+repo's `rootDir` is `"."` and its `.claspignore` is a DENYLIST that names offenders, so `clasp push`
+shipped it as `serve.gs`, where `#!/usr/bin/env node` on line 1 is a parse error that **fails the
+entire push** — not just that file. Third instance of the same mechanism after `tests/`
+(2026-08-22) and `design_handoff_*/` (2026-08-25). Fixed here in `94411ef`.
+
+*Two claims in the first version of this paragraph were wrong, both by over-generalizing from this
+repo — corrected 2026-09-03 after core-admin MEASURED the guard against all six repos' real configs
+with `serve.js` forced present:*
+
+- *"Every spoke that has run `./gx-sync.sh` carries the same landmine" is **false**. Only **sales
+  and inventory** were ever exposed, and both are fixed. `performance`'s `.claspignore` is an
+  ALLOWLIST (`**` then `!index.html`, `!goals.gs`, …), so it excludes `serve.js` without naming it;
+  `spiff`, `crew` and `pricecards` set `rootDir` to `apps-script`, putting a root file outside push
+  scope entirely. **Don't "fix" those three** — core-admin has told the other session the same.
+  Two sessions string-compared `rootDir` against `"."` and called spiff armed; the allowlist shape
+  is the half that gets missed.*
+- *"Nothing excludes JS by extension, so a fourth is already possible" had the mechanism backwards.
+  clasp pushes `.js` / `.gs` / `.ts` / `.html` / `.json` and ignores everything else, and
+  **`serve.js` is the first root-level `.js` file gx-sync has ever placed** — `deploy.sh`,
+  `gx-preflight.sh` and `gxengine.sh` are `.sh`, `serve.py` is `.py`. Months of clean syncs were
+  extension, not diligence. The category is a set of ONE today; the next `.js` gx-theme syncs re-arms
+  every denylist repo silently.*
+
+The durable fix is in gx-theme (`0a53356`): `gx-sync.sh` now warns at the moment such a file lands
+and prints the exact append. It warns rather than fixing because `.claspignore` is per-project truth
+— which `rootDir`, which `.gs` are real, which are separate bound projects — and so cannot be synced.
 
 **`getCogsDutchie` is cached at the proxy — leave it that way.** It was the only route the Income tab
 touches with no server-side cache, and the most expensive: six `getSalesDaily` reads plus **six live
