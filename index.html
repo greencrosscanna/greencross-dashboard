@@ -1058,7 +1058,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   window.GX_DEV_READS = [
     'budget_proposal',
     'cogs', 'cogs_dutchie', 'config', 'deposits', 'expbudgets', 'expense_breakdown', 'expenses', 'getdailygoals', 'goals',
-    'inventory', 'login', 'otherrev', 'pace', 'period_goals', 'period_goals_range', 'ping', 'pnl', 'published_goals',
+    'inventory', 'libversion', 'login', 'otherrev', 'pace', 'period_goals', 'period_goals_range', 'ping', 'pnl', 'published_goals',
     'recon_config', 'revenue_detail',
     'stores', 'velocity', 'version_history'
   ];
@@ -1360,7 +1360,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.559';
+const APP_VERSION = 'v2.560';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1922,6 +1922,20 @@ let compareMode = (() => {
 })();
 let isInitialLoad   = true;
 let liveData = {};
+/* The period liveData currently holds, as `year:month`. loadAllStores wipes liveData only when this
+ * disagrees with the period being asked for.
+ *
+ * Both halves of that are load-bearing. Wiping on a PERIOD change is mandatory — without it the
+ * on-screen figure survives into the new header, which is the July-736k trap. Wiping on a RE-POLL of
+ * the SAME period is what Sky reported on 2026-09-03: every 60-second poll tore the numbers down to
+ * shimmer placeholders and a $0 hero, then filled them back in. The data was already correct and on
+ * screen; the poll only ever confirms it. Shimmer means "we have nothing yet", so it belongs to the
+ * FIRST load and nothing else — after that a refresh has to happen underneath the reader. */
+let _liveDataKey = null;
+
+/** liveData and its period key move together — always. Setting one without the other is how a wipe
+ *  becomes invisible to loadAllStores, or a stale period survives one. */
+function clearLiveData() { liveData = {}; _liveDataKey = null; }
 let _storeStateMap = {}; // last known state map — lets backfill refresh the status strip
 let charts = {};
 // Accumulates daily netSales across all fetched months: { storeName: { "2026-01-03": 4500, ... } }
@@ -2004,6 +2018,48 @@ let PACE_GREEN = Number(localStorage.getItem('gc_pace_green') || 95);
 // Single read-point for the proxy URL — avoids 7+ places querying the DOM directly.
 function getProxyUrl() {
   return (document.getElementById('proxy-url')?.value || '').trim() || DEFAULT_PROXY;
+}
+
+/**
+ * One GET to this app's Apps Script /exec, parsed as JSON, WITH the retry that endpoint requires.
+ *
+ * A GAS /exec never answers directly: it 302s to script.googleusercontent.com, and that second hop
+ * intermittently refuses its own key and bounces back to /exec, which re-runs doGet and mints a new
+ * one. That is the ~6% flake gx-client.js exists for on the GX Core side, and this app's own proxy
+ * is the same kind of endpoint with the same behavior — measured here 2026-09-03, where three
+ * different routes returned a Google "Page Not Found" HTML page instead of JSON inside one minute.
+ *
+ * What the caller saw when that happened: r.json() throwing on HTML, surfacing as "Sign-in failed.
+ * Please try again." or a bug report that never went through. Both were reported as bugs — the
+ * sign-in one as "it takes 5-10s to log in", because the way you get past a bounce by hand is to
+ * press the button again.
+ *
+ * Retry the TRANSPORT ONLY. A parsed {ok:false} is the server's ANSWER — wrong password, a refused
+ * write — and re-sending it would be both wrong and, on a write, a way to duplicate it. Only a
+ * failure to obtain a parseable body is retried.
+ */
+async function gasFetchJson(url, attempts) {
+  const tries = attempts || 3;
+  let lastErr = null;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      // Read as text first. res.json() on a bounced HTML page throws a parser error that reads like
+      // a server fault; the body is what says it was a bounce.
+      const body = await res.text();
+      try {
+        return JSON.parse(body);
+      } catch (parseErr) {
+        throw new Error('non-JSON response (' + body.length + ' bytes)');
+      }
+    } catch (e) {
+      lastErr = e;
+      // Jittered, so six stores retrying at once do not re-collide on the same second.
+      if (i < tries - 1) await new Promise(r => setTimeout(r, 700 * (i + 1) + Math.random() * 500));
+    }
+  }
+  throw lastErr || new Error('request failed');
 }
 
 // Safe HTML escape — prevents raw strings from backend injecting markup.
@@ -2322,7 +2378,7 @@ function clearDutchieCache() {
     .filter(k => k.startsWith('gc_sales_'))
     .forEach(k => localStorage.removeItem(k));
   allDailyData = {};
-  liveData     = {};
+  clearLiveData();
   _invalidateDerivedCaches();
   console.log('Dutchie sales cache cleared');
 }
@@ -2336,7 +2392,7 @@ function clearAllCache() {
   Object.keys(sessionMemCache).forEach(k => delete sessionMemCache[k]);
   inventoryData = {};
   allDailyData  = {};
-  liveData      = {};   // was missing — without it the on-screen figure survived a "clear" (the July 736k trap)
+  clearLiveData();      // was missing — without it the on-screen figure survived a "clear" (the July 736k trap)
   lbGoals       = null;
   lbGoalsSource = null;
   pgLoaded.clear(); pgResolved.clear(); _pgTotalMemo.clear();
@@ -2382,7 +2438,7 @@ function refreshLiveData() {
     if (activeMonth === 0) { for (let m = 1; m <= 12; m++) localStorage.removeItem(salesCacheKey(s.name, activeYear, m)); } // YTD/full-year
     else localStorage.removeItem(salesCacheKey(s.name, activeYear, activeMonth));
   });
-  liveData = {};
+  clearLiveData();     // an explicit Refresh is a re-fetch from scratch, so the shimmer is honest here
   _invalidateDerivedCaches();
   loadPaceFracs(true); // sales and pace have to move together, or the projection drifts
   loadAllStores();
@@ -2611,7 +2667,10 @@ async function loadAllStores() {
   ]);
   loadExpBudgets(); loadOtherRevenue(); loadExpenses(); // fire-and-forget (expenses tab only)
 
-  liveData = {};
+  // A re-poll of the SAME period keeps what is on screen and overwrites it store by store as the
+  // answers land; only a period change starts from nothing. See _liveDataKey.
+  const loadKey = activeYear + ':' + activeMonth;
+  if (_liveDataKey !== loadKey) { liveData = {}; _liveDataKey = loadKey; }
   const stateMap = Object.fromEntries(STORES.map(s => [s.name, 'loading']));
   buildStatusGrid(stateMap);
   pill('amber', 'Loading…');
@@ -3560,6 +3619,64 @@ function getGoalPacingPct(stores) {
   return Math.max(0, Math.min(100, Math.round(expected / goalToDate * 100)));
 }
 
+/**
+ * ONE store's goal for the selected period.
+ *
+ * The hero SUMS these and every breakdown row uses one, so the six rows cannot be measured against
+ * a different goal than the headline sitting above them. It was three inline branches in the hero
+ * and the same three restated in _storeBreakdownRows, which is how they drifted apart.
+ */
+function storePeriodGoal(s, yr, daysInMo) {
+  if (activeDay) {
+    return getDailyGoal(s, new Date(activeDay + 'T12:00:00').getDay(), activeMonth, yr, daysInMo, activeDay);
+  }
+  if (activeWeek) return getWeeklyGoal(s, activeMonth, yr, daysInMo, ...activeWeekBounds());
+  return getMonthlyGoal(s, activeMonth, yr);
+}
+
+/**
+ * ONE store's EXPECTED-TO-DATE — the slice of its period goal that should have been earned by now.
+ *
+ * THE HERO'S "behind/over pace" IS THE SUM OF THESE. That is the entire point of the function.
+ * The headline and the store rows used to derive expected-to-date separately, by different rules,
+ * and the screen contradicted itself: on 2026-09-03 the daily total read "behind pace" above six
+ * rows that every one of them read "exceeding pace" — same period, same sales, two clocks.
+ *
+ * The specific defect was here, in the day view. The hero guarded its intraday fraction with
+ * paceFracsStale() and fell back to the live clock ramp when the frac went cold; the rows read
+ * `paceFracs[s]` with NO staleness check at all. Once the 5-minute TTL lapsed, every row was still
+ * being measured against a MORNING target — a small expected-to-date, so all six read ahead —
+ * while the hero had already advanced to the real time of day. That is the same frozen-clock bug
+ * tests/pacing_staleness_test.js was written for; the fix landed in getPacingPct and the rows were
+ * simply never brought along, because nothing compared the two.
+ *
+ * The rules, in the order they apply:
+ *  - a finished period expects the whole goal;
+ *  - TODAY expects GX Core's shaped intraday fraction for THIS store, which is why one row may
+ *    legitimately sit at a different fraction than its neighbor — but only while that frac is
+ *    FRESH. A stale frac is worse than none: fall through to the clock rather than freeze.
+ *  - the CURRENT MONTH is DOW-weighted through today, because a month that has already run its
+ *    Fridays is further along than the date alone says. monthGoalFrac is deliberately scale-free,
+ *    so this cannot drag a budget-vs-period-goal mismatch in alongside the weighting;
+ *  - anything else is the plain elapsed fraction.
+ */
+function storePacedGoal(s, sPeriodGoal, isClosed, elapsedPct, yr, daysInMo) {
+  if (!(sPeriodGoal > 0)) return 0;
+  if (isClosed) return Math.round(sPeriodGoal);
+  const now = new Date();
+  if (activeDay) {
+    const frac = (activeDay === toDateStr(now) && paceFracs && !paceFracsStale() && paceFracs[s] != null)
+      ? paceFracs[s]
+      : elapsedPct / 100;
+    return Math.round(sPeriodGoal * frac);
+  }
+  if (!activeWeek && activeMonth > 0 &&
+      yr === now.getFullYear() && activeMonth === now.getMonth() + 1) {
+    return Math.round(sPeriodGoal * monthGoalFrac([s], activeMonth, yr, daysInMo, now.getDate()));
+  }
+  return Math.round(sPeriodGoal * elapsedPct / 100);
+}
+
 function getActiveStores() {
   if (activeStoreSet !== null) {
     return STORES.map(s => s.name).filter(n => activeStoreSet.has(n));
@@ -4158,8 +4275,7 @@ function animateStorePacingBars(animate) {
 // resorting the list under the reader's eyes.
 let _bdOrder = null;
 
-function _storeBreakdownRows(stores, storeNets, isClosed, pacingPct, yr, daysInMo) {
-  const today = toDateStr(new Date());
+function _storeBreakdownRows(stores, storeNets, isClosed, elapsedPct, yr, daysInMo) {
   // NOT filtered to the stores that have arrived. Every store is a row immediately, pending or not.
   // Building the list as data came in meant the section changed height six times per load, and
   // loadAllStores clears liveData first, so a re-poll tore the whole thing down and rebuilt it. It
@@ -4169,16 +4285,13 @@ function _storeBreakdownRows(stores, storeNets, isClosed, pacingPct, yr, daysInM
     const st          = STORE_MAP.get(s);
     const col         = st?.color || '#888';
     const snet        = storeNets[s];
-    const sMonthGoal  = getMonthlyGoal(s, activeMonth, yr);
-    const sPeriodGoal = activeDay
-      ? getDailyGoal(s, new Date(activeDay + 'T12:00:00').getDay(), activeMonth, yr, daysInMo, activeDay)
-      : activeWeek ? getWeeklyGoal(s, activeMonth, yr, daysInMo, ...activeWeekBounds())
-      : sMonthGoal;
-    // For today's day view use per-store GXCore frac; else fall back to hero pacingPct
-    const sFrac = (!isClosed && activeDay && activeDay === today && paceFracs?.[s] != null)
-      ? paceFracs[s] * 100
-      : pacingPct;
-    const sCompareGoal = isClosed ? sPeriodGoal : Math.round(sPeriodGoal * sFrac / 100);
+    // Same two calls the hero makes, so a row's ± and the headline's "behind/over pace" are the
+    // same arithmetic. Never re-derive either of these here — that is exactly how the total came to
+    // disagree with the rows it was the total of.
+    const sPeriodGoal  = storePeriodGoal(s, yr, daysInMo);
+    const sCompareGoal = storePacedGoal(s, sPeriodGoal, isClosed, elapsedPct, yr, daysInMo);
+    // The row's own pace marker and color come off its expected-to-date, not off the clock.
+    const sFrac        = sPeriodGoal > 0 ? sCompareGoal / sPeriodGoal * 100 : elapsedPct;
     const diff         = snet - sCompareGoal;
     const sGoalPct     = sPeriodGoal > 0 ? Math.round(snet / sPeriodGoal * 100) : 0;
     const sPaceRatio   = sFrac > 0 ? sGoalPct / sFrac * 100 : (sGoalPct > 0 ? 100 : 0);
@@ -4188,8 +4301,10 @@ function _storeBreakdownRows(stores, storeNets, isClosed, pacingPct, yr, daysInM
     const markInFill   = sOnPace && sBarW > 0 ? (sPacePos / sBarW * 100).toFixed(1) : 100;
     const sFillCls     = sPaceRatio >= PACE_GREEN ? 'green over' : sPaceRatio >= PACE_AMBER ? 'amber' : 'red';
     const sFillStyle   = sOnPace ? `--mark-in-fill:${markInFill}%` : '';
-    return { s, st, col, snet, sPeriodGoal, sGoalPct, sFillCls, sFillStyle, sBarW, sPacePos, diff,
-             pending: !liveData[s] };
+    // sCompareGoal rides along unused by the markup: it is what tests/pacing_agreement_test.js sums
+    // to prove the six rows still add up to the headline's expected-to-date.
+    return { s, st, col, snet, sPeriodGoal, sCompareGoal, sGoalPct, sFillCls, sFillStyle, sBarW,
+             sPacePos, diff, pending: !liveData[s] };
   });
 }
 
@@ -4210,8 +4325,8 @@ function _bdApplyOrder(rows) {
   return rows.sort((a, b) => (a.pending - b.pending) || (b.snet - a.snet));
 }
 
-function _incomeBreakdownMobHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo) {
-  const rows = _bdApplyOrder(_storeBreakdownRows(stores, storeNets, isClosed, pacingPct, yr, daysInMo));
+function _incomeBreakdownMobHtml(stores, storeNets, isClosed, elapsedPct, yr, daysInMo) {
+  const rows = _bdApplyOrder(_storeBreakdownRows(stores, storeNets, isClosed, elapsedPct, yr, daysInMo));
   return rows.map(({s, st, col, snet, sPeriodGoal, sGoalPct, sFillCls, sFillStyle, sBarW, sPacePos, diff, pending}) =>
     `<div class="ic-bd-row${pending ? ' bd-pending' : ''}">
       <div class="swatch" style="background:${col}"></div>
@@ -4235,8 +4350,8 @@ function _incomeBreakdownMobHtml(stores, storeNets, isClosed, pacingPct, yr, day
   ).join('');
 }
 
-function _incomeBreakdownDskHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo) {
-  const rows = _bdApplyOrder(_storeBreakdownRows(stores, storeNets, isClosed, pacingPct, yr, daysInMo));
+function _incomeBreakdownDskHtml(stores, storeNets, isClosed, elapsedPct, yr, daysInMo) {
+  const rows = _bdApplyOrder(_storeBreakdownRows(stores, storeNets, isClosed, elapsedPct, yr, daysInMo));
   // The compare column exists only while compare is on, so the grid gains a 4th track with it.
   const cmp = compareOn() ? ' cmp' : '';
   const cmpCell = (s, snet) => {
@@ -4356,38 +4471,33 @@ function renderIncome() {
   const daysInMo = activeMonth > 0 ? new Date(activeYear, activeMonth, 0).getDate() : 365;
   const cost = computeInvCost(stores);
 
-  let periodGoal, goalLabel;
-  if (activeDay) {
-    const dow  = new Date(activeDay + 'T12:00:00').getDay();
-    periodGoal = Math.round(stores.reduce((a,s) => a + getDailyGoal(s, dow, activeMonth, yr, daysInMo, activeDay), 0));
-    goalLabel  = 'Daily target';
-  } else if (activeWeek) {
-    periodGoal = Math.round(stores.reduce((a,s) => a + getWeeklyGoal(s, activeMonth, yr, daysInMo, ...activeWeekBounds()), 0));
-    goalLabel  = 'Week target';
-  } else {
-    periodGoal = stores.reduce((a,s) => a + getMonthlyGoal(s, activeMonth, yr), 0);
-    goalLabel  = activeMonth === MONTH_YTD ? 'YTD goal' : 'Monthly goal';
-  }
+  // Per-store goals FIRST; the headline is their sum. Both the hero and the six breakdown rows read
+  // this same map, so "the total" is by construction the total of what is listed under it.
+  const sPeriodGoals = Object.fromEntries(stores.map(s => [s, storePeriodGoal(s, yr, daysInMo)]));
+  const periodGoal   = Math.round(stores.reduce((a, s) => a + sPeriodGoals[s], 0));
+  const goalLabel    = activeDay ? 'Daily target'
+                     : activeWeek ? 'Week target'
+                     : activeMonth === MONTH_YTD ? 'YTD goal' : 'Monthly goal';
 
   const goalPct   = periodGoal > 0 ? Math.round(net / periodGoal * 100) : 0;
   const goalWait  = goalPending();   // frozen period goals still in flight for this view
-  // getGoalPacingPct, not getPacingPct: in YTD the goal above is already a to-date figure, so the
-  // calendar-year fraction would discount it twice. See that function for the whole story.
-  const pacingPct = getGoalPacingPct(stores);
-  const isClosed  = pacingPct >= 100;
+  // How much of the PERIOD has elapsed. getGoalPacingPct, not getPacingPct: in YTD the goal above is
+  // already a to-date figure, so the calendar-year fraction would discount it twice. See that
+  // function for the whole story. This is the fallback fraction and the "is the period over" test —
+  // it is NOT the number the pace label is built from; that is the sum below.
+  const elapsedPct = getGoalPacingPct(stores);
+  const isClosed   = elapsedPct >= 100;
 
-  let pacedGoal;
-  if (!activeDay && !activeWeek && !isClosed && activeMonth > 0 && activeMonth === today.getMonth() + 1) {
-    let dowPaced = 0;
-    for (let d = 1; d <= today.getDate(); d++) {
-      const dow = new Date(yr, activeMonth - 1, d).getDay();
-      dowPaced += stores.reduce((a,s) => a + getDailyGoal(s, dow, activeMonth, yr, daysInMo), 0);
-    }
-    pacedGoal = Math.round(dowPaced);
-  } else {
-    pacedGoal = isClosed ? periodGoal : Math.round(periodGoal * pacingPct / 100);
-  }
-  const under = pacedGoal - net;
+  // Expected-to-date, once, per store — the same call every breakdown row makes.
+  const sPacedGoals = Object.fromEntries(
+    stores.map(s => [s, storePacedGoal(s, sPeriodGoals[s], isClosed, elapsedPct, yr, daysInMo)]));
+  const pacedGoal   = stores.reduce((a, s) => a + sPacedGoals[s], 0);
+  const under       = pacedGoal - net;
+  // The bar's pace marker has to sit where the label says it does, so it comes off the same
+  // expected-to-date rather than off the elapsed clock.
+  const pacingPct   = periodGoal > 0
+    ? Math.max(0, Math.min(100, Math.round(pacedGoal / periodGoal * 100)))
+    : elapsedPct;
 
   const storeNets = Object.fromEntries(stores.map(s => [s, getStorePeriodNet(s)]));
   const weekly    = activeDay ? buildDayOfWeekChart(stores) : activeWeek ? buildWeeklyDays(stores) : buildMonthDailyChart(stores);
@@ -4435,7 +4545,7 @@ function renderIncome() {
           ${_incomeKpiMobHtml(net, gross, orders, disc, cost, aov, dutchieNet, dcost)}
         </div>
         <div class="ic-mob-bd" id="ic-mob-bd">
-          ${_incomeBreakdownMobHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo)}
+          ${_incomeBreakdownMobHtml(stores, storeNets, isClosed, elapsedPct, yr, daysInMo)}
         </div>
         <div id="income-other-rev">${otherHtml}</div>
         <div id="income-chart-section">
@@ -4464,7 +4574,7 @@ function renderIncome() {
         <div class="ic-lower">
           <div class="card" id="ic-dsk-bd">
             <div class="sec-lbl" style="margin-bottom:8px">Store breakdown</div>
-            ${_incomeBreakdownDskHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo)}
+            ${_incomeBreakdownDskHtml(stores, storeNets, isClosed, elapsedPct, yr, daysInMo)}
           </div>
           <div class="ic-chart-col">
             <div class="ic-chart-card card" id="ic-dsk-chart-wrap">
@@ -4492,8 +4602,8 @@ function renderIncome() {
     patchEl('ic-dsk-proj',   _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores, goalWait));
     patchEl('ic-mob-kpis',   _incomeKpiMobHtml(net, gross, orders, disc, cost, aov, dutchieNet, dcost));
     patchEl('ic-dsk-kpis',   _incomeKpiDskHtml(net, gross, orders, disc, cost, aov, dutchieNet, dcost));
-    patchEl('ic-mob-bd',     _incomeBreakdownMobHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo));
-    patchEl('ic-dsk-bd',     `<div class="sec-lbl" style="margin-bottom:8px">Store breakdown</div>${_incomeBreakdownDskHtml(stores, storeNets, isClosed, pacingPct, yr, daysInMo)}`);
+    patchEl('ic-mob-bd',     _incomeBreakdownMobHtml(stores, storeNets, isClosed, elapsedPct, yr, daysInMo));
+    patchEl('ic-dsk-bd',     `<div class="sec-lbl" style="margin-bottom:8px">Store breakdown</div>${_incomeBreakdownDskHtml(stores, storeNets, isClosed, elapsedPct, yr, daysInMo)}`);
     patchEl('income-other-rev', otherHtml);
     patchEl('income-other-rev-dsk', otherHtml);
     patchEl('income-top-products', topHtml);
@@ -7653,7 +7763,7 @@ function hardReset() {
   hiddenOtherRevs.clear(); localStorage.removeItem('hiddenOtherRevs');
   expenseData = null; expBudgets = null; otherRevData = null; invGmData = null; revenueDetail = null; _invGmLoading = false;
   expBudgetsOverlaid = new Set(); budgetProposal = null; budgetLoading = false; budgetChecked = new Set(); budgetExpanded = new Set();
-  liveData = {};
+  clearLiveData();
   updateCacheStatus();
   updateSettingsBadges();
   render();
@@ -7768,11 +7878,30 @@ function showLoginScreen() {
     var u = document.getElementById('gc-login-user');
     if (u) u.focus();
   }, 50);
+  // Start the backend warming now, while the form is being typed into — see prewarmSalesProxy.
+  prewarmSalesProxy();
 }
 
 function hideLoginScreen() {
   var el = document.getElementById('gc-login-overlay');
   if (el) el.style.display = 'none';
+}
+
+/* Wake the Apps Script container while the sign-in form is being filled in.
+ *
+ * An /exec on a cold container pays a container start AND the bound-library load before doGet runs a
+ * single line; a warm one answers in ~1.8s. Typing a username and a password takes several seconds,
+ * and none of that time was being used. libversion is the right knock: it is public (no token — the
+ * login screen has none), read-only, and it calls GXCore.libVersion(), so it forces the GXCore
+ * library to load rather than only the container.
+ *
+ * Entirely fire-and-forget. It must never block the form, never surface an error, and never be
+ * something the sign-in path waits on — if it fails, sign-in is exactly as fast as it was before. */
+function prewarmSalesProxy() {
+  try {
+    var proxyUrl = (document.getElementById('proxy-url') || {}).value || DEFAULT_PROXY;
+    fetch(proxyUrl + '?action=libversion').catch(function () {});
+  } catch (e) { /* the login form is not worth an exception */ }
 }
 
 async function doSalesLogin() {
@@ -7798,8 +7927,12 @@ async function doSalesLogin() {
   try {
     var proxyUrl = (document.getElementById('proxy-url') || {}).value || DEFAULT_PROXY;
     var url = proxyUrl + '?action=login&user=' + encodeURIComponent(user) + '&pass=' + encodeURIComponent(pass);
-    var res = await fetch(url);
-    var data = await res.json();
+    // gasFetchJson, not a bare fetch. Measured 2026-09-03: the credential check itself costs nothing
+    // — ?action=login and ?action=ping both come back in ~1.8s median — so a sign-in that takes 5-10s
+    // is the /exec second hop bouncing, and a bounce that lands on HTML used to surface as "Sign-in
+    // failed. Please try again." The way anyone got past that was to press the button again, which is
+    // what made signing in FEEL slow. Retrying it here is doing that automatically and once.
+    var data = await gasFetchJson(url, 3);
     if (data.ok && data.token) {
       // displayName and avatarConfig come back from GXCore.login and were being thrown away, so the
       // header had nothing but a username to show. Keeping them is what lets the shared user chip
@@ -7930,7 +8063,17 @@ if (window.GXBugReport) {
     submit: function (payload) {
       var session = GC_SALES_AUTH.load() || {};
       var params  = new URLSearchParams(Object.assign({}, payload, { token: session.token || '' }));
-      return fetch(getProxyUrl() + '?' + params).then(function (r) { return r.json(); });
+      /* gasFetchJson, not a bare fetch. Sky reported this one twice — "repeat error, tried to submit
+         this bug but it didn't go thru" — and the second report is the tell: a bug reporter that
+         fails on a transport flake is the one thing in the app you cannot report a bug about. The
+         /exec second hop bounces and returns HTML; r.json() threw, and the form showed a failure for
+         a request the server never refused.
+
+         The retry is transport-only, which matters MORE here than elsewhere: a filed report is a
+         write, and gxIngestBug has no dedupe (core-admin, 2026-09-03), so re-sending a request that
+         actually landed would file it twice. gasFetchJson only ever retries a request that produced
+         no parseable answer at all. */
+      return gasFetchJson(getProxyUrl() + '?' + params, 3);
       /* Returns the proxy's body as-is. gx-bugreport treats a resolved {ok:false} as failure, which
          is the bug this app actually shipped once: a rejected ingest reported "Reported! Thanks."
          and the reports were lost for weeks. Do not "simplify" this to swallow the body. */
