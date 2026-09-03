@@ -1360,7 +1360,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.563';
+const APP_VERSION = 'v2.564';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -8116,10 +8116,17 @@ if (window.GXBugReport) {
          /exec second hop bounces and returns HTML; r.json() threw, and the form showed a failure for
          a request the server never refused.
 
-         The retry is transport-only, which matters MORE here than elsewhere: a filed report is a
-         write, and gxIngestBug has no dedupe (core-admin, 2026-09-03), so re-sending a request that
-         actually landed would file it twice. gasFetchJson only ever retries a request that produced
-         no parseable answer at all. */
+         The retry is transport-only. A filed report is a WRITE, so re-sending one that actually
+         landed would be a second report — gasFetchJson only ever retries a request that produced no
+         parseable answer at all, and never a parsed {ok:false}.
+
+         Corrected 2026-09-03: this said gxIngestBug has no dedupe. It does — core-admin fixed that
+         in GX Core v287, guarded it in v289, and verified on the live deployment that the same bug
+         filed twice four seconds apart yields ONE row and `deduped:true` (matched on app + title +
+         reporter within 3 minutes, against OPEN bugs only). The claim came from a stale note of
+         theirs and was already false when it was written here. Keep the transport-only rule anyway:
+         it is right on its own merits, and a server-side guard is a safety net rather than a licence
+         to re-send. */
       return gasFetchJson(getProxyUrl() + '?' + params, 3);
       /* Returns the proxy's body as-is. gx-bugreport treats a resolved {ok:false} as failure, which
          is the bug this app actually shipped once: a rejected ingest reported "Reported! Thanks."
