@@ -1360,7 +1360,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.566';
+const APP_VERSION = 'v2.567';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1710,8 +1710,12 @@ async function fetchPublishedGoals(curMonth, curYear) {
    * Leaderboard fetch behind it and cache behind that. The fallback chain exists for exactly
    * this and was being starved by the wait in front of it.
    *
-   * ~21s worst case (8s + 12s + backoff), which stays inside one poll interval. */
-  const r = await GXClient(GXCORE, { retries: 1, timeoutMs: 8000, lastTimeoutMs: 12000 })
+   * ATTEMPTS ARE 15s AND 20s, NOT 8s AND 12s — corrected against Core's own instrumentation.
+   * A caller waits an average of 12.2s on a GX Core request that does not even bounce, so an 8s
+   * first attempt would fail on most HEALTHY calls, and this path would fall back to Leaderboard
+   * essentially always. That is not a safe default, it is a route that never runs while looking
+   * like it does. Bounded well under one 60s poll (~35s + backoff) but above the measured middle. */
+  const r = await GXClient(GXCORE, { retries: 1, timeoutMs: 15000, lastTimeoutMs: 20000 })
                     .jsonp('published_goals', { producer: 'performance' });
   if (!r || !r.ok || !r.payload) {
     console.warn('[lb-goals] core published_goals unavailable:', (r && r.error) || 'no payload');
@@ -1928,7 +1932,18 @@ async function loadPaceFracs(force) {
      * were taught to abandon a stale frac, which fixed what you SEE; this is the reason it went
      * stale in the first place. A timeout here removes the cause, not the symptom.
      *
-     * ONE ATTEMPT AT 8s — NOT A LADDER, and the retry is deliberately somebody else's job.
+     * ONE ATTEMPT AT 20s — NOT A LADDER, and the retry is deliberately somebody else's job.
+     *
+     * THE CEILING WAS 8s FOR ONE RELEASE AND THAT WAS WRONG. It was set from the fast samples
+     * (2.2s, 3.9s) on the assumption that 12-17s was the tail. GX Core's own instrumentation,
+     * published minutes later, says otherwise: a caller waits an average of 12.2s on a request
+     * that does NOT bounce, across 20 probes. Twelve seconds is the ORDINARY clean case. An 8s
+     * ceiling would have aborted a large share of perfectly healthy calls, paceFracs would never
+     * have populated, and the day view would have sat permanently on the clock-ramp fallback —
+     * which is fine for one poll cycle and not somewhere to strand the app forever.
+     *
+     * The lesson is worth more than the number: a ceiling set from the fast samples of a bimodal
+     * distribution is not conservative, it is an outage. Set it from the measured middle.
      *
      * Measured in Sky's live session on 2026-09-03, five consecutive calls for a 211-byte answer:
      * 53.6s · 30.5s · 5.1s · 3.9s · 8.9s. The cause is upstream — GX Core's expected_frac, which
@@ -1944,7 +1959,7 @@ async function loadPaceFracs(force) {
      * at 8 seconds is a slightly less precise pacing bar for one cycle, against 53 seconds of a
      * latched flag that blocks the very poll that would have fixed it. */
     const data = await gasFetchJson(
-      `${getProxyUrl()}?action=pace&token=${encodeURIComponent(getToken())}`, 1, 8000);
+      `${getProxyUrl()}?action=pace&token=${encodeURIComponent(getToken())}`, 1, 20000);
     if (data.ok && data.fracs && Object.keys(data.fracs).length) {
       paceFracs   = data.fracs;
       paceFracsAt = Date.now();

@@ -36,10 +36,16 @@ function ok(cond, label, detail) {
   if (cond) { pass++; console.log('  ok   ' + label); }
   else { fail++; console.log('  FAIL ' + label + (detail ? '\n         ' + detail : '')); }
 }
+/* Slice from the declaration to the START OF THE NEXT top-level function, rather than a fixed
+   character count. A fixed window silently truncates: these call sites carry long "why" comments,
+   and adding one pushed the call being asserted past the end — four assertions then failed with
+   "could not parse the call", which reads as a missing bound rather than a short window. A test
+   whose failure mode is indistinguishable from the bug is worse than no test. */
 function fn(name) {
   const i = src.indexOf('async function ' + name);
   if (i < 0) return '';
-  return src.slice(i, i + 2600);
+  const next = src.slice(i + 1).search(/\n(?:async )?function [A-Za-z_$]/);
+  return next < 0 ? src.slice(i) : src.slice(i, i + 1 + next);
 }
 
 // ── TIER 1: the four calls loadAllStores awaits ──────────────────────────────────────────
@@ -68,7 +74,11 @@ const retries = Number((opts.match(/retries:\s*(\d+)/) || [, NaN])[1]);
 const last    = Number((opts.match(/lastTimeoutMs:\s*(\d+)/) || [, NaN])[1]);
 const per     = Number((opts.match(/timeoutMs:\s*(\d+)/)     || [, NaN])[1]);
 ok(retries <= 1, 'published_goals takes at most 2 attempts', 'retries: ' + retries);
-ok(last <= 15000, 'published_goals does NOT inherit the patient 45s final attempt', 'got ' + last);
+ok(last <= 25000, 'published_goals does NOT inherit the patient 45s final attempt', 'got ' + last);
+/* But it must also sit ABOVE Core's measured ordinary wait of ~12.2s. Too tight is not the safe
+   direction here: it makes a real route fail on healthy calls and fall back every time, which
+   looks like it works and never runs. */
+ok(per >= 12000, 'the per-attempt ceiling is above GX Core\'s measured ordinary wait', 'got ' + per);
 ok(per * (retries + 1) + last < 60000,
    'the whole published_goals budget stays inside one 60s poll interval');
 
@@ -93,8 +103,15 @@ ok(paceArgs && Number(paceArgs[1]) * Number(paceArgs[2]) < 60000,
 ok(paceArgs && Number(paceArgs[1]) === 1,
    'pace takes exactly ONE attempt — the 60s poll is the retry',
    paceArgs ? 'attempts: ' + paceArgs[1] : 'could not parse the call');
-ok(paceArgs && Number(paceArgs[2]) <= 10000,
-   'the pace ceiling is short (<= 10s) — there is a working fallback behind it',
+/* BOTH ends of this range are load-bearing, and the lower one was learned by shipping it wrong.
+   v2.566 set this to 8s, reasoning from the fast samples (2.2s, 3.9s) that 12-17s was the tail.
+   GX Core's own instrumentation says a caller waits an average of 12.2s on a request that does
+   NOT bounce — twelve seconds is the ordinary clean case. An 8s ceiling aborts a large share of
+   healthy calls, paceFracs never populates, and the day view strands on the clock-ramp fallback.
+   A ceiling set from the fast samples of a bimodal distribution is not conservative, it is an
+   outage. The upper bound keeps it inside one 60s poll with room to spare. */
+ok(paceArgs && Number(paceArgs[2]) >= 15000 && Number(paceArgs[2]) <= 30000,
+   'the pace ceiling sits above the measured ordinary case (15s-30s), not below it',
    paceArgs ? 'ceiling: ' + paceArgs[2] + 'ms' : 'could not parse the call');
 
 /* TIER 3 was already done and this asserts it stays done: cogs_dutchie carries its own
