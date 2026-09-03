@@ -476,6 +476,50 @@ answer to "the goals feel too high", and it is NOT the stretch multiplier, which
 because a manual override zeroes stretch. Stretch also cannot compound — the next goal is computed
 from actual SALES, never from the previous goal.
 
+## Today's sales are pulled ONCE and shared — the cost scaled with tabs, not people
+
+Every read this app makes comes out of `CacheService`, which lives on the SCRIPT and is therefore
+shared by every viewer: settled days (`sdaily_v4_…`), expenses, deposits, goals, budgets. **The
+intraday Dutchie pull was the lone exception, and the expensive one** — a live transaction pull with
+`includeItems`, one per store, six per load, and the client polls every 60s per open tab. A
+back-office monitor plus a phone plus a laptop, all showing the same six stores, was **18 identical
+Dutchie pulls a minute**. Cached for 90 seconds in `dutchieTodayFetch_` since v2.569.
+
+**Measured on the live deployment (2026-09-03, River Rd, Sept 1 → now):** a forced-fresh pull
+(`&nocache=1`) took **50.1s**; served from the shared entry, **3.0–3.6s**. Identical payload every
+time — $11,601.96 net, 58 live orders. That 50 seconds is what each tab was independently paying,
+and it is the answer to "why does this feel congested".
+
+- **90s, not 5 minutes, and not 60.** The poll is 60s, so a TTL at or under it leaves nearly every
+  poll paying full price — the silent way this change would have accomplished nothing. Much longer
+  and the "Live" pill starts lying.
+- **Keyed on `store` + `todayPT`, deliberately NOT on the caller's `to`.** That is a live timestamp
+  that changes every request; folding it into the key gives a cache that can never hit — correct
+  numbers, unchanged congestion, and nothing anywhere saying so. Dropping it is exactly the
+  staleness the TTL already licenses: the window is always "Pacific midnight → now", and "now" is
+  allowed to be up to 90 seconds ago.
+- **`nocache` bypasses, and that escape hatch is what makes the cache safe to add.** Settings →
+  "clear cache" means *this data is wrong, go and look again*, which a served copy cannot honor.
+  On the client it is a **deadline, not a boolean** (`_serverBypassUntil`): a flag has to be cleared
+  by somebody, and the load meant to clear it is exactly the load that can throw or be superseded
+  mid-flight, leaving every poll bypassing forever — strictly worse than never having cached. A
+  timestamp expires whether or not anything goes right.
+- **A corrupt entry falls through to a live pull rather than throwing.** A half-written cache must
+  cost a fetch, never the store's whole row — the same rule the render guards follow.
+- The compare-period fetch (`_fetchCompareStore`) does **not** bypass. Its ranges are historical, so
+  it reaches no live pull, and a compare has no business forcing anyone else's re-fetch.
+- `tests/intraday_cache_test.js` (16 assertions) executes the shipped wrapper against a counting,
+  expiring cache fake and asserts on the NUMBER of live pulls. Verified to fail against the pre-fix
+  source.
+
+**`serve.js` must never reach Apps Script, and `.claspignore` is the only thing stopping it.** The
+shared dev-file sync (2026-09-03, `bd7f5e2`) dropped a Node dev server at the repo root; `rootDir`
+is `"."` and nothing excludes JS by extension, so `clasp push` shipped it as `serve.gs`, where
+`#!/usr/bin/env node` on line 1 is a parse error that **fails the entire push**. Third instance of
+this exact failure after `tests/` (2026-08-22) and `design_handoff_*/` (2026-08-25). **Every spoke
+that has run `./gx-sync.sh` since then carries the same armed landmine**, and `.claspignore` is
+deliberately not a synced file, so each one needs its own fix.
+
 **`getCogsDutchie` is cached at the proxy — leave it that way.** It was the only route the Income tab
 touches with no server-side cache, and the most expensive: six `getSalesDaily` reads plus **six live
 `dutchieClosingReport` calls, one per store, in sequence**. The Gross Profit card waits on it, which
