@@ -1360,7 +1360,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.562';
+const APP_VERSION = 'v2.563';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -2119,6 +2119,16 @@ function getDaysOfISOWeek(yr, userWk) {
 
 function fmtK(n) {
   return '$' + Math.round(n).toLocaleString();
+}
+/* THE formatter for anything signed. fmtK puts the $ before the sign, so a negative comes out as
+ * "$-273" — which is what the store breakdown rendered for every store under pace until 2026-09-03,
+ * spotted on Sky's own screen. Prepending a '+' by hand only ever fixed the positive half.
+ * Lives beside fmtK deliberately: it was defined ~1000 lines away, next to the expenses renderer
+ * that first needed it, which is most of why the income rows never picked it up. */
+function fmtSigned(n) {
+  const v = Math.round(n);
+  if (v === 0) return '$0';
+  return (v > 0 ? '+' : '−') + '$' + Math.abs(v).toLocaleString();
 }
 function fmtD(n)   { return '$' + Math.round(n).toLocaleString(); }
 function fmtAov(n) { return '$' + Number(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
@@ -4386,7 +4396,7 @@ function _incomeBreakdownMobHtml(stores, storeNets, isClosed, elapsedPct, yr, da
         ${sPeriodGoal > 0
           ? (pending
               ? `<div class="sdiff" style="font-size:10px"><span class="bd-skel bd-skel-diff"></span></div>`
-              : `<div class="sdiff ${diff>=0?'good':'bad'}" style="font-size:10px">${diff>=0?'+':''}${fmtK(diff)}</div>`)
+              : `<div class="sdiff ${diff>=0?'good':'bad'}" style="font-size:10px">${fmtSigned(diff)}</div>`)
           : ''}
       </div>
     </div>`
@@ -4428,7 +4438,7 @@ function _incomeBreakdownDskHtml(stores, storeNets, isClosed, elapsedPct, yr, da
           ${sPeriodGoal > 0
             ? (pending
                 ? `<span class="sdiff"><span class="bd-skel bd-skel-diff"></span></span>`
-                : `<span class="sdiff ${diff>=0?'good':'bad'}">${diff>=0?'+':''}${fmtK(diff)}</span>`)
+                : `<span class="sdiff ${diff>=0?'good':'bad'}">${fmtSigned(diff)}</span>`)
             : ''}
         </div>
         ${cmpCell(s, snet)}
@@ -5416,12 +5426,6 @@ async function loadExpenseBreakdown() {
 
 /** Signed money. fmtK prefixes the $ before toLocaleString, so a negative renders "$-27,200"; this
  *  puts the sign first and uses a real minus, which is what the column is read as. */
-function fmtSigned(n) {
-  const v = Math.round(n);
-  if (v === 0) return '$0';
-  return (v > 0 ? '+' : '−') + '$' + Math.abs(v).toLocaleString();
-}
-
 function setExpSort(s) { expSort = s; renderExpenses(); }
 function toggleExpShowAll() { expShowAll = !expShowAll; renderExpenses(); }
 function toggleExpRow(name) {
@@ -5853,7 +5857,7 @@ function renderExpensesMobile(cats, total, totalBudget, totalNet, expPacingPct) 
         return `<div class="srow" style="flex-wrap:wrap;row-gap:3px;opacity:${hidden?'0.3':'1'};cursor:pointer" onclick="toggleExpCat('${escHtml(c.name)}')">
           <div class="sname" style="flex:1">${escHtml(c.name)}${hidden ? ' <span style="font-size:9px;color:#666">excluded</span>' : ''}${expBudgetsOverlaid.has(c.name) ? ' <span class="sb-tag applied">smart</span>' : ''}</div>
           <div class="sval">${fmtK(c.val)}</div>
-          ${!hidden && diff !== null ? `<div class="sdiff ${diff>0?'bad':'good'}">${diff>0?'+':''}${fmtK(diff)}</div>` : ''}
+          ${!hidden && diff !== null ? `<div class="sdiff ${diff>0?'bad':'good'}">${fmtSigned(diff)}</div>` : ''}
           ${!hidden && hasBudget ? `<div style="width:100%;position:relative;height:3px;background:#333;border-radius:2px;margin-bottom:3px">
             <div style="width:${pct}%;height:100%;background:${barColor};border-radius:2px"></div>
             <div style="position:absolute;top:-2px;left:${expPacingPct}%;width:1.5px;height:7px;background:rgba(255,255,255,0.3);transform:translateX(-50%)"></div>

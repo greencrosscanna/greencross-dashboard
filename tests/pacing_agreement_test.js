@@ -201,6 +201,28 @@ for (const c of CASES) {
   ok(vStale > vFresh, 'the stale fallback advances with the clock instead of holding the morning');
 }
 
+// ── A signed number must never render as "$-273" ─────────────────────────────
+// fmtK puts the $ before the sign, and every one of these sites prepended a '+' by hand — which
+// fixes only the positive half. Live on Sky's screen 2026-09-03: "Center $-7", "Portland $-273".
+// CLAUDE.md already carried this rule from the Expenses redesign; the income rows never got it.
+{
+  const both = grab('_incomeBreakdownMobHtml') + grab('_incomeBreakdownDskHtml');
+  ok(/fmtSigned\(diff\)/.test(both), 'store breakdown deltas use fmtSigned');
+  ok(!/fmtK\(diff\)/.test(both), 'no signed value is formatted with fmtK');
+  ok(!/diff>=0\?'\+':''/.test(both),
+     "no hand-prepended '+' — that idiom is what left the negative half broken");
+
+  // And the formatter itself, executed.
+  const ctx = { Math, Number, console };
+  vm.createContext(ctx);
+  vm.runInContext(grab('fmtSigned'), ctx);
+  eq(ctx.fmtSigned(273), '+$273', 'a positive keeps its plus');
+  eq(ctx.fmtSigned(-273), '\u2212$273', 'a negative puts the sign BEFORE the dollar');
+  eq(ctx.fmtSigned(-7), '\u2212$7', 'the exact figure from the screen renders correctly');
+  eq(ctx.fmtSigned(0), '$0', 'zero is neither over nor under');
+  eq(ctx.fmtSigned(-1234567), '\u2212$1,234,567', 'thousands separators survive the sign');
+}
+
 // ── Neither side may re-derive expected-to-date on its own ────────────────────
 // The defect was two copies of the arithmetic, so pin that there is one. If a future edit inlines
 // the math back into either place, this fails while the numbers may still happen to agree.
