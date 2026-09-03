@@ -1360,7 +1360,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.568';
+const APP_VERSION = 'v2.569';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -2496,7 +2496,24 @@ function _invalidateDerivedCaches() {
   _incomeMounted      = false; // force full skeleton rebuild on next render
 }
 
+/* The intraday Dutchie pull is cached FOR 90 SECONDS ON THE SERVER, shared by every open tab (see
+   dutchieTodayFetch_). Clearing local caches alone would therefore no longer be a real re-fetch: the
+   proxy would hand back the same copy it just handed the tab next door, and "clear cache" would
+   quietly stop meaning what the button says.
+
+   A DEADLINE, not a boolean, and that choice is the whole safety argument. A flag has to be cleared
+   by somebody, and the load that was supposed to clear it is exactly the load that can fail, throw,
+   or be superseded by a period change mid-flight — leaving every 60-second poll bypassing the cache
+   forever, which is strictly worse than never having added it. A timestamp cannot be leaked: it
+   expires whether or not anything goes right. 15s covers one load of six stores (worst case ~31s per
+   store is bounded by gasFetchJson's own retry, and a straggler landing after the window costs a
+   cached read, not a wrong number). */
+let _serverBypassUntil = 0;
+function bypassServerCache() { _serverBypassUntil = Date.now() + 15000; }
+function serverBypassParam() { return Date.now() < _serverBypassUntil ? '&nocache=1' : ''; }
+
 function clearDutchieCache() {
+  bypassServerCache();
   Object.keys(localStorage)
     .filter(k => k.startsWith('gc_sales_'))
     .forEach(k => localStorage.removeItem(k));
@@ -2509,6 +2526,7 @@ function clearDutchieCache() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function clearAllCache() {
+  bypassServerCache();  // same reason as clearDutchieCache — "clear" has to reach the proxy's copy too
   Object.keys(localStorage)
     .filter(k => k.startsWith('gc_cache_') || k.startsWith('gc_sales_'))
     .forEach(k => localStorage.removeItem(k));
@@ -2706,7 +2724,7 @@ async function backfillDailyHistory(proxyUrl) {
       const cached = readSalesCache(store.name, activeYear, m);
       const data   = cached ?? await (async () => {
         const { from, to } = monthRange(m, activeYear);
-        const url = `${proxyUrl}?store=${encodeURIComponent(store.name)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&token=${encodeURIComponent(getToken())}`;
+        const url = `${proxyUrl}?store=${encodeURIComponent(store.name)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&token=${encodeURIComponent(getToken())}${serverBypassParam()}`;
         const res = await fetch(url);
         if (!res.ok) return null;
         const d = await res.json();
@@ -2841,7 +2859,7 @@ async function loadAllStores() {
     const cached = readSalesCache(store.name, year, month);
     if (cached) { stateMap[store.name] = 'ok'; return cached; }
     const { from, to } = monthRange(month, year);
-    const url = `${proxyUrl}?store=${encodeURIComponent(store.name)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&token=${encodeURIComponent(getToken())}`;
+    const url = `${proxyUrl}?store=${encodeURIComponent(store.name)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&token=${encodeURIComponent(getToken())}${serverBypassParam()}`;
     try {
       // gasFetchJson, not a bare fetch: it BOUNDS the wait and retries the transport. The bare
       // version had no timeout, so a store whose /exec bounced sat unresolved — no error, no state

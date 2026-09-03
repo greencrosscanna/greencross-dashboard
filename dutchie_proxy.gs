@@ -754,7 +754,9 @@ function doGet(e) {
       // than inferring from a green test. Reports the shape, not the money.
       let sales = null;
       if (params.store && knownStore_(params.store)) {
-        const sr = JSON.parse(getStoreSales_(params.store, data.start, data.end).getContent());
+        // nocache, like every other probe here: the point of a probe is to exercise the real path,
+        // and a served copy proves nothing about it.
+        const sr = JSON.parse(getStoreSales_(params.store, data.start, data.end, '1').getContent());
         const daily = sr.daily || [];
         const withTax = daily.filter(function (d) { return typeof d.tax === 'number'; });
         sales = {
@@ -930,7 +932,7 @@ function doGet(e) {
 
   if (!store || !knownStore_(store)) return jsonOut_({ error: 'Unknown store: ' + store });
 
-  return getStoreSales_(store, from, to);
+  return getStoreSales_(store, from, to, params.nocache);
 }
 
 function doPost(e) {
@@ -949,7 +951,7 @@ function doPost(e) {
 // Settled days (yesterday and earlier) come from GXCore.getSalesDaily — fast,
 // no Dutchie quota.  Today (intraday) still uses a live Dutchie transaction pull.
 
-function getStoreSales_(store, from, to) {
+function getStoreSales_(store, from, to, nocache) {
   try {
     const todayPT  = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM-dd');
     const fromDate = from.slice(0, 10);
@@ -979,7 +981,7 @@ function getStoreSales_(store, from, to) {
     }
 
     // Live: today only (if the requested range includes today)
-    const liveResult = toDate >= todayPT ? dutchieTodayFetch_(store, todayPT, to) : null;
+    const liveResult = toDate >= todayPT ? dutchieTodayFetch_(store, todayPT, to, nocache) : null;
 
     let net = 0, gros = 0, disc = 0, cogs = 0, tx = 0, ord = 0;
     const dailyMap = {}, weeklyMap = {};
@@ -1048,8 +1050,45 @@ function getStoreSales_(store, from, to) {
   }
 }
 
-// Live intraday Dutchie fetch — today only, same logic as the old full handler.
-function dutchieTodayFetch_(store, todayPT, toISO) {
+/* Live intraday Dutchie fetch — today only, same logic as the old full handler.
+ *
+ * SHARED-CACHED FOR 90 SECONDS, and that cache is the difference between one browser and ten.
+ * Every other read this app makes already comes out of CacheService, which lives on the SCRIPT and
+ * is therefore shared by every viewer: settled days (sdaily_v4_…), expenses, deposits, goals,
+ * budgets. This one was the lone uncached call, and it is the expensive one — a live Dutchie
+ * transaction pull with includeItems, one per store, six per load.
+ *
+ * The client polls every 60s (AUTO_REFRESH_MS) per open tab, so the cost scaled with TABS, not with
+ * people: a back-office monitor + a phone + a laptop, all showing the same six stores, was 18 live
+ * Dutchie pulls a minute for figures that are identical by construction. Now the first asker pays
+ * and everyone else reads the answer.
+ *
+ * 90s, not 5 minutes: the poll interval is 60s, so a TTL below it would leave nearly every poll
+ * paying full price, and a much longer one would make the "Live" pill a lie. 90 means a tab sees at
+ * worst 90-second-old intraday numbers — inside the resolution the reader already has.
+ *
+ * KEYED ON store + todayPT ONLY, deliberately NOT on toISO. `to` is a live timestamp that changes
+ * every single request; folding it into the key gives a cache that can never hit. Dropping it is
+ * exactly the staleness the TTL already licenses — the window is always "Pacific midnight → now",
+ * and "now" is allowed to be up to 90 seconds ago.
+ *
+ * `nocache` bypasses, and that escape hatch is what makes the cache safe to add: Settings →
+ * "clear cache" means "this data is wrong, go and look again", which a served copy cannot honor.
+ */
+function dutchieTodayFetch_(store, todayPT, toISO, nocache) {
+  const liveCacheKey = 'dtoday_v1_' + store + '_' + todayPT;
+  if (!nocache) {
+    const hit = cacheGet_(liveCacheKey);
+    // Parse failures fall through to a live pull rather than throwing: a corrupt or half-written
+    // cache entry must cost a fetch, never the store's whole row.
+    if (hit) { try { return JSON.parse(hit); } catch (e) {} }
+  }
+  const out = dutchieTodayFetchLive_(store, todayPT, toISO);
+  try { cacheSet_(liveCacheKey, JSON.stringify(out), 90); } catch (e) {}
+  return out;
+}
+
+function dutchieTodayFetchLive_(store, todayPT, toISO) {
   // Wide lastModified window (approx Pacific midnight); filter by transaction date below.
   // WINDOWED BY LAST MODIFIED, NOT BY DATE — an edit to an older sale has to be picked up. This is
   // why the call goes through dutchie_get rather than GX Core's named transactions route, which
