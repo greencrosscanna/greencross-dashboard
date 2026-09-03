@@ -1360,7 +1360,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.567';
+const APP_VERSION = 'v2.568';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1581,7 +1581,7 @@ function pgTotal(storeName, from, to) {
   if (days) {
     let sum = 0, ok = true;
     for (let t = Date.parse(from + 'T12:00:00Z'), end = Date.parse(to + 'T12:00:00Z'); t <= end; t += 86400000) {
-      const v = days[new Date(t).toISOString().slice(0, 10)];
+      const v = days[new Date(t).toISOString().slice(0, 10)];   // @utc-ok t is built by Date.parse(…'T12:00:00Z') above and stepped in whole UTC days, so this reads back the day it was built from — and pgDaily's keys were written the same way
       if (v == null) { ok = false; break; }
       sum += v;
     }
@@ -1883,7 +1883,7 @@ async function loadPeriodGoalRange(from, to) {
       const end = Date.parse(p.period_end + 'T12:00:00Z');
       for (let t = Date.parse(p.period_start + 'T12:00:00Z'); t <= end; t += 86400000) {
         const d   = new Date(t);
-        const ds  = d.toISOString().slice(0, 10);
+        const ds  = d.toISOString().slice(0, 10);   // @utc-ok d is Date.parse(…'T12:00:00Z') stepped in whole UTC days; getUTCDay on the next line reads the same clock, and these two must agree
         const dow = d.getUTCDay();
         for (const [store, g] of Object.entries(p.goals || {})) {
           if (g?.dow_targets?.[dow] == null) continue;
@@ -2168,6 +2168,45 @@ function getWeeksInMonth(yr, m) {
   const days = new Date(yr, m, 0).getDate();
   for (let d = 1; d <= days; d++) weeks.add(getUserWeek(new Date(yr, m-1, d)));
   return [...weeks].sort((a, b) => a - b);
+}
+
+/* ─── A CALENDAR DAY IS LOS ANGELES. AN INSTANT IS UTC. ──────────────────────────────────────
+ *
+ * The suite's first convention, and `new Date().toISOString().slice(0, 10)` breaks it: toISOString
+ * is UTC regardless of anything, so from 17:00 PT to midnight — seven hours of every day, eight in
+ * winter — it returns TOMORROW. Three call sites here did that with a clock reading, so after 5pm
+ * the 28-day gross-margin window asked for a range ending tomorrow and the rolling cutoff excluded
+ * a day of real sales. No error; slightly wrong numbers, only in the evening.
+ *
+ * TWO HELPERS, because there are two different questions and one answer to each.
+ *
+ *   laDay()   — "what day is it, where the stores are". Derived in America/Los_Angeles, never from
+ *               the browser's own zone: a laptop left on UTC or taken out of state must not change
+ *               what "today" means to a company that trades in Oregon.
+ *
+ *   ymdLocal()— "what calendar day does this Date object represent", read from the SAME components
+ *               it was built from. Every Date here built as new Date(y, m, d) is local midnight,
+ *               and this returns its date without a UTC round trip.
+ *
+ * WHY ymdLocal EXISTS AT ALL, since the sites using it were not broken: local midnight in LA is
+ * 07:00 or 08:00Z, still the same UTC calendar day, so toISOString().slice(0,10) happened to be
+ * right — and only because the offset is NEGATIVE. The same code in a browser set to UTC+1 reads
+ * the previous day for every date on a chart. It was correct by accident of geography, silently
+ * fragile, and indistinguishable at a glance from the three sites that were genuinely wrong. Now
+ * the shape you see in this file tells you which question is being asked.
+ *
+ * NOT converted, deliberately: three sites build a Date in UTC on purpose and read it back in UTC
+ * (Date.parse(d + 'T12:00:00Z') stepped by 86400000, and reconAddDays via Date.UTC). Those round
+ * trip exactly and are the standard idiom for date-only arithmetic. tests/date_convention_test.js
+ * knows the difference and does not flag them. */
+const _LA_YMD = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit'
+});
+function laDay(d)   { return _LA_YMD.format(d || new Date()); }   // en-CA formats as YYYY-MM-DD
+function laDaysAgo(n) { return laDay(new Date(Date.now() - n * 86400000)); }
+function ymdLocal(d) {
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
 }
 
 function getDaysOfISOWeek(yr, userWk) {
@@ -3870,7 +3909,7 @@ function getPeriodTotals(stores) {
   } else {
     const dates = activeDay
       ? [activeDay]
-      : getDaysOfISOWeek(activeYear, activeWeek).map(d => d.toISOString().slice(0, 10));
+      : getDaysOfISOWeek(activeYear, activeWeek).map(ymdLocal);
     stores.forEach(s => {
       const liveDateMap = liveDateMaps[s] || {};
       for (const ds of dates) {
@@ -3891,7 +3930,7 @@ function getStorePeriodNet(s) {
   if (!activeWeek && !activeDay) return liveData[s]?.netSales || 0;
   const dates = activeDay
     ? [activeDay]
-    : getDaysOfISOWeek(activeYear, activeWeek).map(d => d.toISOString().slice(0, 10));
+    : getDaysOfISOWeek(activeYear, activeWeek).map(ymdLocal);
   const liveDateMap = liveDateMaps[s] || {};
   let n = 0;
   for (const ds of dates) {
@@ -4761,7 +4800,7 @@ function buildWeeklyDays(stores) {
     return {
       label: STORE_MAP.get(s)?.display || s,
       data: days.map(d => {
-        const ds = d.toISOString().slice(0, 10);
+        const ds = ymdLocal(d);
         return Math.round(getDailyNet(liveDateMap[ds]) || getDailyNet(allDailyData[s]?.[ds]));
       }),
       backgroundColor: col,
@@ -4771,13 +4810,13 @@ function buildWeeklyDays(stores) {
   const DOW_NAMES = ['Sundays','Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturdays'];
   const cutoff = new Date(); cutoff.setHours(23,59,59,999);
   const rankData = days.map(d => {
-    const ds = d.toISOString().slice(0,10);
+    const ds = ymdLocal(d);
     const dow = d.getDay();
     const cursor = new Date(yr, 0, 1);
     while (cursor.getDay() !== dow) cursor.setDate(cursor.getDate() + 1);
     const all = [];
     while (cursor.getFullYear() === yr && cursor <= cutoff) {
-      const cds = cursor.toISOString().slice(0,10);
+      const cds = ymdLocal(cursor);
       const t = stores.reduce((sum, s) => {
         const live = (liveData[s]?.daily||[]).find(x => x.date === cds);
         return sum + (live ? live.netSales : getDailyNet(allDailyData[s]?.[cds]));
@@ -4815,9 +4854,9 @@ function buildDayOfWeekChart(stores) {
     const map = allDailyData[s] || {};  // accumulated across all fetched months
     return {
       label: st?.display || s,
-      data: dates.map(d => Math.round(getDailyNet(map[d.toISOString().slice(0, 10)]))),
+      data: dates.map(d => Math.round(getDailyNet(map[ymdLocal(d)]))),
       // Highlight the selected day full opacity, dim others
-      backgroundColor: dates.map(d => d.toISOString().slice(0, 10) === activeDay ? col : col + '44'),
+      backgroundColor: dates.map(d => ymdLocal(d) === activeDay ? col : col + '44'),
       borderRadius: 2, stack: 's'
     };
   });
@@ -4876,7 +4915,7 @@ function buildMonthDailyChart(stores) {
   const daysInMonth = new Date(yr, activeMonth, 0).getDate();
   const dates = Array.from({length: daysInMonth}, (_, i) => {
     const d = new Date(yr, activeMonth-1, i+1);
-    return { date: d.toISOString().slice(0,10), label: DAY_LETTERS[d.getDay()] + String(i+1).padStart(2,'0') };
+    return { date: ymdLocal(d), label: DAY_LETTERS[d.getDay()] + String(i+1).padStart(2,'0') };
   });
   const datasets = stores.map(s => {
     const st  = STORE_MAP.get(s);
@@ -5333,8 +5372,9 @@ async function saveRevModal() {
 
 async function loadInvGmData() {
   if (_invGmLoading) return;
-  const to   = new Date().toISOString().slice(0, 10);
-  const from = new Date(Date.now() - 28 * 86400000).toISOString().slice(0, 10);
+  // LA, not UTC: after 17:00 PT this asked the engine for a window ending TOMORROW.
+  const to   = laDay();
+  const from = laDaysAgo(28);
   const cached = readCache(`inv_gm2_${from}`);
   if (cached?.byDay) { invGmData = cached; return; }
   const proxyUrl = getProxyUrl();
@@ -7796,7 +7836,9 @@ function renderInventory() {
   // Net sales: from allDailyData (GXCore/Dutchie — already loaded)
   // COGS: from Inventory proxy (VEL_PROXY_URL action=cogs) — decoupled from legacy sheet
   const gmStores  = getActiveStores();
-  const cutoff28  = new Date(Date.now() - 28 * 86400000).toISOString().slice(0, 10);
+  // LA, not UTC. This cutoff is compared against `ds` keys that ARE LA calendar days, so a
+  // UTC-derived edge silently dropped a day of real sales out of the window every evening.
+  const cutoff28  = laDaysAgo(28);
 
   let gmNetSales = 0;
   for (const s of gmStores) {
