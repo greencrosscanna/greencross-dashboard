@@ -83,6 +83,20 @@ ok(paceArgs && Number(paceArgs[1]) * Number(paceArgs[2]) < 60000,
    'the pace budget stays inside one poll interval',
    paceArgs ? paceArgs[1] + ' x ' + paceArgs[2] + 'ms' : 'could not parse the call');
 
+/* AND pace specifically gets NO ladder. Measured at 53.6s / 30.5s / 5.1s / 3.9s / 8.9s in a live
+   session; the cause is GX Core's expected_frac, which is ~46% of all traffic reaching Core.
+   A second attempt here duplicates a call the 60s poll is already going to make, and retrying an
+   endpoint that is slow because it is overloaded makes the shared problem worse for all six apps.
+   The fallback is real — getPacingPct drops to a linear clock ramp — so giving up early costs a
+   slightly less precise bar for one cycle. If someone "improves" this into a ladder, that is a
+   regression with suite-wide blast radius, so it fails here. */
+ok(paceArgs && Number(paceArgs[1]) === 1,
+   'pace takes exactly ONE attempt — the 60s poll is the retry',
+   paceArgs ? 'attempts: ' + paceArgs[1] : 'could not parse the call');
+ok(paceArgs && Number(paceArgs[2]) <= 10000,
+   'the pace ceiling is short (<= 10s) — there is a working fallback behind it',
+   paceArgs ? 'ceiling: ' + paceArgs[2] + 'ms' : 'could not parse the call');
+
 /* TIER 3 was already done and this asserts it stays done: cogs_dutchie carries its own
    AbortController. It is the most expensive route in the app and the reason Gross Profit and
    Margin sit on "—" while every other KPI has a value. */

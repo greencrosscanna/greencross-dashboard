@@ -1360,7 +1360,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.565';
+const APP_VERSION = 'v2.566';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1928,10 +1928,23 @@ async function loadPaceFracs(force) {
      * were taught to abandon a stale frac, which fixed what you SEE; this is the reason it went
      * stale in the first place. A timeout here removes the cause, not the symptom.
      *
-     * Two attempts at 10s: pace is re-fetched on a TTL anyway, so a long ladder buys nothing a
-     * few seconds of patience does not, and the whole budget stays well inside one poll. */
+     * ONE ATTEMPT AT 8s — NOT A LADDER, and the retry is deliberately somebody else's job.
+     *
+     * Measured in Sky's live session on 2026-09-03, five consecutive calls for a 211-byte answer:
+     * 53.6s · 30.5s · 5.1s · 3.9s · 8.9s. The cause is upstream — GX Core's expected_frac, which
+     * is ~46% of all traffic reaching Core and was itself measured returning 7.9KB of bounce page
+     * instead of 224 bytes of JSON. That is core-admin's route and their fix. Nothing here can
+     * make this call fast; the job here is to stop it holding everything else hostage.
+     *
+     * So no ladder, for three reasons that all point the same way. The poll already retries this
+     * every 60 seconds, so a second attempt duplicates a call that is coming anyway. Retrying an
+     * endpoint that is slow BECAUSE it is overloaded makes the shared problem worse for all six
+     * apps. And there is a real fallback: getPacingPct drops to a linear 8am-10pm clock ramp when
+     * the frac is missing or stale, and the store rows now do the same — so the cost of giving up
+     * at 8 seconds is a slightly less precise pacing bar for one cycle, against 53 seconds of a
+     * latched flag that blocks the very poll that would have fixed it. */
     const data = await gasFetchJson(
-      `${getProxyUrl()}?action=pace&token=${encodeURIComponent(getToken())}`, 2, 10000);
+      `${getProxyUrl()}?action=pace&token=${encodeURIComponent(getToken())}`, 1, 8000);
     if (data.ok && data.fracs && Object.keys(data.fracs).length) {
       paceFracs   = data.fracs;
       paceFracsAt = Date.now();
