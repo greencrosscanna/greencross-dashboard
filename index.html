@@ -1360,7 +1360,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.564';
+const APP_VERSION = 'v2.565';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1696,7 +1696,23 @@ function lbGoalsIsCurrentMonth(p, curMonth, curYear) {
 async function fetchPublishedGoals(curMonth, curYear) {
   // GXClient, not a bare fetch: GX Core's /exec second hop 404s on ~6% of rapid calls.
   if (typeof GXClient === 'undefined') return null;
-  const r = await GXClient(GXCORE).jsonp('published_goals', { producer: 'performance' });
+  /* A SHORTENED LADDER, because of WHERE this call sits rather than anything about the route.
+   *
+   * GXClient's default budget is five attempts at 8s plus a patient 45s final — around 90
+   * seconds in the worst case. That patience is right for GX Core in isolation: Core genuinely
+   * stalls for tens of seconds during a bad spell, and giving up early just fails a call that
+   * would have succeeded.
+   *
+   * But this call is inside auxDataPromise, which loadAllStores awaits, so its budget is not
+   * private — it is time the whole dashboard spends not rendering and not restarting its poll.
+   * Ninety seconds of patience here costs a 60-second refresh cycle, which is a worse trade than
+   * failing over. And failing over is cheap: this function is step 2 of three, with a direct
+   * Leaderboard fetch behind it and cache behind that. The fallback chain exists for exactly
+   * this and was being starved by the wait in front of it.
+   *
+   * ~21s worst case (8s + 12s + backoff), which stays inside one poll interval. */
+  const r = await GXClient(GXCORE, { retries: 1, timeoutMs: 8000, lastTimeoutMs: 12000 })
+                    .jsonp('published_goals', { producer: 'performance' });
   if (!r || !r.ok || !r.payload) {
     console.warn('[lb-goals] core published_goals unavailable:', (r && r.error) || 'no payload');
     return null;
@@ -1850,9 +1866,13 @@ async function loadPeriodGoalRange(from, to) {
   const proxyUrl = getProxyUrl();
   if (!proxyUrl) { pgLoaded.delete(key); return; }
   try {
-    const res  = await fetch(`${proxyUrl}?action=period_goals_range&start=${encodeURIComponent(from)}` +
-                             `&end=${encodeURIComponent(to)}&token=${encodeURIComponent(getToken())}`);
-    const data = await res.json();
+    /* Bounded — the slowest of the four blocking aux calls, so the likeliest to be the one that
+       hangs. 3.9s warm for a YTD range today, and 42s before it was optimized, which is why the
+       ceiling is 18s rather than the 12s its siblings get: it has to sit above a legitimately
+       slow answer and below a hung one. See fetchStoresMeta for what a hang costs. */
+    const data = await gasFetchJson(
+      `${proxyUrl}?action=period_goals_range&start=${encodeURIComponent(from)}` +
+      `&end=${encodeURIComponent(to)}&token=${encodeURIComponent(getToken())}`, 2, 18000);
     if (!data.ok || !Array.isArray(data.periods)) { pgLoaded.delete(key); pgResolved.add(key); return; }
     let added = 0;
     for (const p of data.periods) {
@@ -1895,8 +1915,23 @@ async function loadPaceFracs(force) {
   if (!force && paceFracs !== null && !paceFracsStale()) return;
   _paceFracsInFlight = true;
   try {
-    const res  = await fetch(`${getProxyUrl()}?action=pace&token=${encodeURIComponent(getToken())}`);
-    const data = await res.json();
+    /* BOUNDED, because `finally` is not the safety net it looks like here.
+     *
+     * `finally` runs when this promise REJECTS. It does not run when the awaited promise never
+     * settles at all — and a bare fetch to /exec has no timeout, so a hung second hop is exactly
+     * that. One such call latches _paceFracsInFlight true for the life of the tab: every later
+     * loadPaceFracs returns at the guard above, and no pace fetch ever runs again.
+     *
+     * Follow that through and it closes a loop we have already paid for. A wedged flag means
+     * paceFracs goes stale, and a stale paceFracs is precisely what produced "the daily total
+     * says we're behind pace yet each store says we're exceeding pace" (2026-09-03). The rows
+     * were taught to abandon a stale frac, which fixed what you SEE; this is the reason it went
+     * stale in the first place. A timeout here removes the cause, not the symptom.
+     *
+     * Two attempts at 10s: pace is re-fetched on a TTL anyway, so a long ladder buys nothing a
+     * few seconds of patience does not, and the whole budget stays well inside one poll. */
+    const data = await gasFetchJson(
+      `${getProxyUrl()}?action=pace&token=${encodeURIComponent(getToken())}`, 2, 10000);
     if (data.ok && data.fracs && Object.keys(data.fracs).length) {
       paceFracs   = data.fracs;
       paceFracsAt = Date.now();
@@ -2630,8 +2665,9 @@ async function loadGoals() {
   const proxyUrl = getProxyUrl();
   if (!proxyUrl) return;
   try {
-    const res  = await fetch(`${proxyUrl}?action=goals&token=${encodeURIComponent(getToken())}`);
-    const data = await res.json();
+    // Bounded: this is inside auxDataPromise, which loadAllStores awaits. See fetchStoresMeta.
+    const data = await gasFetchJson(
+      `${proxyUrl}?action=goals&token=${encodeURIComponent(getToken())}`, 2, 12000);
     if (data.goals) {
       goals     = data.goals;
       goalsYear = Number(data.year) || null; // absent on a proxy older than this build — see getGoal()
@@ -2666,9 +2702,23 @@ async function fetchStoresMeta() {
   } catch(e) {}
 
   try {
+    /* BOUNDED, AND THIS IS THE TIER THAT MATTERS. This call and its three siblings sit inside
+     * auxDataPromise, which loadAllStores awaits before it does anything else. All four catch
+     * their own errors, so Promise.all can never REJECT — which is exactly what makes a hang
+     * dangerous rather than merely slow. A caught error is handled; a request that never settles
+     * leaves the promise pending forever and there is no catch for that.
+     *
+     * Everything downstream of that await never runs: the "Live · N/6" pill, updateCacheStatus,
+     * the final authoritative render, refreshCompare, scroll restore — and scheduleAutoRefresh.
+     * That last one is the real damage. The 60-second timer is never restarted, so the dashboard
+     * stops polling for the rest of the session. It does not degrade, it stops, silently, with six
+     * stores sitting correct on screen and the pill reading "Loading…" forever.
+     *
+     * A ceiling turns that into a caught error, which these functions already handle: cached store
+     * metadata stays applied and the poll lives. Two attempts at 12s keeps the whole aux block well
+     * inside one poll interval, so a slow start cannot outlive the refresh that would fix it. */
     const url  = `${proxyUrl}?action=stores&token=${encodeURIComponent(token)}`;
-    const res  = await fetch(url);
-    const data = await res.json();
+    const data = await gasFetchJson(url, 2, 12000);
     if (!data.stores) { console.warn('fetchStoresMeta: unexpected response', JSON.stringify(data).slice(0, 200)); return; }
     if (data.stores.length > 0) {
       applyStoreMeta(data.stores);
