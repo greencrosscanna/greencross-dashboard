@@ -1360,7 +1360,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.560';
+const APP_VERSION = 'v2.561';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -2038,12 +2038,21 @@ function getProxyUrl() {
  * write — and re-sending it would be both wrong and, on a write, a way to duplicate it. Only a
  * failure to obtain a parseable body is retried.
  */
-async function gasFetchJson(url, attempts) {
+async function gasFetchJson(url, attempts, timeoutMs) {
   const tries = attempts || 3;
+  // A BOUNDED wait is the point, not just the retry. A bare fetch to /exec has no timeout, and a
+  // bounce loop on that hop has been measured at up to 137 seconds (core-admin, 2026-09-03) — the
+  // request never fails, it just never comes back, and there is no retry for a request that has not
+  // finished. One store hanging like that while five answer in two seconds is what "five loaded
+  // quickly, one is stalling" looks like from the outside. 30s is far above a healthy call (~2-5s)
+  // and far below a bounce loop, so it only ever cuts short something already broken.
+  const cap = timeoutMs || 30000;
   let lastErr = null;
   for (let i = 0; i < tries; i++) {
+    const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = ctl ? setTimeout(() => ctl.abort(), cap) : null;
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, ctl ? { signal: ctl.signal } : undefined);
       if (!res.ok) throw new Error('HTTP ' + res.status);
       // Read as text first. res.json() on a bounced HTML page throws a parser error that reads like
       // a server fault; the body is what says it was a bounce.
@@ -2054,9 +2063,11 @@ async function gasFetchJson(url, attempts) {
         throw new Error('non-JSON response (' + body.length + ' bytes)');
       }
     } catch (e) {
-      lastErr = e;
+      lastErr = e.name === 'AbortError' ? new Error('timed out after ' + cap + 'ms') : e;
       // Jittered, so six stores retrying at once do not re-collide on the same second.
       if (i < tries - 1) await new Promise(r => setTimeout(r, 700 * (i + 1) + Math.random() * 500));
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
   throw lastErr || new Error('request failed');
@@ -2686,9 +2697,19 @@ async function loadAllStores() {
     const { from, to } = monthRange(month, year);
     const url = `${proxyUrl}?store=${encodeURIComponent(store.name)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&token=${encodeURIComponent(getToken())}`;
     try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const data = await res.json();
+      // gasFetchJson, not a bare fetch: it BOUNDS the wait and retries the transport. The bare
+      // version had no timeout, so a store whose /exec bounced sat unresolved — no error, no state
+      // change, just a row shimmering while the other five filled in. Reported by Sky on v2.560 as
+      // "5 stores loaded quickly, Portland is stalling"; measured the same hour, Portland's data was
+      // healthy on both GX Core paths and its live Dutchie pull was FASTER than Center's, so the
+      // stall was the client waiting on a hop that never came back, not this store being slow.
+      // 2 attempts at 15s, not 3 at 30s, and the reason is that THE 60-SECOND POLL IS ALREADY A
+      // RETRY. A long in-request chain holds _loadAllStoresInFlight, which blocks the poll that
+      // would have fixed it — so failing fast and letting the next poll try again recovers sooner
+      // than retrying harder here. Worst case ~31s, comfortably inside one poll interval. A store
+      // that has loaded once now keeps its numbers across a failed poll (see _liveDataKey), so a
+      // transient miss is invisible after the first successful load rather than a blanked row.
+      const data = await gasFetchJson(url, 2, 15000);
       if (data.error) {
         if (data.error === 'Auth required') { salesLogout(); throw new Error(data.error); }
         throw new Error(data.error);
@@ -2697,11 +2718,14 @@ async function loadAllStores() {
       stateMap[store.name] = 'ok';
       return data;
     } catch(e) {
-      if (!_retry && e.message !== 'Auth required') {
-        // GAS redirect or network hiccup — wait with jitter then try once more
+      // gasFetchJson already retried the transport three times. This outer retry stays for the other
+      // failure it cannot see — a proxy that answered with a real {error} — and is deliberately not
+      // stacked on top of a timeout, so the worst case is bounded rather than multiplied.
+      if (!_retry && e.message !== 'Auth required' && !/timed out after/.test(e.message)) {
         await new Promise(r => setTimeout(r, 1500 + Math.random() * 1000));
         return fetchMonthData(store, year, month, true);
       }
+      console.warn('[load] ' + store.name + ' failed:', e.message);
       throw e;
     }
   }

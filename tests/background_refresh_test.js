@@ -146,6 +146,65 @@ const HTML_BOUNCE = '<!DOCTYPE html><html><head><title>Page Not Found</title></h
     eq((await c.run).ok, true, 'an HTTP error is retried');
   }
 
+  // ── 2b. A request that never comes back must not wait forever ─────────────
+  // The bare fetch had no timeout at all, so a bounced /exec left the request unresolved: no error,
+  // no state change, just a store row shimmering while the other five filled in. That is a STALL,
+  // and it is invisible to a retry — you cannot retry a request that has not finished.
+  {
+    const src = grab('gasFetchJson');
+    ok(/AbortController/.test(src), 'gasFetchJson bounds the wait with an AbortController');
+    ok(/clearTimeout\(timer\)/.test(src) && /finally/.test(src),
+       'the timer is cleared in a finally — a resolved request must not leave one armed');
+    ok(/AbortError/.test(src), 'an abort is reported as a timeout, not as a mystery failure');
+
+    // Executed: a request that never settles is abandoned and retried, and eventually throws.
+    const calls = [];
+    const ctx = {
+      console, Math, JSON, Error, Promise, clearTimeout: () => {},
+      setTimeout: (f, ms) => { if (ms >= 1000) f(); return 1; },   // fire the abort, skip the backoff
+      AbortController: function () {
+        this.signal = { aborted: false };
+        this.abort = () => { this.signal.aborted = true; if (this._onabort) this._onabort(); };
+      },
+      fetch: (url, opts) => {
+        calls.push(url);
+        // Never settles on its own — only the abort can end it. This is the hung /exec.
+        return new Promise((_res, rej) => {
+          const s = opts && opts.signal;
+          if (s && s.aborted) return rej(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+          const iv = setInterval(() => {
+            if (s && s.aborted) { clearInterval(iv); rej(Object.assign(new Error('aborted'), { name: 'AbortError' })); }
+          }, 1);
+        });
+      },
+    };
+    vm.createContext(ctx);
+    vm.runInContext(grab('gasFetchJson'), ctx);
+    let msg = null;
+    try { await ctx.gasFetchJson('https://example.test/exec', 2, 1000); }
+    catch (e) { msg = e.message; }
+    ok(msg !== null && /timed out/.test(msg || ''),
+       'a hung request ends in a timeout, not an unresolved promise (got ' + msg + ')');
+    eq(calls.length, 2, 'the hung request was abandoned and retried, not waited on');
+  }
+
+  // ── 2c. The per-store load uses it too — that is where the stall was seen ──
+  {
+    const load = grab('loadAllStores');
+    ok(/gasFetchJson\(url, 2, 15000\)/.test(load),
+       'each store fetch is bounded and retried — one hung store must not shimmer forever');
+    // The budget has to stay inside one poll interval, or the in-flight guard blocks the very
+    // retry that would have recovered the store.
+    const m = /gasFetchJson\(url, (\d+), (\d+)\)/.exec(load);
+    ok(m && Number(m[1]) * Number(m[2]) < 60000,
+       'the whole per-store retry budget fits inside the 60s poll (' +
+       (m ? m[1] + ' x ' + m[2] + 'ms' : 'not found') + ')');
+    ok(!/const res = await fetch\(url\);/.test(load),
+       'the unbounded per-store fetch is gone');
+    ok(/timed out after/.test(load),
+       'a timed-out store is NOT re-tried by the outer retry as well — the wait stays bounded');
+  }
+
   // ── 3. The two reported paths actually use it ──────────────────────────────
   ok(/gasFetchJson\(url, 3\)/.test(grab('doSalesLogin')),
      'sign-in goes through the retry — a bounced login must not read as a wrong password');
