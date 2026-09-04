@@ -86,6 +86,62 @@ error.
   `knownStore_`. **The two lists live in different repos and nothing compared them** — that, not the
   spelling, is the defect. Verified to fail against the old gate.
 
+### The mismatch came back as a FREQUENCY, not an outage (fixed v2.570, 2026-09-04)
+
+Sky, 2026-09-03: *"things are much faster now, on polo it seems that River is the one that fails
+most frequently. is this a name mismatch River vs River-Rd?"* **The name is fine** — measured on the
+live deployment, `?action=storekeys&store=River` answers `known:true, exact:false, store_id:river-rd`
+every time. But the mismatch was still the cause, one level down, and the tell is in the word
+*frequently*: a vocabulary error fails every single time, which is exactly what August 31 looked
+like. An intermittent one is a different bug wearing the same message.
+
+`knownStore_` short-circuits on the first line for the five names the registry spells identically.
+`River` is the only one that goes on to `GXCore.resolveStore` — and from there into `gxStoreIds_`,
+which called `resolveStore` **again, once per store**, to rediscover ids the registry rows were
+already carrying. **Eight registry calls for River, one for the other five**, each in a `try` that
+swallowed its own failure.
+
+**The swallow was the defect, not the count.** A dropped id is not a neutral loss: `knownStore_`
+accepts a resolved name only when its id is in that list, so losing `river-rd` for one execution
+makes River alone answer `Unknown store: River` while the other five load normally. Demonstrated
+against the pre-fix source with a single transient on `resolveStore('River Rd')` — id list five
+long, `knownStore_('River')` false, `knownStore_('Bend')` true.
+
+- **Ids now come off `GXCore.getStores()`'s own rows** (`gxStoreRegistry_`, memoized per execution).
+  The rows carry `store_id` and `dutchie_name` together, so six `resolveStore` calls per River
+  request became zero and the list cannot lose a store.
+- **The second chance still goes through `resolveStore`, never a local alias table** — that rule is
+  unchanged and load-bearing. It is now memoized in the SCRIPT cache for an hour, shared by every
+  viewer, so it is one lookup per name per hour rather than one per request per tab. A Command
+  Center rename still reaches us within the hour.
+- **A registry failure THROWS; it no longer returns `false`.** "That is not a store" and "the
+  registry did not answer" were wearing one message and only the first is permanent. Throwing makes
+  River's failure mode match the other five — whose `gxStoreNames_()` already threw before that
+  `try` was entered — and the client's existing retry then recovers the load instead of painting a
+  red square. `storeGateError_` gives the write and inventory routes the same distinction;
+  `knownStoreSafe_` keeps the probes from dying on it.
+- **A throw is never cached. A null answer is**, because a registry that says "I don't know this
+  name" has answered.
+- `tests/store_vocabulary_test.js` is 31 assertions now: the five exact names never reach
+  `resolveStore`, River reaches it once rather than once per store, the id list stays complete, a
+  hiccup throws and names the registry, a real miss still just returns `false`, and a hiccup leaves
+  the memo empty.
+
+**`?action=loadprobe&store=…&from=…&to=…&nocache=1&secret=…`** is what made this findable and is
+the route to re-run next time a store "feels slow". It calls `getStoreSales_` itself — not a copy —
+and reports per-phase timings: `known_store`, `settled_cache_hit` / `settled_getSalesDaily`,
+`live_today`, and every `gxDutchieGet_` attempt with its HTTP code and body size. `over_client_timeout`
+flags a store against the 15s the browser actually allows one attempt (`gasFetchJson(url, 2, 15000)`),
+which is the number that decides whether a slow store renders as a broken one. Omit `store` to walk
+all six and compare — one store's timing means nothing without the five it is being judged against.
+
+Measured 2026-09-04, all six healthy and River unremarkable: sequential fresh pulls 2.7–4.2s
+(River 3.0s, mid-pack), six in parallel 3.4–4.9s, a full settled August month 2.4–4.0s. **That is
+the point of the measurement — it ruled out "River is slow" and "River is big", which is what sent
+the search to the gate.** Also ruled out: the client cache write (`writeSalesCache` guards its own
+quota throw and cannot fail a store) and latency from the extra resolve (`known_store` measured the
+same for River as for the others, because GX Core caches the registry).
+
 Measured 2026-08-31: Core's `dutchie_get` resolves both `River` and `River Rd` to `river-rd`;
 `sales_coverage` shows river-rd holding 974 days, 2024-01-01 → 2026-08-31, **zero missing**. The
 data was always there.
