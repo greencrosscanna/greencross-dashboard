@@ -86,17 +86,25 @@ function gxCoreRoute_(action, params) {
 /* The store vocabulary, from the shared registry rather than from the keys of a local credential
    map. That map was doubling as the store list, so a stale label silently became a store this app
    believed in. Cached per execution; a GAS execution is short-lived. */
-let _gxStoreNames_ = null;
-function gxStoreNames_() {
-  if (_gxStoreNames_) return _gxStoreNames_;
-  let names = [];
+let _gxStoreRegistry_ = null;
+let _gxStoreNames_    = null;
+function gxStoreRegistry_() {
+  if (_gxStoreRegistry_) return _gxStoreRegistry_;
+  let rows = [];
   try {
-    names = (GXCore.getStores() || [])
-      .map(s => String(s.dutchie_name || '').trim())
-      .filter(Boolean);
+    rows = GXCore.getStores() || [];
   } catch (e) {
     throw new Error('GX Core store registry unreachable: ' + ((e && e.message) || e));
   }
+  if (!rows.length) throw new Error('GX Core returned no stores');
+  return (_gxStoreRegistry_ = rows);
+}
+
+function gxStoreNames_() {
+  if (_gxStoreNames_) return _gxStoreNames_;
+  const names = gxStoreRegistry_()
+    .map(s => String(s.dutchie_name || '').trim())
+    .filter(Boolean);
   if (!names.length) throw new Error('GX Core returned no stores');
   return (_gxStoreNames_ = names);
 }
@@ -137,29 +145,99 @@ function gxProbe_(store, path, qs) {
    registry's own folding — `River` and `River Rd` both land on store_id `river-rd`. An inherited
    name still fails: resolveStore is handed a string and answers with a row or nothing, and the
    result is only accepted when it carries a store_id the registry actually lists. */
+/* The store_ids the registry lists, read straight off the SAME rows gxStoreNames_ already has.
+ *
+ * This used to call GXCore.resolveStore once per store to rediscover ids the registry rows were
+ * already carrying — six extra library calls, each in its own try that swallowed a failure. That
+ * silent swallow is the bug: it drops an id on a transient hiccup, and a dropped id is not a
+ * neutral loss, because knownStore_ accepts a resolved name only when its id appears in THIS list.
+ * Lose `river-rd` here for one execution and `River` — the only name of the six that has to reach
+ * this comparison at all — answers "Unknown store: River" for that request while the other five,
+ * which match by string on the first line and never get here, are unaffected.
+ *
+ * Sky, 2026-09-04: "on the phone River is the one that fails most frequently." That is the shape of
+ * it: not a name mismatch (River resolves to river-rd correctly, measured), but the one store whose
+ * name is not an exact registry spelling standing behind seven more fallible calls than its five
+ * neighbors. Reading the ids off the rows makes it zero. */
 let _gxStoreIds_ = null;
 function gxStoreIds_() {
   if (_gxStoreIds_) return _gxStoreIds_;
-  const ids = [];
-  gxStoreNames_().forEach(function (n) {
-    try {
-      const row = GXCore.resolveStore(n);
-      if (row && row.store_id) ids.push(String(row.store_id).toLowerCase());
-    } catch (e) { /* unknown to the registry — it simply will not match, the safe direction */ }
-  });
+  const ids = gxStoreRegistry_()
+    .map(function (r) { return String((r && r.store_id) || '').trim().toLowerCase(); })
+    .filter(Boolean);
   return (_gxStoreIds_ = ids);
 }
 
-function knownStore_(store) {
+/* storeGate_ — the same decision knownStore_ has always made, plus WHY.
+ *
+ * The old catch turned every failure of the second chance into `false`, and doGet renders `false`
+ * as "Unknown store: River". Those are two different events wearing one message: a name the
+ * registry has never heard of, and the registry being briefly unable to answer. The first is a
+ * bug in the caller and permanent; the second is a hiccup that the next poll would have survived.
+ * Reported as a store that fails "most frequently" — frequency being the tell that it was never a
+ * vocabulary problem, because a vocabulary problem fails every single time.
+ *
+ * A registry outage is RETHROWN, deliberately, so it reaches the client as a transport failure and
+ * gets the retry it deserves — which is exactly what already happens to the other five stores,
+ * whose gxStoreNames_() throws before this function's try is ever entered. Making River's failure
+ * mode match theirs is most of the fix.
+ */
+function storeGate_(store) {
   const s = String(store);
-  if (gxStoreNames_().indexOf(s) !== -1) return true;
-  try {
-    const row = GXCore.resolveStore(s);
-    const id  = row && row.store_id ? String(row.store_id).toLowerCase() : '';
-    return !!id && gxStoreIds_().indexOf(id) !== -1;
-  } catch (e) {
-    return false;
+  if (gxStoreNames_().indexOf(s) !== -1) return { ok: true, exact: true };
+
+  // The second chance goes through GXCore.resolveStore, never a local alias table — see the note
+  // above. Memoized in the SCRIPT cache rather than per execution: `River` is the only name that
+  // reaches this line, on every request, from every open tab, and the registry's own spelling
+  // changes on a human timescale. An hour matches the settled-sales TTL, so a Command Center rename
+  // still flows through within the hour.
+  const memoKey = 'storeid_v1_' + s;
+  let id = '';
+  const memo = cacheGet_(memoKey);
+  if (memo !== null && memo !== undefined) {
+    id = String(memo);
+  } else {
+    let row;
+    try {
+      row = GXCore.resolveStore(s);
+    } catch (e) {
+      // NOT a `false`. Nothing has been learned about this name.
+      throw new Error('GX Core store registry unreachable: ' + ((e && e.message) || e));
+    }
+    id = row && row.store_id ? String(row.store_id).toLowerCase() : '';
+    // A null answer IS an answer — the registry does not know this name — so caching it is safe and
+    // it is the empty string that gets stored. A throw never reaches here and so is never cached.
+    try { cacheSet_(memoKey, id, 3600); } catch (e) {}
   }
+
+  if (!id) return { ok: false, exact: false, reason: 'unknown' };
+  // The answer is accepted only when it carries a store_id the registry actually lists, which is
+  // what keeps `constructor` / `__proto__` out.
+  if (gxStoreIds_().indexOf(id) === -1) return { ok: false, exact: false, reason: 'unknown' };
+  return { ok: true, exact: false, store_id: id };
+}
+
+function knownStore_(store) {
+  return storeGate_(store).ok;
+}
+
+/* The JSON translation of the gate, for every caller that answers with a body rather than a throw.
+ * Returns null when the store is good, and the response to send when it is not — keeping "the
+ * registry could not be reached" a different message from "that is not a store" on the write and
+ * inventory routes too, not just on the sales load where it was found. */
+function storeGateError_(store) {
+  if (!store) return jsonOut_({ ok: false, error: 'Unknown store: ' + store });
+  try {
+    if (storeGate_(store).ok) return null;
+  } catch (e) {
+    return jsonOut_({ ok: false, error: (e && e.message) || 'GX Core store registry unreachable' });
+  }
+  return jsonOut_({ ok: false, error: 'Unknown store: ' + store });
+}
+
+/* Same question, for a probe that must not die on it. A probe that throws stops being a probe. */
+function knownStoreSafe_(store) {
+  try { return knownStore_(store); } catch (e) { return false; }
 }
 
 function hasOwn_(obj, key) {
@@ -462,7 +540,7 @@ function doGet(e) {
        store `River Rd`. Ask with the name the caller actually uses. */
     const out = { ok: true, configured: labels.length > 0, count: labels.length, labels: labels };
     if (params.store) {
-      out.probe = { store: params.store, known: knownStore_(params.store), exact: labels.indexOf(String(params.store)) !== -1 };
+      out.probe = { store: params.store, known: knownStoreSafe_(params.store), exact: labels.indexOf(String(params.store)) !== -1 };
       try {
         const row = GXCore.resolveStore(String(params.store));
         out.probe.store_id = row && row.store_id ? row.store_id : null;
@@ -772,7 +850,7 @@ function doGet(e) {
       // the SHARED aggregation path every tab reads, so it is worth proving in production rather
       // than inferring from a green test. Reports the shape, not the money.
       let sales = null;
-      if (params.store && knownStore_(params.store)) {
+      if (params.store && knownStoreSafe_(params.store)) {
         // nocache, like every other probe here: the point of a probe is to exercise the real path,
         // and a served copy proves nothing about it.
         const sr = JSON.parse(getStoreSales_(params.store, data.start, data.end, '1').getContent());
@@ -965,7 +1043,17 @@ function doGet(e) {
   const from  = params.from;
   const to    = params.to;
 
-  if (!store || !knownStore_(store)) return jsonOut_({ error: 'Unknown store: ' + store });
+  // "Unknown store" must mean the registry does not know this name — not that it could not be
+  // reached. The client retries a store once on a real {error}, so naming the cause is what turns a
+  // registry hiccup into a recovered load and a visible message instead of a red square.
+  if (!store) return jsonOut_({ error: 'Unknown store: ' + store });
+  let gate;
+  try {
+    gate = storeGate_(store);
+  } catch (e) {
+    return jsonOut_({ error: (e && e.message) || 'GX Core store registry unreachable' });
+  }
+  if (!gate.ok) return jsonOut_({ error: 'Unknown store: ' + store });
 
   return getStoreSales_(store, from, to, params.nocache);
 }
@@ -1123,9 +1211,14 @@ function loadProbe_(params) {
     // it is timed per store.
     _PROBE_MARKS = [];
     const tk = Date.now();
-    const known = knownStore_(name);
+    let known = false, gateErr = null;
+    try { known = knownStore_(name); } catch (e) { gateErr = (e && e.message) || String(e); }
     probeMark_('known_store', Date.now() - tk, { exact: gxStoreNames_().indexOf(String(name)) !== -1 });
-    if (!known) { out.push({ store: name, known: false, marks: _PROBE_MARKS }); _PROBE_MARKS = null; continue; }
+    if (!known) {
+      out.push({ store: name, known: false, error: gateErr, marks: _PROBE_MARKS });
+      _PROBE_MARKS = null;
+      continue;
+    }
     let netSales = null, liveOrders = null, cacheRows = null, err = null;
     try {
       const resp = getStoreSales_(name, from, to, nocache);
@@ -2141,7 +2234,8 @@ function setReconConfig_(params) {
   const dow   = Number(params.week_start);
   // knownStore_ carries forward storeKey_'s guard: an INHERITED name ('constructor', 'toString')
   // must NOT pass. Array membership is prototype-safe where a bare map lookup never was.
-  if (!knownStore_(store)) return jsonOut_({ ok: false, error: 'unknown store' });
+  const gateErr = storeGateError_(store);
+  if (gateErr) return gateErr;
   if (!Number.isInteger(dow) || dow < 0 || dow > 6) return jsonOut_({ ok: false, error: 'week_start must be an integer 0..6' });
   try {
     const cfg = getReconConfig_();
@@ -2161,7 +2255,8 @@ function setRecon_(params, user) {
   const start = reconDate_(params.start);
   const end   = reconDate_(params.end);
   const on    = String(params.reconciled) !== 'false';
-  if (!knownStore_(store)) return jsonOut_({ ok: false, error: 'unknown store' });
+  const gateErr = storeGateError_(store);
+  if (gateErr) return gateErr;
   if (!start || !end) return jsonOut_({ ok: false, error: 'start and end must be YYYY-MM-DD' });
   if (end < start)    return jsonOut_({ ok: false, error: 'end is before start' });
   try {
@@ -2923,10 +3018,8 @@ function getInventory(params) {
   output.setMimeType(ContentService.MimeType.JSON);
 
   const store = params.store;
-  if (!store || !knownStore_(store)) {
-    output.setContent(JSON.stringify({ error: 'Unknown store: ' + store }));
-    return output;
-  }
+  const invGateErr = storeGateError_(store);
+  if (invGateErr) return invGateErr;
 
   const cacheKey = 'inv_' + store;
   const cached = cacheGet_(cacheKey);
