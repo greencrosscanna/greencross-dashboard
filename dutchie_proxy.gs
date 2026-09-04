@@ -41,9 +41,14 @@ function gxDutchieGet_(store, path, params) {
 
   let lastErr = '';
   for (let i = 0; i < 5; i++) {
+    const _ta = Date.now();
     const resp = UrlFetchApp.fetch(GXCORE_EXEC_ + qs, { muteHttpExceptions: true });
     let data = null;
     try { data = JSON.parse(resp.getContentText()); } catch (e) { lastErr = 'unparseable body'; }
+    probeMark_('dutchie_get_attempt', Date.now() - _ta, {
+      attempt: i + 1, path: path, http: resp.getResponseCode(),
+      bytes: resp.getContentText().length, ok: !!(data && data.ok === true),
+    });
     if (data && data.ok === true) return Array.isArray(data.rows) ? data.rows : (data.data != null ? data.data : []);
     // A refusal is final. Retrying a bad secret or a disallowed path buries the message explaining it.
     if (data && data.ok === false) throw new Error('GX Core dutchie_get ' + path + ': ' + (data.error || 'refused'));
@@ -230,6 +235,20 @@ function cacheDelete_(key) {
 function jsonOut_(data) {
   return ContentService.createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ── Load timing marks — only collected while a loadprobe execution is running ─
+// A store row that shimmers forever and one that errors look the same to the reader, and both
+// look the same in the source. The only way to tell "this store is slow" from "the hop to this
+// store bounced" is to time the real path in the live runtime, which is what these marks do.
+// Off by default: _PROBE_MARKS is null unless loadProbe_ turns it on, so a normal request pays
+// nothing and nothing accumulates across executions.
+let _PROBE_MARKS = null;
+function probeMark_(label, ms, extra) {
+  if (!_PROBE_MARKS) return;
+  const row = { step: label, ms: Math.round(ms) };
+  if (extra) Object.keys(extra).forEach(k => { row[k] = extra[k]; });
+  _PROBE_MARKS.push(row);
 }
 
 // ── Session auth (mirrors Inventory Phase-1 pattern) ─────────────────────────
@@ -879,6 +898,22 @@ function doGet(e) {
     return attainProbe_(params.start, params.end);
   }
 
+  // What a single store load actually COSTS, in the live runtime, phase by phase.
+  // Sky, 2026-09-04: "on the phone River is the one that fails most frequently — is this a name
+  // mismatch River vs River-Rd?" The name resolves fine (storekeys says River -> river-rd), so the
+  // question this route answers instead is where the seconds go. The client bounds a store fetch at
+  // 2 attempts x 15s (fetchMonthData -> gasFetchJson), so any store whose real cost exceeds ~15s
+  // fails on the client while the OTHER five, being cheaper, land — which reads as "that store is
+  // broken" rather than "that store is slow". A per-store timing is the only thing that tells those
+  // apart, and the timing has to come from the live deployment: the cost is in the hop to GX Core
+  // and in Dutchie's payload size, neither of which is visible in the source.
+  // ?action=loadprobe&store=River%20Rd&from=…&to=…&nocache=1&secret=…
+  if (params.action === 'loadprobe') {
+    const secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET') || '';
+    if (!secret || params.secret !== secret) return jsonOut_({ ok: false, error: 'Forbidden' });
+    return jsonOut_(loadProbe_(params));
+  }
+
   if (params.action === 'ping') {
     const pAuth = requireAuth_(params);
     if (!pAuth.ok) return jsonOut_({ ok: false, error: pAuth.error });
@@ -964,12 +999,16 @@ function getStoreSales_(store, from, to, nocache) {
       // Version prefix (v3): bumped 2026-08-15 to bust stale entries after GXCore backfill (8/13–8/14 rows
       // were missing; proxy had cached the incomplete result for up to 1h). CacheService has no clear-all.
       const gasCacheKey = 'sdaily_v4_' + store + '_' + fromDate + '_' + settledTo;
+      const _t0 = Date.now();
       const hit = cacheGet_(gasCacheKey);
       if (hit) {
         cacheRows = JSON.parse(hit);
+        probeMark_('settled_cache_hit', Date.now() - _t0, { days: cacheRows.length });
       } else {
         try {
+          const _t1 = Date.now();
           cacheRows = GXCore.getSalesDaily(store, fromDate, settledTo) || [];
+          probeMark_('settled_getSalesDaily', Date.now() - _t1, { days: cacheRows.length });
           // 1-hour TTL (was 4h): getSalesDaily is authoritative + cheap, so retroactive returns / re-pull
           // corrections to settled days surface within the hour instead of lingering.
           cacheSet_(gasCacheKey, JSON.stringify(cacheRows), 3600);
@@ -981,7 +1020,9 @@ function getStoreSales_(store, from, to, nocache) {
     }
 
     // Live: today only (if the requested range includes today)
+    const _t2 = Date.now();
     const liveResult = toDate >= todayPT ? dutchieTodayFetch_(store, todayPT, to, nocache) : null;
+    if (liveResult) probeMark_('live_today', Date.now() - _t2, { orders: liveResult.orders });
 
     let net = 0, gros = 0, disc = 0, cogs = 0, tx = 0, ord = 0;
     const dailyMap = {}, weeklyMap = {};
@@ -1048,6 +1089,67 @@ function getStoreSales_(store, from, to, nocache) {
   } catch (err) {
     return jsonOut_({ error: err.message });
   }
+}
+
+/* loadProbe_ — time the REAL store fetch, not a copy of it.
+ *
+ * It calls getStoreSales_ itself and reads the marks that function drops, for the same reason the
+ * test suite grab()s named functions out of the shipped file: a probe that re-implements the path
+ * measures the probe. The marks are off unless this function turns them on.
+ *
+ * `store` may be omitted to walk all six in sequence — the comparison is the point, since one slow
+ * store only means anything against the five that are not. A single store is the form to use when
+ * chasing one; all six can approach the execution limit when nothing is cached.
+ */
+function loadProbe_(params) {
+  const todayPT = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM-dd');
+  const from    = params.from || todayPT.slice(0, 8) + '01';
+  const to      = params.to   || new Date().toISOString().slice(0, 19) + 'Z';
+  const nocache = params.nocache === '1' || params.nocache === 'true';
+
+  let names;
+  if (params.store) {
+    names = [params.store];
+  } else {
+    try { names = gxStoreNames_(); } catch (e) { names = []; }
+  }
+
+  const out = [];
+  for (const name of names) {
+    const known = knownStore_(name);
+    if (!known) { out.push({ store: name, known: false }); continue; }
+    _PROBE_MARKS = [];
+    const t0 = Date.now();
+    let netSales = null, liveOrders = null, cacheRows = null, err = null;
+    try {
+      const resp = getStoreSales_(name, from, to, nocache);
+      const body = JSON.parse(resp.getContent());
+      if (body.error) err = body.error;
+      netSales   = body.netSales;
+      liveOrders = body.liveOrders;
+      cacheRows  = body.cacheRows;
+    } catch (e) {
+      err = e.message;
+    }
+    const total = Date.now() - t0;
+    const marks = _PROBE_MARKS;
+    _PROBE_MARKS = null;
+
+    // The two numbers that decide whether the client can survive this store: the wall clock, and
+    // how it compares to the 15s the browser allows one attempt.
+    out.push({
+      store: name, total_ms: total,
+      over_client_timeout: total > 15000,
+      net_sales: netSales, live_orders: liveOrders, settled_days: cacheRows,
+      error: err, marks: marks,
+    });
+  }
+
+  return {
+    ok: true, from: from, to: to, today_pt: todayPT, nocache: nocache,
+    client_timeout_ms: 15000, client_attempts: 2,
+    stores: out,
+  };
 }
 
 /* Live intraday Dutchie fetch — today only, same logic as the old full handler.
