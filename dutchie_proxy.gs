@@ -1116,10 +1116,16 @@ function loadProbe_(params) {
 
   const out = [];
   for (const name of names) {
-    const known = knownStore_(name);
-    if (!known) { out.push({ store: name, known: false }); continue; }
+    // knownStore_ is INSIDE the measurement, not before it, because it is the one step that is not
+    // the same work for every store. Five names hit the registry list on the first line and cost
+    // nothing; `River` — what index.html's STORES actually sends — misses it and pays a
+    // GXCore.resolveStore library call on every single request. That asymmetry is invisible unless
+    // it is timed per store.
     _PROBE_MARKS = [];
-    const t0 = Date.now();
+    const tk = Date.now();
+    const known = knownStore_(name);
+    probeMark_('known_store', Date.now() - tk, { exact: gxStoreNames_().indexOf(String(name)) !== -1 });
+    if (!known) { out.push({ store: name, known: false, marks: _PROBE_MARKS }); _PROBE_MARKS = null; continue; }
     let netSales = null, liveOrders = null, cacheRows = null, err = null;
     try {
       const resp = getStoreSales_(name, from, to, nocache);
@@ -1131,7 +1137,7 @@ function loadProbe_(params) {
     } catch (e) {
       err = e.message;
     }
-    const total = Date.now() - t0;
+    const total = Date.now() - tk;   // what the CLIENT waits for, knownStore_ included
     const marks = _PROBE_MARKS;
     _PROBE_MARKS = null;
 
