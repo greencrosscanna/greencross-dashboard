@@ -324,6 +324,54 @@ statement the throw had skipped.
 - `tests/boot_sequence_test.js` (15 assertions) pins all three guards against the shipped
   `index.html`. **Verified to fail against the pre-fix source** (10 of 15).
 
+## The 60-second poll rebuilt the whole page — one line, one level down from the v2.560 fix
+
+Sky, 2026-09-06: *"can we make the 60s refresh feel less jumpy on mobile too?"*
+
+`refreshLiveData` goes to real trouble NOT to blank `liveData` — that is the v2.560 fix, and its
+comment is the longest in the file — and then called **`_invalidateDerivedCaches()`, which set
+`_incomeMounted = false`.** That forces `renderIncome` down its full-mount path: `#main-content`
+replaced wholesale, both chart canvases destroyed and redrawn, and `animateStorePacingBars(true)`
+re-running, which collapses all six bars to 0% and grows them back 120ms apart. Correct numbers,
+quiet data path, and the reader still watched the page rebuild itself every minute.
+
+**It is the same shape as the bug it was hiding behind.** v2.560 moved the wipe out of one call
+site; this defeated it from another. A guard is only as good as the paths that reach it.
+
+**Measured in a real browser, identical simulated polls on both builds:** v2.572 did **1 full mount
+per poll**, and the store-breakdown container, the chart canvas and `#main-content`'s first child
+were all **different nodes** afterwards. v2.573 does **0**, and all three survive.
+
+- **The remount belongs with the BLANKING, not with the cache reset.** It is right when there is
+  genuinely nothing left to patch and wrong whenever numbers are merely being refreshed, so it now
+  lives in `clearLiveData()` — which `clearAllCache`, `clearDutchieCache` and `hardReset` go
+  through and which the poll deliberately does not.
+- **`_invalidateDerivedCaches` still has to do its real job.** Dropping the `liveDateMaps` and
+  day-of-week weight resets would make a poll render new sales through stale derived numbers.
+
+Two smaller things moved with it, same complaint:
+
+- **The row order re-sorted mid-poll.** `pending` means no data AT ALL, and a re-poll has none —
+  `liveData` is kept — so every row looked landed while only some carried this minute's figure, and
+  the list re-sorted on each of the six progressive renders against a mix of new and one-minute-old
+  numbers. **`_bdHoldOrder`** holds the order for the whole load and is released immediately before
+  the final render, so the list settles ONCE, on complete data. A cold start does not set it: there
+  is no order to preserve and sorting as stores land is the documented behavior there. Released in
+  `finally` as well — a hold that survives a failed load freezes the list until the next good one.
+- **The end-of-load `scrollTo` was unconditional.** A load takes seconds; scroll down during one
+  and you were yanked back to where you started — mid-flick, on a phone, the most jarring thing the
+  poll did. It now fires only if the page moved on its own AND the reader did not move it, keyed on
+  **input events (`touchmove`/`wheel`/`keydown`), never on `scroll`** — which fires for programmatic
+  movement too and would mark every restore as a user scroll.
+
+`tests/poll_quiet_test.js` — 29 assertions, executes `_invalidateDerivedCaches`, `clearLiveData` and
+`_bdApplyOrder`, verified to fail against the pre-fix `index.html`.
+
+*One measurement note, so nobody repeats it: `requestAnimationFrame` does not run in a hidden tab,
+and the browser pane counts as hidden. Attempts to observe the bar re-animation and the chart redraw
+that way returned zeros on BOTH builds and proved nothing. The mount count is synchronous and is
+what actually discriminates.*
+
 ## The landing view is TODAY, and it is today from the first frame (fixed v2.572, 2026-09-06)
 
 Sky, 2026-09-06: *"why does it load the month first then switch over to the current day once things

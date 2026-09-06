@@ -1361,7 +1361,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.572';
+const APP_VERSION = 'v2.573';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -2003,7 +2003,12 @@ let _liveDataKey = null;
 
 /** liveData and its period key move together — always. Setting one without the other is how a wipe
  *  becomes invisible to loadAllStores, or a stale period survives one. */
-function clearLiveData() { liveData = {}; _liveDataKey = null; }
+function clearLiveData() {
+  liveData = {}; _liveDataKey = null;
+  // There is nothing left to patch, so the next render has to mount the skeleton from scratch.
+  // This is the ONLY path that should force that — see _invalidateDerivedCaches for why.
+  _incomeMounted = false;
+}
 let _storeStateMap = {}; // last known state map — lets backfill refresh the status strip
 let charts = {};
 // Accumulates daily netSales across all fetched months: { storeName: { "2026-01-03": 4500, ... } }
@@ -2520,12 +2525,28 @@ function writeSalesCache(store, year, month, data) {
   }
 }
 
-/** Reset all derived in-memory caches that are built from liveData / allDailyData. */
+/* Reset the derived in-memory caches built from liveData / allDailyData — and NOTHING ELSE.
+ *
+ * This used to also set `_incomeMounted = false`, which forced renderIncome down its full-mount
+ * path: #main-content replaced wholesale, both chart canvases destroyed and redrawn, and
+ * animateStorePacingBars(true) re-running — six bars collapsing to 0% and growing back, staggered
+ * 120ms apart, roughly 800ms of motion. refreshLiveData calls this, and refreshLiveData is the
+ * 60-SECOND POLL. So every minute the dashboard rebuilt and re-animated itself. On a phone that is
+ * the whole screen moving; Sky, 2026-09-06: "can we make the 60s refresh feel less jumpy on mobile."
+ *
+ * It is the same shape as the v2.560 flicker one level down, and it defeated that fix from the
+ * side. refreshLiveData goes to real trouble NOT to blank liveData so the poll updates quietly —
+ * and then called this, which threw the rendered DOM away anyway. Correct numbers, quiet data
+ * path, and the reader still watched the page rebuild.
+ *
+ * The remount belongs with the BLANKING, not with the cache reset: it is right when there is
+ * genuinely nothing left to patch, and wrong whenever the numbers are merely being refreshed. It
+ * now lives in clearLiveData(), which is what clearAllCache, clearDutchieCache and hardReset go
+ * through and what the poll deliberately does not. */
 function _invalidateDerivedCaches() {
   Object.keys(liveDateMaps).forEach(k => delete liveDateMaps[k]);
   _dowWeightsCache    = null;
   _dowWeightsCacheKey = '';
-  _incomeMounted      = false; // force full skeleton rebuild on next render
 }
 
 /* The intraday Dutchie pull is cached FOR 90 SECONDS ON THE SERVER, shared by every open tab (see
@@ -2880,7 +2901,18 @@ async function loadAllStores() {
   if (_loadAllStoresInFlight) return;          // prevent double-tap race
   _loadAllStoresInFlight = true;
   setLiveBusy(true);
-  const _scrollY = window.scrollY;            // preserve scroll position across refresh
+  /* Preserve the scroll position across a refresh — but ONLY against the app's own relayout, never
+   * against the reader. This was an unconditional scrollTo at the end of the load, and a load takes
+   * seconds: scroll down to the store rows during a poll and you were yanked back to where you had
+   * been when it started. On a phone, mid-flick, that is the most jarring thing the poll did.
+   *
+   * Keyed on INPUT events, not on 'scroll', which fires for programmatic movement too and would
+   * mark every restore as a user scroll. */
+  const _scrollY = window.scrollY;
+  let _userScrolled = false;
+  const _markScrolled = () => { _userScrolled = true; };
+  ['touchmove', 'wheel', 'keydown'].forEach(ev =>
+    window.addEventListener(ev, _markScrolled, { passive: true }));
   const proxyUrl = getProxyUrl();
   document.getElementById('setup-err').style.display = 'none';
   document.getElementById('load-btn').disabled = true;
@@ -2917,6 +2949,9 @@ async function loadAllStores() {
   const stateMap = Object.fromEntries(STORES.map(s => [s.name, 'loading']));
   buildStatusGrid(stateMap);
   pill('amber', 'Loading…');
+  // Rows already on screen keep their order for the whole of this load. A cold start has no order
+  // worth preserving, so it keeps the sort-as-they-land behavior.
+  _bdHoldOrder = Object.keys(liveData).length > 0;
 
   const curYear = new Date().getFullYear();
   const curMo   = new Date().getMonth() + 1;
@@ -3034,9 +3069,11 @@ async function loadAllStores() {
   }
 
   updateCacheStatus();
+  _bdHoldOrder = false;           // the list settles ONCE, here, on complete data
   render();
   refreshCompare();               // no-op unless compare is on and its range actually moved
-  window.scrollTo(0, _scrollY);  // restore position (no jump on auto-refresh)
+  // Only if the page actually moved under the reader and the reader did not move it themselves.
+  if (!_userScrolled && window.scrollY !== _scrollY) window.scrollTo(0, _scrollY);
   scheduleAutoRefresh();          // restart 60s timer for current month
   backfillDailyHistory(proxyUrl);
   loadVelocity(); // inventory loads last — lowest priority
@@ -3071,6 +3108,10 @@ async function loadAllStores() {
     document.getElementById('load-btn').disabled = false;
     document.getElementById('load-btn').textContent = 'Load live data';
     _loadAllStoresInFlight = false;
+    // Released here as well as on the happy path: a hold that survives a failed load freezes the
+    // row order until the next successful one, and a listener that survives it leaks per poll.
+    _bdHoldOrder = false;
+    ['touchmove', 'wheel', 'keydown'].forEach(ev => window.removeEventListener(ev, _markScrolled));
     setLiveBusy(false);
   }
 }
@@ -4625,11 +4666,30 @@ function _storeBreakdownRows(stores, storeNets, isClosed, elapsedPct, yr, daysIn
   });
 }
 
+/* Held for the DURATION of a load, not merely while a store is missing.
+ *
+ * "Pending" means no data at all, and on a re-poll there is none: liveData is deliberately kept, so
+ * every row looks landed while only some carry this minute's figure. The list therefore re-sorted
+ * on each of the six progressive renders, against a mix of new and one-minute-old numbers, and two
+ * stores a few hundred dollars apart traded places two or three times before settling. That is
+ * rows jumping for no reason a reader can see, which is exactly what the sort-once rule was written
+ * to prevent — it just never covered the refresh case.
+ *
+ * Set while a load with existing rows on screen is in flight; released immediately before the final
+ * render, so the list settles ONCE, on complete data. A cold start does not set it: there is no
+ * order to preserve, and sorting as stores land is the documented behavior there. */
+let _bdHoldOrder = false;
+
 // Sorting by value while values are still arriving is what makes rows jump. Re-sort only once every
-// store has landed, and remember that order; while anything is pending, reuse it so the list holds
-// still. On a cold start there is nothing to reuse, so loaded stores sort by value and pending ones
-// wait at the bottom in registry order — that is the only moment rows are allowed to move.
+// store has landed AND the load has finished, and remember that order; until then reuse it so the
+// list holds still. On a cold start there is nothing to reuse, so loaded stores sort by value and
+// pending ones wait at the bottom in registry order — that is the only moment rows are allowed to
+// move.
 function _bdApplyOrder(rows) {
+  if (_bdHoldOrder && _bdOrder) {
+    const ix = s => { const i = _bdOrder.indexOf(s); return i === -1 ? 1e6 : i; };
+    return rows.sort((a, b) => ix(a.s) - ix(b.s));
+  }
   if (rows.every(r => !r.pending)) {
     rows.sort((a, b) => b.snet - a.snet);
     _bdOrder = rows.map(r => r.s);
