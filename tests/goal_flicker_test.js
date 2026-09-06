@@ -88,7 +88,10 @@ console.log('\n4. the flag is actually threaded through every call site');
   ok(`all ${heroCalls} hero call sites pass goalWait`, heroCalls > 0 && heroCalls === heroWith);
 
   const projCalls = (HTML.match(/(?<!function )_incomeProjCardHtml\(net, periodGoal/g) || []).length;
-  const projWith  = (HTML.match(/(?<!function )_incomeProjCardHtml\(net, periodGoal[^)]*goalWait\)/g) || []).length;
+  // Not `goalWait\)` — since v2.571 the projection also shims on dataWait (no store has answered
+  // at all yet), so the call sites read `goalWait || dataWait`. What this pins is that goalWait
+  // still reaches every one of them, which is the same assertion it always made.
+  const projWith  = (HTML.match(/(?<!function )_incomeProjCardHtml\(net, periodGoal[^)]*goalWait/g) || []).length;
   ok(`all ${projCalls} projection call sites pass goalWait`, projCalls > 0 && projCalls === projWith);
   ok('goalWait is computed in renderIncome', /const goalWait\s*=\s*goalPending\(\)/.test(HTML));
 }

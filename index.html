@@ -215,6 +215,7 @@ body{font-family:var(--gx-font,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-
 .klabel{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:3px}
 .kval{font-size:21px;font-weight:500;color:var(--text);line-height:1.1}
 .ksub{font-size:11px;margin-top:3px}
+.ic-hero-skel{width:180px;height:38px;border-radius:8px}
 .val-skel{display:inline-block;width:72px;height:20px;border-radius:5px;vertical-align:middle;background:linear-gradient(90deg,var(--border) 25%,rgba(150,150,150,.28) 50%,var(--border) 75%);background-size:200% 100%;animation:valShimmer 1.25s ease-in-out infinite}
 @keyframes valShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
 .good{color:var(--green)}.bad{color:var(--red)}.muted{color:var(--muted)}
@@ -1360,7 +1361,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.570';
+const APP_VERSION = 'v2.571';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -2512,10 +2513,19 @@ let _serverBypassUntil = 0;
 function bypassServerCache() { _serverBypassUntil = Date.now() + 15000; }
 function serverBypassParam() { return Date.now() < _serverBypassUntil ? '&nocache=1' : ''; }
 
+/* `gc_sales_token` — the SESSION — shares the `gc_sales_` prefix with the cached sales months, so
+ * every sweep over that prefix has to exclude it by name. It did not until v2.571, which means
+ * Settings -> "Clear cache" and "Clear Dutchie cache" both SIGNED YOU OUT: the next request came
+ * back "Auth required", one store's failure called salesLogout(), and the login card appeared over
+ * a dashboard that had been working a second earlier. evictHistoricalSalesCache already guarded it
+ * (it runs on every load, so the app would have logged itself out constantly otherwise) — the guard
+ * simply never made it to the two functions whose whole job is deleting things. */
+function isSalesCacheKey_(k) { return k.startsWith('gc_sales_') && k !== 'gc_sales_token'; }
+
 function clearDutchieCache() {
   bypassServerCache();
   Object.keys(localStorage)
-    .filter(k => k.startsWith('gc_sales_'))
+    .filter(isSalesCacheKey_)
     .forEach(k => localStorage.removeItem(k));
   allDailyData = {};
   clearLiveData();
@@ -2528,9 +2538,10 @@ function clearDutchieCache() {
 function clearAllCache() {
   bypassServerCache();  // same reason as clearDutchieCache — "clear" has to reach the proxy's copy too
   Object.keys(localStorage)
-    .filter(k => k.startsWith('gc_cache_') || k.startsWith('gc_sales_'))
+    .filter(k => k.startsWith('gc_cache_') || isSalesCacheKey_(k))
     .forEach(k => localStorage.removeItem(k));
   Object.keys(sessionMemCache).forEach(k => delete sessionMemCache[k]);
+  _expBudgetsTried = false;   // cleared budgets have to be re-fetchable, not just absent
   inventoryData = {};
   allDailyData  = {};
   clearLiveData();      // was missing — without it the on-screen figure survived a "clear" (the July 736k trap)
@@ -2678,11 +2689,11 @@ document.addEventListener('visibilitychange', function() {
 });
 
 function updateCacheStatus() {
-  const keys = Object.keys(localStorage).filter(k => k.startsWith('gc_cache_') || k.startsWith('gc_sales_'));
+  const keys = Object.keys(localStorage).filter(k => k.startsWith('gc_cache_') || isSalesCacheKey_(k));
   const el = document.getElementById('cache-status');
   if (!el) return;
   if (keys.length === 0) { el.textContent = 'No cache'; return; }
-  const salesKeys = keys.filter(k => k.startsWith('gc_sales_'));
+  const salesKeys = keys.filter(isSalesCacheKey_);
   const oldest = keys.reduce((min, k) => {
     try { return Math.min(min, JSON.parse(localStorage.getItem(k)).ts); } catch { return min; }
   }, Infinity);
@@ -2716,7 +2727,25 @@ async function backfillDailyHistory(proxyUrl) {
   }
   if (tasks.length === 0) return;
 
-  await Promise.all(tasks.map(async ({ store, m }) => {
+  /* This used to fire EVERY task at once with a bare fetch(). Measured on the live app 2026-09-06,
+   * that was 48 simultaneous Apps Script executions (8 months x 6 stores) landing in one burst the
+   * instant the dashboard became usable — on top of the 15 the boot already fires. Two things are
+   * wrong with it and only one is the count:
+   *
+   *  - A bare fetch has NO TIMEOUT. That is the same defect fetchMonthData was fixed for on v2.560:
+   *    a bounced /exec hop never fails, it just never comes back, and it holds its slot forever.
+   *  - Apps Script caps SIMULTANEOUS EXECUTIONS PER USER (30). Past that the extras are queued or
+   *    refused, so firing 48 does not make the backfill finish sooner — it makes some of it fail,
+   *    silently, into a `catch {}`, and it steals throughput from the 60-second poll that is the
+   *    only thing keeping the visible numbers fresh.
+   *
+   * A pool of 4 is deliberately well under the cap rather than at it: this work is invisible (it
+   * feeds the day-of-week chart), so it should lose every race against the load the reader is
+   * actually waiting on. gasFetchJson gives each task the same bounded wait the foreground fetches
+   * get; one attempt, because the next period change will ask again anyway. */
+  const BACKFILL_POOL = 4;
+  let _bfNext = 0;
+  const runBackfillTask = async ({ store, m }) => {
     try {
       // Read from localStorage if available; fetch from API otherwise.
       // Historical months are NOT written back to localStorage — kept in-memory only
@@ -2725,15 +2754,16 @@ async function backfillDailyHistory(proxyUrl) {
       const data   = cached ?? await (async () => {
         const { from, to } = monthRange(m, activeYear);
         const url = `${proxyUrl}?store=${encodeURIComponent(store.name)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&token=${encodeURIComponent(getToken())}${serverBypassParam()}`;
-        const res = await fetch(url);
-        if (!res.ok) return null;
-        const d = await res.json();
-        if (d.error) return null;
+        const d = await gasFetchJson(url, 1, 20000);
+        if (!d || d.error) return null;
         writeSalesCache(store.name, activeYear, m, d); // cache so setMonth nav is instant
         return d;
       })();
       if (data) mergeDailyData(store.name, data.daily);
     } catch {}
+  };
+  await Promise.all(Array.from({ length: Math.min(BACKFILL_POOL, tasks.length) }, async () => {
+    while (_bfNext < tasks.length) await runBackfillTask(tasks[_bfNext++]);
   }));
 
   render(); // refresh sparklines and DOW chart with full-year backfill data
@@ -2834,13 +2864,20 @@ async function loadAllStores() {
   evictHistoricalSalesCache();
 
   // Fire only Income-tab aux concurrently with stores — limits peak GAS connections on mobile.
-  // expBudgets / otherRevenue / expenses are Expenses-tab only; fired fire-and-forget below.
   const auxDataPromise = Promise.all([
     fetchStoresMeta(),
     loadGoals(), loadLeaderboardGoals(),
     loadPeriodGoalRange(...activeGoalRange()),
   ]);
-  loadExpBudgets(); loadOtherRevenue(); loadExpenses(); // fire-and-forget (expenses tab only)
+  /* otherRevenue only. `expbudgets` and `expenses` were fired here too, and the comment above them
+   * said what was wrong with that in its own words — "Expenses-tab only". They are paid by every
+   * load, on the Income tab, by everyone who never opens Expenses, and they are not free: measured
+   * on the live app 2026-09-06, expbudgets was the SLOWEST call in the boot wave at 8.8s, against
+   * 4.9-10.8s for the six store fetches it was competing with. Fire-and-forget makes a call
+   * invisible, not weightless. Both now load when the Expenses tab is first opened, which is the
+   * first moment anything reads them. otherRevenue stays: the Income hero folds ATM and sublet into
+   * net sales, so it IS this tab's data. */
+  loadOtherRevenue();
 
   // A re-poll of the SAME period keeps what is on screen and overwrites it store by store as the
   // answers land; only a period change starts from nothing. See _liveDataKey.
@@ -3548,7 +3585,9 @@ function updateMobHero() {
   const stores = getActiveStores();
   const { net } = getPeriodTotals(stores);
   lbl.textContent = 'Net sales · ' + getPeriodLabel();
-  numEl.textContent = fmtK(net);
+  // Same rule as the hero card: a figure nobody has measured yet is not a figure.
+  if (salesPending()) numEl.innerHTML = '<span class="val-skel"></span>';
+  else                numEl.textContent = fmtK(net);
   subEl.textContent = '';
   dot.className = 'mh-dot ' + (Object.keys(liveData).length > 0 ? 'ok' : 'loading');
 }
@@ -3876,6 +3915,24 @@ function getActiveStores() {
 // not on every store-filter click or live-data refresh within the same section.
 let _lastRenderedSection = null;
 
+/* "We have nothing YET" and "we have nothing, and nothing is coming" are two different screens, and
+ * until v2.571 they were the same one. The progressive paint inside loadAllStores fires render()
+ * after EVERY store settles, including the first one to fail — so the moment any store errored with
+ * liveData still empty, the whole dashboard was replaced by the flat text "No data loaded yet." and
+ * sat there until a later store landed. Measured on the live app 2026-09-06: that dead end appeared
+ * 1.3s into a load and held for 8.7 seconds before the real numbers arrived. On a phone, where the
+ * first store answer is slower still, that is the "spinning, then no data available, then it loads"
+ * Sky reported.
+ *
+ * It reads as a verdict, and it is not one — it is the app saying it has not asked yet. While a
+ * first load is genuinely in flight the income view mounts for real with shimmer placeholders
+ * instead, which is the rule this app already follows everywhere else (see _liveDataKey, and the
+ * goal shimmer): shimmer means "we have nothing yet" and belongs to the FIRST load. The empty state
+ * survives for the case it was written for — no load running and nothing on screen. */
+function salesPending() {
+  return _loadAllStoresInFlight && Object.keys(liveData).length === 0;
+}
+
 function render() {
   const sectionChanged = section !== _lastRenderedSection;
   if (sectionChanged) {
@@ -3889,7 +3946,7 @@ function render() {
   if (section === 'revenue')   { renderRevenue();   updateMobHero(); return; }
   if (section === 'pnl')       { renderPnl();       updateMobHero(); return; }
   if (section === 'reconcile') { renderReconcile(); updateMobHero(); return; }
-  if (Object.keys(liveData).length === 0) {
+  if (Object.keys(liveData).length === 0 && !salesPending()) {
     _incomeMounted = false;
     document.getElementById('main-content').innerHTML =
       `<div class="empty-state">No data loaded yet.</div>`;
@@ -4153,6 +4210,30 @@ function _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, und
   const paceLabel   = under > 0 ? `−${fmtK(under)} behind pace` : `+${fmtK(-under)} over pace`;
   const paceCls     = under > 0 ? 'bad' : 'good';
   const goalPctLbl  = periodGoal > 0 ? `${goalPct}% of ${fmtK(periodGoal)} goal` : '';
+  /* Two different waits, and they are NOT interchangeable. o.goalWait means the sales figure is
+   * final and only the goal beneath it is in flight, so the headline paints. o.dataWait means no
+   * store has answered at all, so `net` is 0 for want of asking and the headline has to shimmer
+   * too. Collapsing them into one flag is how a $0 hero gets shown as a measurement. */
+  if (o.dataWait) {
+    return `
+    <div class="ic-hero-top">
+      <span class="ic-hero-lbl">Net sales · ${getPeriodLabel()}</span>
+      <div class="ic-hero-live">
+        <div class="ic-hero-live-dot"></div>
+        <span>${syncTime}${periodDay ? ' · ' + periodDay : ''}</span>
+      </div>
+    </div>
+    <div class="ic-hero-val"><span class="val-skel ic-hero-skel"></span></div>
+    <div class="ic-hero-bar"><div class="sbar-track"></div></div>
+    <div class="ic-hero-foot">
+      <span class="bd-skel bd-skel-diff"></span>
+      <span class="bd-skel bd-skel-val"></span>
+      ${o.cmpHtml || ''}
+    </div>
+    <span class="ic-swipe-cue l" id="ic-cue-l">‹</span>
+    <span class="ic-swipe-cue r" id="ic-cue-r">›</span>
+`;
+  }
   // While the frozen period goal is still loading, show a placeholder rather than the budget
   // fallback that is about to be replaced. Only this row waits — the net-sales figure above it is
   // already final and paints immediately.
@@ -4277,7 +4358,22 @@ function _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores, goalWa
 // While compare is on, every card's muted sub-line is REPLACED by its signed delta. `dnet`/`dcost`
 // are the Dutchie-only net and COGS — the compare fetch returns exactly those, so both sides of a
 // delta come from one source even where the displayed value does not (see getPeriodCost).
-function _incomeKpiMobHtml(net, gross, orders, disc, cost, aov, dnet, dcost) {
+const _KPI_SKEL = '<span class="val-skel"></span>';
+/* The skeleton grid carries the same cards, the same labels and the same ids as the real one, so
+ * the arriving numbers PATCH into it (patchEl, below) rather than remounting the section under the
+ * reader. Same reason the store breakdown renders all six rows from the first frame. */
+function _kpiSkelHtml(prefix, labels) {
+  return labels.map(([id, lbl]) => `
+    <div class="ic-kpi" id="ic-${prefix}-kpi-${id}">
+      <div class="ic-kpi-lbl">${lbl}</div>
+      <div class="ic-kpi-val">${_KPI_SKEL}</div>
+      <div class="ic-kpi-sub muted">&nbsp;</div>
+    </div>`).join('');
+}
+
+function _incomeKpiMobHtml(net, gross, orders, disc, cost, aov, dnet, dcost, wait) {
+  if (wait) return _kpiSkelHtml('mob', [['gp','Gross profit'], ['txns','Transactions'],
+                                        ['disc','Discounts'], ['gross','Gross sales']]);
   const gp     = cost > 0 ? net - cost : null;
   const margin = gp !== null && net > 0 ? Math.round(gp / net * 1000) / 10 : null;
   const gpVal  = gp !== null ? fmtK(gp) : !invGmData ? '<span class="val-skel"></span>' : '—';
@@ -4306,7 +4402,10 @@ function _incomeKpiMobHtml(net, gross, orders, disc, cost, aov, dnet, dcost) {
     </div>`;
 }
 
-function _incomeKpiDskHtml(net, gross, orders, disc, cost, aov, dnet, dcost) {
+function _incomeKpiDskHtml(net, gross, orders, disc, cost, aov, dnet, dcost, wait) {
+  if (wait) return _kpiSkelHtml('dsk', [['gp','Gross profit'], ['margin','Margin'],
+                                        ['txns','Transactions'], ['aov','AOV'],
+                                        ['disc','Discounts'], ['gross','Gross sales']]);
   const gp     = cost > 0 ? net - cost : null;
   const margin = gp !== null && net > 0 ? Math.round(gp / net * 1000) / 10 : null;
   const gpVal  = gp !== null ? fmtK(gp) : !invGmData ? '<span class="val-skel"></span>' : '—';
@@ -4669,6 +4768,11 @@ function renderIncome() {
 
   const goalPct   = periodGoal > 0 ? Math.round(net / periodGoal * 100) : 0;
   const goalWait  = goalPending();   // frozen period goals still in flight for this view
+  // No store has answered yet on this period's FIRST load. Every figure below is therefore 0 by
+  // absence rather than by measurement, and a confident $0 hero is the worst of the three things
+  // this could show. Shimmer instead — and mount the real layout while doing it, so the numbers
+  // land in place rather than replacing a block of text.
+  const dataWait  = salesPending();
   // How much of the PERIOD has elapsed. getGoalPacingPct, not getPacingPct: in YTD the goal above is
   // already a to-date figure, so the calendar-year fraction would discount it twice. See that
   // function for the whole story. This is the fallback fraction and the "is the period over" test —
@@ -4723,14 +4827,14 @@ function renderIncome() {
       <!-- Mobile layout -->
       <div class="ic-mob">
         <div class="ic-hero-card" id="ic-mob-hero">
-          ${_incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml, goalWait })}
+          ${_incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml, goalWait, dataWait })}
         </div>
         <!-- KPIs sit ABOVE the store breakdown, per the handoff's mobile screen. The other order
              pushed all four cards under the bottom bar on a notched phone: hero + six breakdown
              rows is 476pt before the grid starts, and the usable band between the status bar and
              the filter row is 594pt. -->
         <div class="ic-kpis" id="ic-mob-kpis">
-          ${_incomeKpiMobHtml(net, gross, orders, disc, cost, aov, dutchieNet, dcost)}
+          ${_incomeKpiMobHtml(net, gross, orders, disc, cost, aov, dutchieNet, dcost, dataWait)}
         </div>
         <div class="ic-mob-bd" id="ic-mob-bd">
           ${_incomeBreakdownMobHtml(stores, storeNets, isClosed, elapsedPct, yr, daysInMo)}
@@ -4750,14 +4854,14 @@ function renderIncome() {
       <div class="ic-dsk">
         <div class="ic-hero-row">
           <div class="ic-hero-card ic-dsk-hero" id="ic-dsk-hero">
-            ${_incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml, goalWait })}
+            ${_incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml, goalWait, dataWait })}
           </div>
           <div class="ic-proj-card" id="ic-dsk-proj">
-            ${_incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores, goalWait)}
+            ${_incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores, goalWait || dataWait)}
           </div>
         </div>
         <div class="ic-dsk-kpis" id="ic-dsk-kpis">
-          ${_incomeKpiDskHtml(net, gross, orders, disc, cost, aov, dutchieNet, dcost)}
+          ${_incomeKpiDskHtml(net, gross, orders, disc, cost, aov, dutchieNet, dcost, dataWait)}
         </div>
         <div class="ic-lower">
           <div class="card" id="ic-dsk-bd">
@@ -4785,11 +4889,11 @@ function renderIncome() {
     const patchEl = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
     const patchTxt = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
 
-    patchEl('ic-mob-hero',   _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml, goalWait }));
-    patchEl('ic-dsk-hero',   _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml, goalWait }));
-    patchEl('ic-dsk-proj',   _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores, goalWait));
-    patchEl('ic-mob-kpis',   _incomeKpiMobHtml(net, gross, orders, disc, cost, aov, dutchieNet, dcost));
-    patchEl('ic-dsk-kpis',   _incomeKpiDskHtml(net, gross, orders, disc, cost, aov, dutchieNet, dcost));
+    patchEl('ic-mob-hero',   _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml, goalWait, dataWait }));
+    patchEl('ic-dsk-hero',   _incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml, goalWait, dataWait }));
+    patchEl('ic-dsk-proj',   _incomeProjCardHtml(net, periodGoal, isClosed, daysInMo, stores, goalWait || dataWait));
+    patchEl('ic-mob-kpis',   _incomeKpiMobHtml(net, gross, orders, disc, cost, aov, dutchieNet, dcost, dataWait));
+    patchEl('ic-dsk-kpis',   _incomeKpiDskHtml(net, gross, orders, disc, cost, aov, dutchieNet, dcost, dataWait));
     patchEl('ic-mob-bd',     _incomeBreakdownMobHtml(stores, storeNets, isClosed, elapsedPct, yr, daysInMo));
     patchEl('ic-dsk-bd',     `<div class="sec-lbl" style="margin-bottom:8px">Store breakdown</div>${_incomeBreakdownDskHtml(stores, storeNets, isClosed, elapsedPct, yr, daysInMo)}`);
     patchEl('income-other-rev', otherHtml);
@@ -5573,11 +5677,24 @@ function toggleExpRow(name) {
 async function reloadExpenses() {
   expenseData = null;
   expensesLoading = false;
+  _expBudgetsTried = false;   // a refresh has to be able to retry a budgets fetch that failed
   expBreak = null; expBreakError = null;
   renderExpenses();
 }
 
+/* Loaded on demand rather than at boot — see the aux block in loadAllStores. Guarded by "tried",
+ * not by "loading": loadExpBudgets leaves expBudgets null when the fetch fails, and its .finally
+ * re-renders this tab, so a liveness check alone would re-fire forever against a broken backend.
+ * The ↻ refresh button and clearAllCache reset it, which is what makes a real retry possible. */
+let _expBudgetsTried = false;
+function ensureExpBudgets() {
+  if (expBudgets || _expBudgetsTried) return;
+  _expBudgetsTried = true;
+  loadExpBudgets().finally(() => { if (section === 'expenses') renderExpenses(); });
+}
+
 function renderExpenses() {
+  ensureExpBudgets();
   if (expSection === 'mapping') { renderExpenseMapping(); return; }
   if (expSection === 'budget')  { renderBudgetPlanner();  return; }
 
