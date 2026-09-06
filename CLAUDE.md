@@ -324,6 +324,36 @@ statement the throw had skipped.
 - `tests/boot_sequence_test.js` (15 assertions) pins all three guards against the shipped
   `index.html`. **Verified to fail against the pre-fix source** (10 of 15).
 
+## The landing view is TODAY, and it is today from the first frame (fixed v2.572, 2026-09-06)
+
+Sky, 2026-09-06: *"why does it load the month first then switch over to the current day once things
+have been loaded? this is visually confusing."*
+
+It booted on the month, loaded the month, rendered the month, and then — at the very END of
+`loadAllStores`, after every store had answered — set `activeDay`, rebuilt the period bar and
+re-rendered. So the reward for waiting out the load was the number you had been reading being
+replaced by a much smaller one, with the period label, the goal, the pace line and the chart all
+changing under it. **Neither figure was wrong.** They answer different questions, and the app asked
+the second one only after showing the answer to the first.
+
+- **`selectDefaultPeriod_()` is called in the top-level init block, before `buildTimeNav()` and
+  before the boot block's `loadAllStores()`.** The selection is a startup decision, not a
+  correction applied to a finished load.
+- **Nothing about the fetching changed, and the test pins that.** Sales are pulled a whole month at
+  a time either way — `fetchMonthData` keys on year+month and `_liveDataKey` with it — so the day
+  is a slice of what was already on its way. Only the moment of CHOOSING moved.
+- **Only the current month.** A deep link or a restored view into any other period keeps what it
+  asked for; auto-selecting a day inside a month the reader picked deliberately is the same
+  confusion pointing the other way.
+- **Do not seed `activeDay`/`activeWeek` on their `let` lines.** Those run during parsing, ahead of
+  the date helpers, and a period fixed there cannot be re-picked or skipped for a deep link.
+- **What stayed in the end-of-load block is the pair of day-scoped loads the month path does not
+  make** (`loadPeriodGoals(activeDay)`, `loadPaceFracs()`). Both re-render, so they belong after
+  the stores have landed. The `refreshCompare()` that block used to redo is gone — it was only
+  there because the block moved the period.
+- `tests/landing_period_test.js` — 20 assertions, EXECUTES `selectDefaultPeriod_` both ways,
+  verified to fail against the pre-fix `index.html`.
+
 ## "No data available" was never a verdict — it meant "not asked yet" (fixed v2.571, 2026-09-06)
 
 Sky, 2026-09-06: *"on mobile i just get a spinning connected for awhile, then no data avaialbe,

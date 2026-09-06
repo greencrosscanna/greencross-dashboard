@@ -1361,7 +1361,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.571';
+const APP_VERSION = 'v2.572';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1973,6 +1973,10 @@ async function loadPaceFracs(force) {
 let section = 'income';
 let activeYear    = new Date().getFullYear();
 let activeMonth = new Date().getMonth() + 1;
+/* Null here, and CHOSEN before the first paint — see selectDefaultPeriod_, called in the init block
+ * at the bottom. Do not seed today's date on these two lines: they run during parsing, ahead of
+ * THRESHOLDS and the date helpers, and a period picked there cannot be re-picked at midnight or
+ * skipped for a deep link. */
 let activeWeek  = null;
 let activeDay   = null;
 let activeStore = 'All';
@@ -2163,6 +2167,33 @@ function getISOWeek(date) {
 }
 // Display week = ISO week - 1 to match the business's numbering (WK01 starts Jan 5)
 function getUserWeek(date) { return getISOWeek(date) - 1; }
+
+/* The landing view is TODAY, and it has to be today from the first frame.
+ *
+ * Until v2.572 the app booted on the month, loaded the month, rendered the month, and only then —
+ * at the very END of loadAllStores, after every store had answered — flipped the selection to
+ * today and re-rendered. Sky, 2026-09-06: "why does it load the month first then switch over to the
+ * current day once things have been loaded? this is visually confusing." It is: you read a month
+ * figure, and the moment it finishes loading it is replaced by a much smaller day figure, with the
+ * period label, the goal, the pace and the chart all changing underneath it. Nothing was wrong with
+ * either number; they answer different questions, and the app asked the second one after showing
+ * the answer to the first.
+ *
+ * NOTHING about the fetching changes. Sales are pulled a whole month at a time either way
+ * (fetchMonthData keys on year+month, and _liveDataKey with it), so the day is a slice of what was
+ * already on its way. This only moves WHEN the selection is made — before the first paint instead
+ * of after the last one.
+ *
+ * Only for the current month. A deep link or a restored view into any other period keeps what it
+ * asked for; auto-selecting a day inside a month the reader chose deliberately is the same
+ * confusion pointing the other way. */
+function selectDefaultPeriod_() {
+  const t = new Date();
+  if (activeYear !== t.getFullYear() || activeMonth !== t.getMonth() + 1) return false;
+  activeWeek = getUserWeek(t);
+  activeDay  = toDateStr(t);
+  return true;
+}
 
 function getWeeksInMonth(yr, m) {
   const weeks = new Set();
@@ -3010,20 +3041,19 @@ async function loadAllStores() {
   backfillDailyHistory(proxyUrl);
   loadVelocity(); // inventory loads last — lowest priority
   loadInvGmData().then(() => { if (section === 'income') renderIncome(); });
-  // Auto-select today on initial page load only
+  /* Today is ALREADY the selection by the time any of this runs (selectDefaultPeriod_, called in
+   * the init block before the first paint). What is left here is the pair of day-scoped loads the
+   * month path does not make — and they belong after the stores have landed, not before, because
+   * both re-render.
+   *
+   * This block used to do the SELECTING as well: it set activeDay, rebuilt the nav, re-rendered and
+   * re-ran refreshCompare, which is why the screen swapped from a month to a day the instant the
+   * load finished. The selection moved; the two loads stayed. */
   if (isInitialLoad) {
     isInitialLoad = false;
-    const curYear = new Date().getFullYear();
-    const curMo   = new Date().getMonth() + 1;
-    if (activeYear === curYear && activeMonth === curMo) {
-      activeWeek = getUserWeek(new Date());
-      activeDay  = new Date().toLocaleDateString('en-CA');
-      buildTimeNav();
-      render();
+    if (activeDay) {
       loadPeriodGoals(activeDay);
-      loadPeriodGoalRange(...activeGoalRange());
       loadPaceFracs();
-      refreshCompare();   // this auto-select runs AFTER the refreshCompare above, so redo it
     }
   }
   } catch (e) {
@@ -8287,6 +8317,7 @@ function startSalesHeartbeat() {
   }, 10 * 60 * 1000);
 }
 
+selectDefaultPeriod_();   // BEFORE buildTimeNav and before the boot block's loadAllStores
 buildTimeNav();
 buildStoreTabs();
 buildStatusGrid({});
