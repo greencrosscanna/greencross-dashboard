@@ -324,6 +324,66 @@ statement the throw had skipped.
 - `tests/boot_sequence_test.js` (15 assertions) pins all three guards against the shipped
   `index.html`. **Verified to fail against the pre-fix source** (10 of 15).
 
+## "No data available" was never a verdict — it meant "not asked yet" (fixed v2.571, 2026-09-06)
+
+Sky, 2026-09-06: *"on mobile i just get a spinning connected for awhile, then no data avaialbe,
+then it eventually loads."* All three phases were one screen doing the wrong thing, and the
+middle one is the bug.
+
+`loadAllStores` paints progressively — `render()` runs after EVERY store settles, **including the
+first one to fail**, because that call sits after the per-store `catch`. `render()` then found
+`liveData` empty and replaced the entire dashboard with the flat text `No data loaded yet.`
+**Measured on the live deployment**: that text appeared **1.3s** into a cold load and held for
+**8.7 seconds** before the first store's numbers arrived. On a phone, where the first answer is
+slower, it is most of the load.
+
+- **It reads as an answer and it is a question.** The same string is correct when nothing is
+  running — that is what it was written for — and wrong the moment a load is in flight. `render()`
+  now gates it on **`salesPending()`** (`_loadAllStoresInFlight` AND no store landed).
+- **The replacement is the app's own rule, not a new one.** Shimmer means "we have nothing YET"
+  and belongs to the FIRST load — the same sentence `_liveDataKey` and the goal shimmer are built
+  on. The income view mounts for real with skeletons, so the numbers **patch into it** (same card
+  ids) rather than replacing a block of text under the reader.
+- **A `$0` hero is not the cheaper fix.** `net` is 0 for want of asking, and a confident figure
+  next to a live dot is worse than a shimmer. `dataWait` and `goalWait` are deliberately two
+  flags: `goalWait` means the sales figure is final and only the goal is in flight, so the
+  headline paints. Collapsing them is how the $0 gets shown as a measurement.
+- `tests/first_load_state_test.js` — 45 assertions, EXECUTES the shipped source, verified to fail
+  against the pre-fix `index.html`.
+
+### Three more faults found by measuring the same load
+
+**"Clear cache" signed you out.** `gc_sales_token` — the session — shares the `gc_sales_` prefix
+with the cached sales months, and `clearDutchieCache` / `clearAllCache` swept the prefix raw. The
+next request came back `Auth required`, one store's failure called `salesLogout()`, and the login
+card appeared over a dashboard that had been working a second earlier. **`evictHistoricalSalesCache`
+already excluded the key by name** — it runs on every load, so the app would have logged itself out
+constantly otherwise — but the guard never reached the two functions whose whole job is deleting
+things. Everything now goes through `isSalesCacheKey_`; a raw `startsWith('gc_sales_')` anywhere is
+the bug coming back.
+
+**`backfillDailyHistory` fired 48 requests at once, with a bare `fetch()`.** Measured: 8 months x 6
+stores landing in one burst the instant the dashboard became usable, on top of the 15 the boot
+already fires — **69 Apps Script calls per page load**. Apps Script caps SIMULTANEOUS EXECUTIONS PER
+USER at 30, so the extras were queued or refused into a silent `catch {}`, stealing throughput from
+the 60-second poll that keeps the visible numbers fresh. And a bare fetch has **no timeout** — the
+same defect `fetchMonthData` was fixed for on v2.560. Now a pool of **4** through `gasFetchJson`:
+deliberately well under the cap, not at it, because this work is invisible (it feeds the
+day-of-week chart) and should lose every race against the load the reader is waiting on.
+
+**`expbudgets` and `expenses` were paid by every load and read by the Expenses tab only.** The
+comment above them said exactly that while they were being fired on boot. Measured: `expbudgets`
+was the **slowest call in the boot wave at 8.8s**, against 4.9–10.8s for the six store fetches it
+was competing with. Fire-and-forget makes a call invisible, not weightless. Both load on first
+entry to that tab now (`ensureExpBudgets`, guarded by **tried, not loading** — a failed fetch
+leaves `expBudgets` null and re-renders the tab, so a liveness check alone re-fires forever).
+**`otherRevenue` stays on boot**: the Income hero folds ATM and sublet into net sales, so it is
+this tab's own data.
+
+**What was NOT the cause, so nobody re-measures it:** the six store fetches themselves are the
+floor (4.9–10.8s each, in parallel, wall clock ~11s to the last one) and no client change moves
+them; the server-side 90s intraday cache is working; and River was unremarkable in this load.
+
 ## Two load-bearing render rules, both learned the hard way
 
 - **A render fault must never kill a data load.** `loadAllStores()` had `try/finally` with no
