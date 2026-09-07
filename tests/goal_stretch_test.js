@@ -14,8 +14,12 @@
  * Sky's call: Sales adopts the stretch. The kiosk is what staff watch all day.
  *
  * WHAT THESE PROTECT:
- *   1. THE PER-ROW STRETCH, NEVER A CONSTANT. Portland's stretch is 0 while the other five are 0.01,
- *      deliberately. A hardcoded 1% would invent a goal for the one store meant to be measured flat.
+ *   1. THE PER-ROW STRETCH, NEVER A CONSTANT — because MANUAL goals carry stretch 0. Leaderboard's
+ *      resolveEffectiveGoal_ returns `stretch: 0` whenever a manual override is in play: the number
+ *      Sky typed into the Settings tab IS the target, and a growth multiplier on top would override
+ *      his choice. On the day, that was Portland Rd (`source=manual, period_total=41500`), whose
+ *      unrounded targets are that 41,500 spread across the period. Any store hand-set tomorrow lands
+ *      here the same way, so a hardcoded 1% would inflate every manual goal in the suite.
  *   2. THE SAME ROUNDING as Leaderboard. Two dashboards that disagree by a rounding mode still
  *      disagree on screen, and "why is it a dollar out" costs the same attention as fifty.
  *   3. THE STRETCH IS APPLIED AT THE READ, EXACTLY ONCE. pgLoadPeriod_ feeds both the range route and
@@ -53,7 +57,7 @@ const LEDGER = {
   center:     { dow: 1591,    stretch: 0.01, lbShowed: 1607 },
   century:    { dow: 4514,    stretch: 0.01, lbShowed: 4559 },
   commercial: { dow: 5868,    stretch: 0.01, lbShowed: 5927 },
-  portland:   { dow: 2798.42, stretch: 0,    lbShowed: 2798 },
+  portland:   { dow: 2798.42, stretch: 0,    lbShowed: 2798 },   // source=manual → stretch 0
   river:      { dow: 4078,    stretch: 0.01, lbShowed: 4119 },
 };
 
@@ -75,8 +79,8 @@ console.log('\n1. the stretch is applied per row, and rounded like Leaderboard')
   }
   ok(`all six stores now match the goal Leaderboard displayed (${matched}/6)`, matched === 6);
 
-  // The one that a hardcoded 1% would break.
-  ok('a stretch of 0 leaves the target alone — Portland is measured flat on purpose',
+  // The one that a hardcoded 1% would break: every hand-set goal in the suite.
+  ok('a stretch of 0 leaves the target alone — a MANUAL goal is already the chosen number',
      ctx.pgStretchDaily_(2798.42, 0) === 2798);
   ok('and a missing stretch is treated as none, not as a default',
      ctx.pgStretchDaily_(1000, null) === 1000 && ctx.pgStretchDaily_(1000, undefined) === 1000);

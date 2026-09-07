@@ -1459,9 +1459,19 @@ function getGoals() {
  * Sky's call the same day: SALES ADOPTS THE STRETCH. The kiosk is what staff watch all day, and
  * changing what they are chasing mid-period is worse than adjusting a management dashboard.
  *
- * PER-ROW, NEVER A CONSTANT. Portland's stretch is 0 while the other five are 0.01, and that is
- * deliberate, not a data error — reading a hardcoded 1% here would silently invent a goal for the one
- * store that is meant to be measured flat.
+ * PER-ROW, NEVER A CONSTANT — AND THE REASON IS MANUAL GOALS, NOT ONE ODD STORE.
+ *
+ * A MANUAL goal carries stretch 0. Leaderboard's resolveEffectiveGoal_ returns `stretch: 0` whenever
+ * a manual override is in play, because the number Sky typed into the Settings tab IS the target;
+ * multiplying it by a growth factor would quietly override the choice he made.
+ *
+ * On 2026-09-07 that was Portland Rd — ledger row `source=manual, stretch=0, period_total=41500`,
+ * and its unrounded dow targets (2798.417…) are that 41,500 spread across the period by the
+ * day-of-week shape. The other five were `source=auto, stretch=0.01`.
+ *
+ * So this is not a Portland fact, it is a MANUAL fact: any store given a manual goal tomorrow arrives
+ * here with stretch 0 too. A hardcoded 1% would inflate every hand-set goal in the suite by 1% and
+ * nothing would say so.
  *
  * ROUNDS THE SAME WAY Leaderboard does (Math.round on the stretched daily figure). Two dashboards
  * that agree to within a rounding mode still disagree on screen, and "why is it a dollar out" costs
