@@ -1361,7 +1361,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.573';
+const APP_VERSION = 'v2.574';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -6358,23 +6358,68 @@ function reconWindowStart(dateStr, weekStart) {
   return reconAddDays(dateStr, -back);
 }
 
-// Every week window for one store that STARTS inside [from, to], oldest first.
+// Every week window for one store whose money can land in [from, to], oldest first. That reaches
+// exactly ONE window further back than the period — the one a deposit dated on `from` pays for.
 //
-// Starts-inside, not overlaps: a period almost never begins on a store's week-start day, so the
-// window straddling the start is mostly made of days from the previous period that were never
-// loaded. Including it produced a card that read "Incomplete" forever, sorted to the top because it
-// was oldest, on every store, every month — six permanent non-answers above the real work. The week
-// that straddles the boundary belongs to the period it STARTED in, and is reconciled there.
+// It used to list only windows STARTING inside the period, and that is what made the tab lose a
+// week's banking at every month boundary. Sky, 2026-09-07: "when i click on WK35 it's not showing
+// deposits that were make on 8/31, which is WK35, but it does show them on WK34." Three facts
+// compose into the hole, and only the third is this function:
+//
+//   1. WK35 runs Mon 8/31 → Sun 9/06, so it STRADDLES the month.
+//   2. periodGoWeek takes the month from the week's THURSDAY (9/03), so clicking WK35 moves the
+//      whole tab to SEPTEMBER — while the deposit being hunted is dated in August. Nothing says so.
+//   3. The 8/31 deposit pays for River's 8/26 → 9/01 window and Bend's 8/25 → 8/31 window, both of
+//      which START in August. Neither was listed in September, and September's own windows (9/01,
+//      9/02) had not finished running — so the tab came up empty and read as "nothing was banked".
+//
+// A store-week is not a calendar month and the two boundaries never line up. Worse, they line up
+// DIFFERENTLY per store: 2026-09-01 is a Tuesday, so Bend's week starts exactly on it and its last
+// August window (8/25 → 8/31) does not overlap September by even a day — an overlap test finds
+// River's straddler and still loses Bend's. What both have in common is not their dates but their
+// MONEY: each is paid by a deposit dated 8/31 or later, inside the period being viewed.
+//
+// So the reach-back is the attribution rule read backwards. reconWindowForDeposit steps back one
+// day from a deposit's date to find the window it pays for; this steps back one day from the period
+// start to find the earliest window that can be paid inside it. The two expressions are deliberately
+// identical — if one is ever changed, the other has to move with it or a week goes missing again.
+// Where `from` is not itself a week-start day this lands on the straddling window, which is the same
+// one an overlap test would have found; it differs only in the case that was broken.
+//
+// The original reason for starts-inside is spent, not wrong: those previous-period days "were never
+// loaded", so the card read "Incomplete" forever, six permanent non-answers above the real work.
+// backfillDailyHistory now pulls every month of the ACTIVE YEAR into allDailyData, so the window
+// computes for real. Where it genuinely cannot — a January view reaching into a December that was
+// never fetched — reconIsEmptyWindow drops it rather than drawing that same non-answer.
+//
+// The window is listed in BOTH the month it starts in and the month its money lands in, deliberately:
+// it is one week of work seen from either side. Reconciled state is keyed on (store, window start),
+// so ticking it off in one shows it ticked in the other and it can never be reconciled twice.
 function reconWindows(store, from, to) {
   const ws = reconWeekStartFor(store);
   const out = [];
-  let cur = reconWindowStart(from, ws);
-  if (cur < from) cur = reconAddDays(cur, 7);   // that straddling week belongs to the previous period
+  // Same step-back as reconWindowForDeposit — see above. Keep them in step.
+  let cur = reconWindowStart(reconAddDays(from, -1), ws);
   while (cur <= to) {
     out.push({ start: cur, end: reconAddDays(cur, 6) });
     cur = reconAddDays(cur, 7);
   }
   return out;
+}
+
+// A window we know NOTHING about: no sales data for any of its seven days, and no money attached to
+// it either way. That is not a fact about a week, it is the absence of one, and drawing it is the
+// "Incomplete forever" card the starts-inside rule was written to avoid.
+//
+// It is the year boundary that needs this — a January view straddles back into last December, which
+// backfillDailyHistory never fetches (it walks the ACTIVE year only). Deliberately not keyed on
+// "is this the straddling window": a window with no sales and no deposits says nothing wherever it
+// sits, and a store that did not exist yet produces the same empty card mid-period.
+//
+// Missing sales but HAVING deposits is a different thing entirely and must still render: money was
+// banked for a week we cannot price. That is a question for someone, not noise.
+function reconIsEmptyWindow(row) {
+  return row.missing.length === 7 && row.deps.length === 0 && row.strays.length === 0;
 }
 
 // MEASURED from Shawn's deposit slips ("08.17.26 Deposits.xlsx"), not assumed: Bend and Hillsboro
@@ -6716,10 +6761,13 @@ function renderReconcile(nocache) {
 
   // Build every store-week in the period, then split by state. A week is "open" until it is ticked
   // off; reconciled weeks move to the history list and are hidden unless you ask for them.
+  // A window we know nothing about — no sales for any of its days and no money either way — is
+  // dropped rather than drawn as a permanent "Incomplete"; see reconIsEmptyWindow.
   let open = [], done = [];
   for (const store of stores) {
     for (const win of reconWindows(store, want.start, want.end)) {
       const row = reconBuildRow(store, win);
+      if (reconIsEmptyWindow(row)) continue;
       (row.done ? done : open).push(row);
     }
   }

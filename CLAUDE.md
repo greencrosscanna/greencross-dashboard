@@ -552,6 +552,63 @@ the two and the render reloads on a mismatch; visited ranges come back from a 30
 Failures are deliberately never cached, but ARE tagged with their range so an error renders once
 instead of re-fetching forever.
 
+### The week where the month turns went missing (fixed v2.574, 2026-09-07)
+
+Sky, 2026-09-07: *"default Reconcile date selection to Current week. currently when i click on WK35
+it's not showing deposits that were make on 8/31, which is WK35, but it does show them on WK34."*
+
+**A store-week is not a calendar month, and the tab lost the week where the two cross.** Three
+facts compose into it, and each one looks harmless on its own:
+
+1. WK35 runs Mon 2026-08-31 → Sun 2026-09-06, so it **straddles the month**.
+2. `periodGoWeek` takes the month from the week's **Thursday** (`getDaysOfISOWeek(...)[3]` = 09-03),
+   so clicking WK35 moves the whole tab to **September** — while the deposit being hunted is dated
+   in August. Nothing on screen says the month moved.
+3. `reconWindows` listed only windows **starting inside** the period. The 08-31 deposit pays for
+   River's 08-26 → 09-01 window and Bend's 08-25 → 08-31 window, both of which start in August, so
+   neither was listed in September — and September's own windows (09-01, 09-02) had not finished
+   running, so they were dropped as pending. **The tab came up empty.**
+
+**No total was ever wrong and no money moved.** The week simply became unreachable from the month
+you were standing in when you went looking for it, and an empty Reconcile tab does not read as an
+error — it reads as *nothing was banked*. That is the same shape as the River outage: a failure
+that degrades into a smaller number instead of a message.
+
+- **The reach-back is the attribution rule read backwards.** `reconWindowForDeposit` steps back one
+  day from a deposit's date to find the window it pays for; `reconWindows` now steps back one day
+  from the period start to find the earliest window that can be paid inside it. **The two
+  expressions are deliberately identical** — change one and the other has to move with it, or a
+  week goes missing again.
+- **An overlap test is NOT enough, and this is the half that gets missed.** 2026-09-01 is a
+  Tuesday, so Bend's week starts exactly on it and its last August window (08-25 → 08-31) does not
+  overlap September by even a day. Overlap finds River's straddler and still loses Bend's. What the
+  two windows have in common is not their dates but their **money**. The first cut of this fix used
+  overlap, and the test caught Bend — not review, and not the browser.
+- **The window is listed in BOTH the month it starts in and the month its money lands in.** One
+  week of work seen from either side. Reconciled state is keyed on `(store, window start)`, so
+  ticking it off in one shows it ticked in the other and it can never be reconciled twice.
+- **`reconIsEmptyWindow` replaces the rule that was dropped.** Starts-inside existed because those
+  previous-period days "were never loaded", so the card read Incomplete forever — six permanent
+  non-answers above the real work. That reason is spent within a year: `backfillDailyHistory` pulls
+  every month of the **active year** into `allDailyData`. Where it genuinely cannot — a January
+  view reaching into a December that was never fetched — a window with no sales for any of its
+  seven days **and** no money either way is dropped instead. Not keyed on "is this the straddler":
+  a window that says nothing says nothing wherever it sits.
+- **Missing sales but HAVING deposits still renders.** Money banked for a week we cannot price is a
+  question for someone, not noise — and it reports incomplete, never a shortfall.
+
+**"Default to the current week" was NOT implemented literally, and should not be.** Deposits for a
+week land a day or two after it closes, so a tab scoped to the current calendar week is empty every
+Monday and Tuesday — the same complaint one week later. What Sky is asking for in substance is *the
+week I am about to reconcile*, which the default view already computes ("latest complete week per
+store"); it was the month scoping that broke it at the boundary. With the reach-back it now lands
+on the right week on its own, from either month.
+
+`tests/recon_month_boundary_test.js` — 27 assertions, executes the shipped source over the real
+calendar of the complaint, **verified to fail 10 against the pre-fix `index.html`** (including the
+end-to-end "the 08-31 deposit appears on a September card at all"). Four assertions in
+`tests/deposit_reconciliation_test.js` pinned the old starts-inside rule and were inverted.
+
 **The pacing section renders ALL six stores from the first frame — don't filter it back down.**
 `_storeBreakdownRows` deliberately does *not* filter to `liveData[s]`. A store with no data yet is a
 row carrying its name, its bar track and shimmer placeholders, so the card is **245px at every

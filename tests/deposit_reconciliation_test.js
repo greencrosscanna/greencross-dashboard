@@ -167,18 +167,21 @@ ok('an unknown store still gets a usable default',
    Number.isInteger(C.reconWeekStartFor('Nowhere')));
 
 // ── Window enumeration over a period ──────────────────────────────────────────────────────────
-// A period rarely starts on a store's week-start day. The window straddling the boundary is mostly
-// days from the previous period, which were never loaded — so it would read "Incomplete" forever and
-// sort to the TOP as the oldest. It belongs to the period it started in and is reconciled there.
+// A period rarely starts on a store's week-start day, and the window straddling that boundary is
+// real work with real money on it. It used to be dropped, which is what lost a week's banking at
+// every month turn — see the WK35 case at the bottom of this file. It is now KEPT, and the empty
+// non-answer the old rule was avoiding is handled by reconIsEmptyWindow instead.
 reconData = { config: { Commercial: 2 } };   // Tue weeks; Aug 1 2026 is a Saturday
 const AUG = C.reconWindows('Commercial', '2026-08-01', '2026-08-31');
-ok('no window starts before the period',       AUG.every(w => w.start >= '2026-08-01'));
-ok('the straddling week is not shown at all',  !AUG.some(w => w.start === '2026-07-28'));
-ok('the first window is the first Tuesday in', AUG[0].start === '2026-08-04');
+ok('the straddling week IS listed',            AUG.some(w => w.start === '2026-07-28'));
+ok('it is the first one, oldest first',        AUG[0].start === '2026-07-28');
+ok('it really does straddle the boundary',     AUG[0].end === '2026-08-03');
+ok('only ONE window starts before the period', AUG.filter(w => w.start < '2026-08-01').length === 1);
 ok('windows are contiguous, 7 days apart',
    AUG.every((w, i) => i === 0 || w.start === C.reconAddDays(AUG[i - 1].start, 7)));
 ok('every window is exactly 7 days',           AUG.every(w => w.end === C.reconAddDays(w.start, 6)));
-ok('a full month yields four Tuesday weeks',   AUG.length === 4);
+ok('a full month yields the four Tuesday weeks plus the straddle', AUG.length === 5);
+ok('no window starts after the period ends',   AUG.every(w => w.start <= '2026-08-31'));
 
 // ── 3. Deposit attribution ────────────────────────────────────────────────────────────────────
 reconData = { config: { Commercial: 2 }, assign: {} };
