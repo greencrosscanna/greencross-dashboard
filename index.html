@@ -942,7 +942,30 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
 /* ── Deposit reconciliation ──────────────────────────────────────────────────────────────────
    State is carried by a LEFT BORDER plus a word, never by color alone — the four states have to
    survive a colorblind reader and a projector, and "Off" is the one you must not miss. */
-.recon-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+/* The summary card is a COLUMN now: the week's banking on top, the tally and the buttons under it.
+   .recon-summary-row keeps the old side-by-side behavior for that second line, so adding the
+   headline did not restyle anything that was already there. */
+.recon-summary{display:flex;flex-direction:column;align-items:stretch;gap:12px}
+.recon-summary-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.recon-kpi{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;flex-wrap:wrap}
+.recon-kpi-lead{display:flex;flex-direction:column;gap:3px;min-width:0}
+.recon-kpi-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.recon-kpi-val{font-size:26px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums;line-height:1.1}
+.recon-kpi-sub{font-size:11px;color:var(--muted)}
+/* Covering fewer stores than exist is the one thing in this block that must not read as a footnote:
+   a company total quietly short a store is the River failure shape — a smaller number, not an error. */
+.recon-kpi-short{color:var(--amber);font-weight:700}
+.recon-kpi-figs{display:flex;gap:18px}
+.recon-kpi-figs>div{display:flex;flex-direction:column;gap:2px}
+.recon-kpi-figs span{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.recon-kpi-figs strong{font-size:14px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Both of these MUST stay qualified by the parent. `.recon-kpi-figs strong` above is (0,1,1) and a
+   lone state class is (0,1,0), so it loses — the variance rendered in plain body text, which is the
+   one figure on this card that has to be readable as a state. Measured, not guessed: the screenshot
+   looked fine and getComputedStyle said rgb(230,236,233). Same specificity trap as #dsk-subnav. */
+.recon-kpi-figs strong.recon-kpi-ok{color:var(--green)}
+/* Amber, not red — same reason as .recon-variance: a variance is the normal state of a real week. */
+.recon-kpi-figs strong.recon-kpi-off{color:var(--amber)}
 .recon-tally{display:flex;gap:8px;flex-wrap:wrap}
 .recon-actions{display:flex;gap:8px}
 .recon-chip{font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;background:var(--card);border:0.5px solid var(--border);color:var(--dim)}
@@ -1361,7 +1384,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.574';
+const APP_VERSION = 'v2.575';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -6553,6 +6576,56 @@ function reconStraysFrom(rows) {
   return out.sort((a, b) => String(a.date).localeCompare(String(b.date)));
 }
 
+// The headline figure: what the company banked for the week currently up for reconciliation.
+//
+// "This week" is, per store, the LATEST COMPLETE store-week THAT HAS BEEN BANKED — not a calendar
+// week. A store-week is not a calendar week at all, and differs per store by design (Bend runs
+// Tue→Mon, River Wed→Tue, so the same "this week" is 08-25..08-31 for one and 08-26..09-01 for the
+// other). Naming it by what it actually sums is the only version that cannot mislead.
+//
+// Five rules, each of which is a believable wrong number if dropped:
+//
+//  - THE WEEK MUST HAVE DEPOSITS ON IT. Deposits land a day or two AFTER a week closes, so there is
+//    always a stretch where the newest complete week has been sold and not yet banked. Picking it
+//    renders "$0.00 deposited" against a full week of expectation — measured on a six-store fixture,
+//    "Short by $50,400.00" — which is a confident zero dressed as a finding, and the single most
+//    alarming wrong answer this tab could put at the top of itself. The week whose money has landed
+//    is the one being reconciled; the rest is reported through `covered`.
+//  - RECONCILED WEEKS COUNT. `done` is a workflow state, not a fact about the money. Summing only
+//    the open cards would make the headline shrink as Sky ticked stores off — the figure would fall
+//    to $0 across a session in which nothing changed except his own progress, which is precisely
+//    backwards for a total of what was banked.
+//  - ALL THREE FIGURES COME FROM ONE ROW SET. Sum deposits over one set and expectations over
+//    another and `deposited − expected` stops equalling the variance printed beside it — a headline
+//    that fails the subtraction any reader would do on it.
+//  - COVERAGE IS REPORTED, NEVER ASSUMED. `stores` vs `covered` is the whole reason this returns a
+//    count at all: a company total quietly covering five of six stores is the exact shape of the
+//    River outage — a per-store failure degrading into a smaller number rather than an error.
+//  - NOTHING BANKED MEANS NO FIGURE. Returning 0 renders a confident measurement of a question
+//    nobody has answered yet. The caller shows a dash.
+function reconWeekKpi_(rows, storeCount) {
+  // Complete AND banked. Written out rather than reusing `reconcilable`, which is the same test
+  // today but exists to gate a BUTTON — if that ever loosens, this must not follow it silently.
+  const usable = (rows || []).filter(r => !r.missing.length && r.deps.length > 0);
+  const latestFor = {};
+  for (const r of usable) {
+    if (!latestFor[r.store] || r.win.start > latestFor[r.store]) latestFor[r.store] = r.win.start;
+  }
+  const week = usable.filter(r => r.win.start === latestFor[r.store]);
+  if (!week.length) return null;
+  const deposited = Math.round(week.reduce((a, r) => a + r.deposited, 0) * 100) / 100;
+  const expected  = Math.round(week.reduce((a, r) => a + r.expected,  0) * 100) / 100;
+  return {
+    deposited, expected,
+    diff:      Math.round((deposited - expected) * 100) / 100,
+    covered:   week.length,
+    stores:    storeCount,
+    reconciled: week.filter(r => r.done).length,
+    from:      week.reduce((a, r) => a < r.win.start ? a : r.win.start, week[0].win.start),
+    to:        week.reduce((a, r) => a > r.win.end   ? a : r.win.end,   week[0].win.end),
+  };
+}
+
 function reconStateKey(store, win) { return store + '|' + win.start; }
 function reconIsDone(store, win) {
   return !!(reconData && reconData.state || {})[reconStateKey(store, win)];
@@ -6811,6 +6884,11 @@ function renderReconcile(nocache) {
   const readyCount = shown.filter(r => r.ties).length;
   const offCount   = shown.filter(r => r.reconcilable && !r.ties).length;
 
+  // Deliberately built from open AND done, and deliberately NOT from `shown`: the headline answers
+  // "what did we bank this week", which neither the All-weeks toggle nor how far Sky has got through
+  // ticking stores off is allowed to change. See reconWeekKpi_.
+  const kpi = reconWeekKpi_(open.concat(done), stores.length);
+
   // Two ways a deposit ends up outside a store's week, listed together because the question they
   // raise is the same one: no class that maps to a store, or a class that does but an amount that
   // is not part of that week's banking. Strays come from every open week in the period, not just
@@ -6822,15 +6900,37 @@ function renderReconcile(nocache) {
     <div class="sec-lbl">Deposit reconciliation</div>
 
     <div class="card recon-summary">
-      <div class="recon-tally">
-        <span class="recon-chip recon-chip-ok">${readyCount} tie exactly</span>
-        <span class="recon-chip recon-chip-off">${offCount} with a variance</span>
-        <span class="recon-chip">${shown.length - readyCount - offCount} awaiting deposit</span>
+      <div class="recon-kpi">
+        <div class="recon-kpi-lead">
+          <span class="recon-kpi-lbl">Deposited this week</span>
+          <strong class="recon-kpi-val">${kpi ? reconFmtMoney(kpi.deposited) : '—'}</strong>
+          <span class="recon-kpi-sub">${kpi
+            ? `${kpi.covered === kpi.stores
+                  ? `all ${kpi.stores} stores`
+                  : `<strong class="recon-kpi-short">${kpi.covered} of ${kpi.stores} stores</strong>`}`
+              + ` · ${reconFmtRange({ start: kpi.from, end: kpi.to })}`
+              + (kpi.reconciled ? ` · ${kpi.reconciled} already reconciled` : '')
+            : 'Nothing banked yet for the latest week'}</span>
+        </div>
+        ${kpi ? `
+        <div class="recon-kpi-figs">
+          <div><span>Expected</span><strong>${reconFmtMoney(kpi.expected)}</strong></div>
+          <div><span>Variance</span><strong class="${Math.abs(kpi.diff) < 0.005 ? 'recon-kpi-ok' : 'recon-kpi-off'}">${
+            Math.abs(kpi.diff) < 0.005 ? 'Ties exactly'
+              : `${kpi.diff > 0 ? 'Over' : 'Short'} by ${reconFmtMoney(Math.abs(kpi.diff))}`}</strong></div>
+        </div>` : ''}
       </div>
-      <div class="recon-actions">
-        <button class="s-btn" onclick="reloadRecon()">↻ Refresh</button>
-        <button class="rev-mo-btn${reconAllWeeks ? ' on' : ''}" onclick="toggleReconAllWeeks()">All weeks</button>
-        <button class="rev-mo-btn${reconShowHistory ? ' on' : ''}" onclick="toggleReconHistory()">Reconciled (${done.length})</button>
+      <div class="recon-summary-row">
+        <div class="recon-tally">
+          <span class="recon-chip recon-chip-ok">${readyCount} tie exactly</span>
+          <span class="recon-chip recon-chip-off">${offCount} with a variance</span>
+          <span class="recon-chip">${shown.length - readyCount - offCount} awaiting deposit</span>
+        </div>
+        <div class="recon-actions">
+          <button class="s-btn" onclick="reloadRecon()">↻ Refresh</button>
+          <button class="rev-mo-btn${reconAllWeeks ? ' on' : ''}" onclick="toggleReconAllWeeks()">All weeks</button>
+          <button class="rev-mo-btn${reconShowHistory ? ' on' : ''}" onclick="toggleReconHistory()">Reconciled (${done.length})</button>
+        </div>
       </div>
     </div>
 

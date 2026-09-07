@@ -609,6 +609,47 @@ calendar of the complaint, **verified to fail 10 against the pre-fix `index.html
 end-to-end "the 08-31 deposit appears on a September card at all"). Four assertions in
 `tests/deposit_reconciliation_test.js` pinned the old starts-inside rule and were inverted.
 
+### The Reconcile headline — "Deposited this week" (v2.575, 2026-09-07)
+
+One figure at the top of the tab: what the company banked for the week currently up for
+reconciliation, with Expected and the variance beside it. Built by `reconWeekKpi_`.
+
+**"This week" is, per store, the latest complete store-week THAT HAS BEEN BANKED.** Not a calendar
+week — a store-week is not one, and the six stores disagree about which dates it is (Bend runs
+Tue→Mon, River Wed→Tue, so the same "this week" is 08-25..08-31 for one and 08-26..09-01 for the
+other; the sub-line shows the union and says how many stores it covers).
+
+Five rules. Each is a believable wrong number if dropped, which is why they are pinned by
+`tests/recon_week_kpi_test.js` (31 assertions, executes the shipped function):
+
+- **The week must have DEPOSITS on it.** Deposits land a day or two after a week closes, so there is
+  always a stretch where the newest complete week has been sold and not yet banked. **This was
+  caught on screen, not in review** — the first cut picked the newest complete week and rendered
+  `$50,400.00` expected against **`$0.00` deposited, "Short by $50,400.00"** on a six-store fixture.
+  A confident zero dressed as a finding, at the top of the tab. The week whose money has landed is
+  the one being reconciled; stores still awaiting a deposit are reported through `covered`.
+- **Reconciled weeks count.** `done` is Sky's progress through the list, not a fact about the money.
+  Summing only the open cards makes the headline fall toward $0 across a session in which nothing
+  happened except him ticking stores off.
+- **All three figures come from ONE row set.** Sum deposits over one and expectations over another
+  and `deposited − expected` stops equalling the variance printed beside it — a headline that fails
+  the subtraction any reader will do on it.
+- **Incomplete weeks are excluded from all three.** A week missing a day has a partial expected
+  figure, which manufactures a variance out of a gap in the data.
+- **Coverage is reported, never assumed.** `4 of 6 stores` renders in amber. A company total quietly
+  covering four of six is the exact shape of the River outage — a per-store failure degrading into a
+  smaller number rather than an error.
+
+**It deliberately ignores the All-weeks toggle and does not read `shown`.** The headline answers
+"what did we bank this week", and neither the view mode nor how far through the list Sky has got is
+allowed to change that number.
+
+**The state colors MUST stay qualified as `.recon-kpi-figs strong.recon-kpi-off`.** The bare class is
+(0,1,0) and the `.recon-kpi-figs strong` rule above it is (0,1,1), so a lone class loses and the
+variance renders in plain body text — the one figure on the card that has to read as a state. Found
+by `getComputedStyle` returning `rgb(230,236,233)` while the screenshot looked fine. Same trap as
+`#dsk-subnav`, and the same lesson: **a screenshot does not verify a color.**
+
 **The pacing section renders ALL six stores from the first frame — don't filter it back down.**
 `_storeBreakdownRows` deliberately does *not* filter to `liveData[s]`. A store with no data yet is a
 row carrying its name, its bar track and shimmer placeholders, so the card is **245px at every
