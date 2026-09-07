@@ -1891,6 +1891,94 @@ function attainProbe_(start, end) {
   });
 }
 
+/* ─── THE CURVE IS THE SHARED TRUTH; THE FRACTION IS A CLOCK APPLIED TO IT ───────────────────────
+ *
+ * GX Core telemetry over the 24h to 2026-09-07: `expected_frac` was 59.7% of ALL calls reaching Core
+ * and 55% of its total execution time — the largest single load on the shared brain. Batching six
+ * trips into one (below, kept for the history) was right and was not enough.
+ *
+ * The number is derivable here. Core's expectedSalesFrac (gx_dutchie.gs:949) is ten lines of
+ * arithmetic over the store's hourly SHAPE — same-day-of-week revenue weights, stable for the whole
+ * day. So this app now fetches the SHAPE once a day and does the arithmetic itself, instead of asking
+ * for the derived number on every refresh. One source of truth is preserved exactly: the shape is the
+ * truth, and it still comes from Core.
+ *
+ * Leaderboard made the same move the same day; it already had a mirror and simply stopped asking.
+ * Sales had neither, so the mirror and the arithmetic are added here — deliberately as a port of
+ * Core's, not a reinvention, and the test asserts them equal against a verbatim copy of Core's.
+ *
+ * THESE MUST MATCH GX Core's GX_HOURLY_OPEN / GX_HOURLY_CLOSE. The shape is built over that window,
+ * so summing it over a different one silently returns a fraction of a different day. Core is 8..22
+ * (open inclusive, close exclusive) and so is Leaderboard's STORE_OPEN_HOUR / STORE_CLOSE_HOUR. */
+const PACE_OPEN_HOUR  = 8;
+const PACE_CLOSE_HOUR = 22;
+const GC_PACE_SHAPES_KEY = 'GC_PACE_SHAPES';   // { 'store-id:YYYY-MM-DD': { hour: weight } }
+
+/* Core's expectedSalesFrac, ported. Completed hours in full plus the fraction of the current one.
+ * Returns null rather than a number when the curve cannot answer, so the caller decides what a
+ * missing curve means — this app's contract is to SKIP the store, never to send a zero, because a
+ * zero on a pace row reads as "sold nothing" rather than "unknown". */
+function paceFracFromShape_(shape, nowHour, nowMinute) {
+  if (!shape) return null;
+  var ef = 0;
+  for (var h = PACE_OPEN_HOUR; h < PACE_CLOSE_HOUR; h++) {
+    if (h < nowHour)        ef += (Number(shape[h]) || 0);
+    else if (h === nowHour) ef += (Number(shape[h]) || 0) * (nowMinute / 60);
+  }
+  return ef > 0 ? ef : null;
+}
+
+/* All curves for today, mirrored from Core and cached in Script Properties.
+ *
+ * ONE batched call, and only for stores still missing — on a warm day this costs nothing at all, so
+ * the mirror is not a fixed daily tax. The failure is memoized for the execution too: gxCoreRoute_
+ * retries with sleeps, and without this a Core outage would cost every render a full retry cycle,
+ * which is the same lesson Leaderboard's primeHourlyDist_ records.
+ *
+ * Old dates are dropped on write rather than accumulating — Script Properties is a small store and a
+ * year of curves for six stores would eventually fill it. */
+var _PACE_SHAPES_MEMO = null;
+
+function paceShapesToday_(storeIds) {
+  const today = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM-dd');
+  if (_PACE_SHAPES_MEMO && _PACE_SHAPES_MEMO.date === today) return _PACE_SHAPES_MEMO.shapes;
+
+  const props = PropertiesService.getScriptProperties();
+  let cache = {};
+  try { cache = JSON.parse(props.getProperty(GC_PACE_SHAPES_KEY) || '{}'); } catch (e) { cache = {}; }
+
+  const missing = storeIds.filter(function (id) { return !cache[id + ':' + today]; });
+  if (missing.length) {
+    try {
+      const r = gxCoreRoute_('hourly_shape', { stores: missing.join(',') });
+      const shapes = (r && r.shapes) || null;
+      if (shapes) {
+        let wrote = false;
+        missing.forEach(function (id) {
+          const shape = shapes[id];
+          if (shape && Object.keys(shape).length) { cache[id + ':' + today] = shape; wrote = true; }
+        });
+        if (wrote) {
+          // Keep today only. A stale curve is worse than no curve: it would paint yesterday's
+          // weighting with today's confidence, and nothing downstream could tell.
+          const pruned = {};
+          Object.keys(cache).forEach(function (k) { if (k.slice(-10) === today) pruned[k] = cache[k]; });
+          try { props.setProperty(GC_PACE_SHAPES_KEY, JSON.stringify(pruned)); } catch (e) {}
+          cache = pruned;
+        }
+      }
+    } catch (e) {
+      // Remembered as-is: the memo below stops a per-render retry storm against a Core that is down.
+      Logger.log('paceShapesToday_: GX Core hourly_shape failed, pace falls back — ' + e);
+    }
+  }
+
+  const out = {};
+  storeIds.forEach(function (id) { out[id] = cache[id + ':' + today] || null; });
+  _PACE_SHAPES_MEMO = { date: today, shapes: out };
+  return out;
+}
+
 function getPacingFracs_() {
   const now    = new Date();
   const hour   = now.getHours();
@@ -1918,20 +2006,16 @@ function getPacingFracs_() {
     { core: 'portland-rd', sales: 'Portland Rd' },
     { core: 'river-rd',    sales: 'River'       },
   ];
+  /* NO ROUND TRIP FOR THE FRACTION — see paceShapesToday_ above. The curves come from Core once a
+     day; the arithmetic is local and runs on every call for free. */
   const fracs = {};
-  try {
-    const r = gxCoreRoute_('expected_frac', {
-      stores: STORE_MAP.map(function (s) { return s.core; }).join(','),
-      hour: hour, minute: minute,
-    });
-    const got = (r && r.fracs) || {};
-    // Same per-store tolerance as before: a store with no curve is skipped, not zeroed, so the
-    // caller keeps its own fallback rather than being told the day expects nothing.
-    STORE_MAP.forEach(function (s) {
-      const frac = got[s.core];
-      if (typeof frac === 'number' && frac >= 0) fracs[s.sales] = frac;
-    });
-  } catch (e) { /* GX Core unreachable — return what we have, exactly as the per-store loop did */ }
+  const shapes = paceShapesToday_(STORE_MAP.map(function (s) { return s.core; }));
+  // Same per-store tolerance as before: a store with no curve is SKIPPED, not zeroed, so the caller
+  // keeps its own fallback rather than being told the day expects nothing.
+  STORE_MAP.forEach(function (s) {
+    const frac = paceFracFromShape_(shapes[s.core], hour, minute);
+    if (typeof frac === 'number' && isFinite(frac) && frac >= 0) fracs[s.sales] = frac;
+  });
   return jsonOut_({ ok: true, fracs, hour, minute });
 }
 
