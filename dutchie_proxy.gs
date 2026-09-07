@@ -1441,6 +1441,41 @@ function getGoals() {
 }
 
 // Returns period goals (per-DOW targets) for all stores for a given date.
+/* ─── THE STRETCH IS PART OF THE GOAL, AND THIS APP WAS DROPPING IT ──────────────────────────────
+ *
+ * Found 2026-09-07 from a live disagreement Sky spotted: Leaderboard showed +398.96 ahead of pace
+ * while Sales showed +470 over pace, at the same moment, for the same six stores.
+ *
+ * It was NOT the pacing fraction — both apps compute that identically now, verified against GX Core's
+ * own curve to five decimal places. It was the GOAL underneath it. The period_goals ledger stores a
+ * `stretch` per row (the growth target on top of the trend). Leaderboard applies it —
+ * `goal = trend x (1 + stretch)`, goals.gs — and Sales did not: it returned dow_targets raw and
+ * summed them raw. Today that is 1% on five stores, so Sales measured against $21,785 where the kiosk
+ * measured against $21,975, and a lower bar reads as further ahead.
+ *
+ * $53 of the $71 gap was exactly this. The rest is Sales holding its pace fraction for up to five
+ * minutes, so the two screens are showing slightly different instants.
+ *
+ * Sky's call the same day: SALES ADOPTS THE STRETCH. The kiosk is what staff watch all day, and
+ * changing what they are chasing mid-period is worse than adjusting a management dashboard.
+ *
+ * PER-ROW, NEVER A CONSTANT. Portland's stretch is 0 while the other five are 0.01, and that is
+ * deliberate, not a data error — reading a hardcoded 1% here would silently invent a goal for the one
+ * store that is meant to be measured flat.
+ *
+ * ROUNDS THE SAME WAY Leaderboard does (Math.round on the stretched daily figure). Two dashboards
+ * that agree to within a rounding mode still disagree on screen, and "why is it a dollar out" costs
+ * exactly as much attention as "why is it fifty dollars out". */
+function pgStretchDaily_(target, stretch) {
+  const t = Number(target);
+  if (!isFinite(t)) return 0;
+  return Math.round(t * (1 + (Number(stretch) || 0)));
+}
+function pgStretchTargets_(dowTargets, stretch) {
+  if (!Array.isArray(dowTargets)) return dowTargets;
+  return dowTargets.map(function (t) { return pgStretchDaily_(t, stretch); });
+}
+
 // Uses GXCore.getPeriodGoals which resolves any date to its pay period and
 // returns the frozen goal. Keyed by Sales canonical store name.
 function getPeriodGoalsForDate_(date) {
@@ -1462,8 +1497,11 @@ function getPeriodGoalsForDate_(date) {
           goals[s.sales] = {
             period_start: pg.period_start,
             period_end:   pg.period_end,
-            period_total: pg.period_total,
-            dow_targets:  pg.dow_targets,
+            // Stretched, so these are the same figures the kiosk shows. `stretch` rides along so a
+            // reader can see WHY a target differs from the raw ledger rather than having to guess.
+            period_total: pgStretchDaily_(pg.period_total, pg.stretch),
+            dow_targets:  pgStretchTargets_(pg.dow_targets, pg.stretch),
+            stretch:      pg.stretch,
           };
         }
       } catch(e2) { /* store not in ledger yet — skip */ }
@@ -1598,7 +1636,12 @@ function pgLoadPeriod_(date, byStoreId) {
         // another store's date range is the kind of off-by-a-period nobody would spot in a total.
         if (!out.window) out.window = { start: r.period_start, end: r.period_end };
         if (r.period_start !== out.window.start || r.period_end !== out.window.end) continue;
-        out.goals[sales] = { period_total: r.period_total, dow_targets: r.dow_targets };
+        /* STRETCHED HERE, AT THE READ — the raw ledger figure never leaves this function.
+           attainProbe_ and the client both consume these targets, and applying the stretch at each
+           consumer instead would double it the moment a third one appears. `stretch` rides along
+           for visibility only; nothing downstream should multiply by it again. */
+        out.goals[sales] = { period_total: pgStretchDaily_(r.period_total, r.stretch),
+                             dow_targets: pgStretchTargets_(r.dow_targets, r.stretch), stretch: r.stretch };
       }
       if (out.window && Object.keys(out.goals).length) return out;
     }
@@ -1609,7 +1652,8 @@ function pgLoadPeriod_(date, byStoreId) {
     try {
       const pg = GXCore.getPeriodGoals(s.dutchie, date);
       if (pg && pg.dow_targets) {
-        out.goals[s.sales] = { period_total: pg.period_total, dow_targets: pg.dow_targets };
+        out.goals[s.sales] = { period_total: pgStretchDaily_(pg.period_total, pg.stretch),
+                               dow_targets: pgStretchTargets_(pg.dow_targets, pg.stretch), stretch: pg.stretch };
         if (!out.window) out.window = { start: pg.period_start, end: pg.period_end };
       }
     } catch (e2) { /* store not in the ledger for this period — skip, same as the day route */ }
@@ -1842,6 +1886,7 @@ function attainProbe_(start, end) {
       let goal = 0, actual = 0, missing = 0;
 
       for (let t = at(p.period_start); t <= pEnd; t += dayMs) {
+        // Already stretched by pgLoadPeriod_ — do NOT apply g.stretch again here.
         if (hasGoal) goal += Number(g.dow_targets[new Date(t).getUTCDay()] || 0);
         const v = days[iso(t)];
         if (v == null) missing++; else actual += v;
