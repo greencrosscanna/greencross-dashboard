@@ -1308,56 +1308,60 @@ function dutchieTodayFetchLive_(store, todayPT, toISO) {
     return txDate === todayPT;
   });
 
-  let netSales = 0, grossSales = 0, discounts = 0, cost = 0, tax = 0;
+  /* ─── THE REVENUE RULES COME FROM CORE, NOT FROM A COPY HERE ───────────────────────────────────
+   *
+   * This block used to carry its own net / gross / discount / tax / COGS arithmetic, under a comment
+   * saying "LOCKED canonical definitions — mirror GXCore … keep in sync with GXCore". Leaderboard
+   * carried a third copy under the same instruction. "Keep in sync" is a hope, not a mechanism, and
+   * measured on real Dutchie data 2026-09-07 this copy had already drifted:
+   *
+   *   RETURNS WERE COUNTED AS SALES. A refund is a separate negative Retail transaction. Core nets it
+   *   out of revenue but deliberately excludes it from gross, order count and COGS, because that is
+   *   what Dutchie's own Gross Sales and Total Orders report. This loop added it to all three. Over
+   *   2026-08-31..09-07: 4 returns at River Rd, 7 at Commercial, and on days with one the gross here
+   *   read $6–66 LOW and the order count 1–2 HIGH. Net was never wrong.
+   *
+   *   TAX USED TRUTHY `||` WHERE CORE USES NULLISH. `tx.tax || tx.taxAmount` reads a legitimate $0 tax
+   *   as absent and falls through to the other field. It never fired in 2,573 real transactions, so
+   *   it was a latent trap rather than a live error — the kind that waits for a data change.
+   *
+   * salesFromTxns is a PURE function over an array: no sheet, no Script Properties, no Dutchie
+   * credential. That is why the old "kept inline for the intraday hot loop" objection does not apply —
+   * this is ONE library call for the whole day, in-process, not one per transaction. The settled path
+   * already read GXCore.getSalesDaily; now the intraday path agrees with it by construction instead of
+   * by review.
+   *
+   * WHAT STAYS LOCAL: topProducts. That is a per-item display breakdown, not a revenue rule, and Core
+   * has no opinion about it. */
+  const totals = GXCore.salesFromTxns(sales);
+
   const dailyMap   = {};
   const productMap = {};
+  const byDay      = {};
 
   for (const tx of sales) {
-    // LOCKED canonical definitions — mirror GXCore.txNet / txDiscount / txCogs (nullish `??`, NOT truthy `||`,
-    // and net now includes the `total` fallback that was missing here). See the Command Center's
-    // GX_CONSOLIDATION_MAP.md 🔒 section. Kept inline for the intraday hot loop; settled days already read
-    // GXCore.getSalesDaily. Intraday only. Keep in sync with GXCore.
-    const net  = Number(tx.totalBeforeTax != null ? tx.totalBeforeTax : (tx.subtotal != null ? tx.subtotal : tx.total)) || 0;
-    const disc = Number(tx.totalDiscount != null ? tx.totalDiscount : tx.discountTotal) || 0;
-    const txTax= Number(tx.tax            || tx.taxAmount || 0);
-    netSales   += net;
-    grossSales += net + disc;
-    discounts  += disc;
-    tax        += txTax;
+    const dateStr = (tx.transactionDateLocalTime || tx.transactionDate || '').slice(0, 10);
+    if (dateStr) (byDay[dateStr] = byDay[dateStr] || []).push(tx);
 
+    // Product mix only — deliberately unchanged, and deliberately NOT a money rule.
     const items = tx.items || tx.lineItems || tx.orderItems || [];
     for (const item of items) {
-      const qty = Number(item.quantity != null ? item.quantity : (item.qty != null ? item.qty : 1)) || 1;
-      if (!(item && item.isReturned)) {   // canonical txCogs excludes returned line items
-        const itemCost = Number(item.costOfGoods != null ? item.costOfGoods : (item.cost != null ? item.cost : item.unitCost)) || 0;
-        cost += itemCost * qty;
-      }
+      const qty  = Number(item.quantity != null ? item.quantity : (item.qty != null ? item.qty : 1)) || 1;
       const name = item.productName || item.name || 'Unknown';
       const rev  = Number(item.totalPrice || item.price || item.lineTotal || 0);
       if (!productMap[name]) productMap[name] = { revenue: 0, units: 0 };
       productMap[name].revenue += rev;
       productMap[name].units   += qty;
     }
-
-    const dateStr = (tx.transactionDateLocalTime || tx.transactionDate || '').slice(0, 10);
-    if (dateStr) {
-      if (!dailyMap[dateStr]) dailyMap[dateStr] = { netSales: 0, grossSales: 0, orders: 0, discounts: 0, cogs: 0, tax: 0 };
-      dailyMap[dateStr].netSales   += net;
-      dailyMap[dateStr].grossSales += net + disc;
-      dailyMap[dateStr].orders     += 1;
-      dailyMap[dateStr].discounts  += disc;
-      dailyMap[dateStr].tax        += txTax;   // Reconcile compares deposits to Net Sales + Tax
-      // accumulate per-tx cost into the date bucket
-      const txItems = tx.items || tx.lineItems || tx.orderItems || [];
-      for (const item of txItems) {
-        if (item && !item.isReturned) {
-          const qty = Number(item.quantity != null ? item.quantity : (item.qty != null ? item.qty : 1)) || 1;
-          const itemCost = Number(item.costOfGoods != null ? item.costOfGoods : (item.cost != null ? item.cost : item.unitCost)) || 0;
-          dailyMap[dateStr].cogs += itemCost * qty;
-        }
-      }
-    }
   }
+
+  // One call per DAY, not per transaction — the same rules, applied to each bucket. Reconcile compares
+  // deposits to Net Sales + Tax, so both come from the same place the totals do.
+  Object.keys(byDay).forEach(function (d) {
+    const t = GXCore.salesFromTxns(byDay[d]);
+    dailyMap[d] = { netSales: t.net, grossSales: t.gross, orders: t.orders,
+                    discounts: t.discount, cogs: t.cogs, tax: t.tax };
+  });
 
   const topProducts = Object.entries(productMap)
     .sort((a, b) => b[1].revenue - a[1].revenue)
@@ -1365,12 +1369,16 @@ function dutchieTodayFetchLive_(store, todayPT, toISO) {
     .map(([name, d]) => ({ name, revenue: d.revenue, units: d.units }));
 
   return {
-    netSales:   Math.round(netSales   * 100) / 100,
-    grossSales: Math.round(grossSales * 100) / 100,
-    discounts:  Math.round(discounts  * 100) / 100,
-    cost:       Math.round(cost       * 100) / 100,
-    tax:        Math.round(tax        * 100) / 100,
-    orders:     sales.length,
+    // Already rounded to cents by salesFromTxns — rounding a rounded number is how two "canonical"
+    // figures end up a penny apart.
+    netSales:   totals.net,
+    grossSales: totals.gross,
+    discounts:  totals.discount,
+    cost:       totals.cogs,
+    tax:        totals.tax,
+    // SALE orders, not row count. `sales.length` counted refunds as orders, which is what put this
+    // 1-2 above Dutchie's Total Orders on any day with a return.
+    orders:     totals.orders,
     topProducts,
     daily: Object.entries(dailyMap)
       .sort((a, b) => a[0].localeCompare(b[0]))
