@@ -714,43 +714,71 @@ period, which reads as *your total is short* to someone comparing weekly deposit
 **"This is everything banked in this period."** and says it is the GOAL comparison that is withheld.
 A correct figure with a note that undermines it is a wrong answer.
 
-### The QuickBooks deposit date is an ACCOUNTING date. The real banking date is in the memo.
+### The QuickBooks deposit date is an ACCOUNTING date. The real one is in the memo.
 
-**This is the root cause of the WK30/WK31 swing above, and it is not fixable inside Sales today.**
-Sky, 2026-09-07: *"we deposited on 8/4 for the last days of the month (7/28-31) and back dated the
-deposit to 7/31 so it hits the P&L correctly, but it messes up my 'week' view expectations."* The
-deposit memo carries both facts:
+**This is the root cause of the WK30/WK31 swing above.** Sky, 2026-09-07: *"we deposited on 8/4 for
+the last days of the month (7/28-31) and back dated the deposit to 7/31 so it hits the P&L correctly,
+but it messes up my 'week' view expectations."* `TxnDate` is deliberately, correctly wrong about when
+the money moved; the deposit memo is the only record of the real date:
 
 ```
 BEND 08.04.26 Dep (7/28/26 - 7/31/26)
 ```
 
-— the **real deposit date** (08.04.26) and the **sales period it covers** (7/28–7/31). `TxnDate` says
-07-31 and is deliberately, correctly wrong about when the money moved.
+GX Core publishes it as `note` on every `qb_deposits` row (**v305**, requested by Sales, cut
+2026-09-07). `reconBankedOn_` in `dutchie_proxy.gs` reads it into **`banked_on`**; `reconBankedDate_`
+in `index.html` is `banked_on || date`.
 
-So a week keyed on `TxnDate` is right for the P&L and wrong for "what did we bank." Keyed on the real
-date, WK30 and WK31 become ~$182k and ~$199k — both ordinary — instead of $283,836 and $97,960.
+**Only the Reconcile WEEK headline uses it.** The P&L, every month view, and the store-week
+ATTRIBUTION on the cards all keep `TxnDate` — that is what it is for. Moving attribution too would
+change which week each deposit reconciles against, which is a different question nobody asked.
 
-**Sales cannot see that memo.** `qb_deposits` sends `id / date / total / account / lines[]`, and the
-line `Description` carries only the five revenue categories (`Sales 3% Tax` · `Sales 17% Tax` ·
-`Med Sales` · `Rec Sales` · `Non MJ Sales` — verified 33x over 07-20..08-16). The deposit-level memo
-is QuickBooks' **`PrivateNote`**, which `gxQbNormalizeDeposit_` does not pass through and which does
-not appear anywhere in the hub. There is no generic QB query route to go around it.
+**Effect, measured:** WK30 $283,836 → **$182,306** and WK31 $97,960 → **$199,490**. The money is
+conserved; only the week it lands in moves. On `TxnDate` alone WK31 held *nothing* of it.
 
-**Requested from core-admin 2026-09-07** (`add_note`, "qb_deposits: pass through Deposit.PrivateNote")
-as an additive `note` field. **Do not edit the hub from here** — that rule is at the bottom of this
-file and it is why this is a note rather than a commit.
+#### The parser rules, and the live data that forced each one
 
-**Deliberately NOT built yet: the parser.** One example string is not a format. Whether every store
-writes `<STORE> MM.DD.YY Dep (…)`, whether the date is always second, whether it is ever absent —
-none of that is knowable until the field is available to measure, and a date parser that guesses
-wrong moves real money into the wrong week silently. Measure the memos across all six stores first,
-then parse. The design once it lands: **two dates per deposit** — `date` (TxnDate, accounting, keeps
-every month/P&L view exactly as it is) and a real banking date used ONLY by the Reconcile week view.
+**MEASURED over 140 deposits, 2026-05-01..09-07 — every one carried a memo.** Three of these findings
+would have cost real money, and none is guessable by reading the format:
 
-Until then the tile shows the honest figure and says why the swing happens. Note the wording: the
-money is **DATED** outside the period, not *banked* there — it was banked in the same real week, and
-the tile must not assert otherwise.
+- **THE MEMO'S YEAR IS IGNORED; the year comes from `TxnDate`.** Six memos say `.25` in 2026 —
+  `BEND 05.12.25`, `HILLSBORO 06.09.25`, `BEND 08.18.25` and their pairs. Obeying the typed year
+  moves those six back **364 days**, out of the year entirely: money *gone* from the week rather than
+  merely misplaced in it. `TxnDate` is never more than a few days off and cannot be fat-fingered, and
+  the memo's year carries no information it does not already have. **This is why the parser waited
+  for measurement** — one example string looks like a clean format and hides all six.
+- **THE PERIOD IN PARENTHESES IS NEVER PARSED.** Not needed to answer "when did it bank", and it is
+  the dirtiest part of the string: one memo reads `(5/6/26 - 0/0/26)`, another `Order Correction
+  (refund` with no closing bracket. Anchoring on the date + `Dep` makes both harmless rather than
+  special cases.
+- **THE SEPARATOR IS OPTIONAL.** `CENTER08.05.26 Dep (…)` — one in 140 has no space. Requiring one
+  drops that deposit, and a dropped deposit is the vanishing-row failure this tab exists to prevent.
+- **A LAG BOUND IS THE SAFETY NET** (`RECON_BANKED_MAX_LAG_`, 14 days). Observed lags are
+  0,+1,+2,+3,+4,+5,+7 and **never negative** — you cannot bank money before you book it. Outside
+  0..14 is a typo, not a fact, and falls back to `TxnDate`. That bound is what makes the year rule
+  safe *by construction* rather than by correction.
+- **`''` means "use TxnDate"**, which is exactly the old behavior, so a memo this cannot read costs
+  nothing. Three refund memos in 140 carry no date at all and correctly fall through.
+
+**The banked date is NOT a uniform offset.** At the July month end Bend/Hillsboro/River banked 08-04
+and Center/Commercial/Portland Rd banked 08-05, so any "month-end deposits land on the 4th" rule
+would be wrong. Only **15 of 140** deposits change calendar week at all; the ordinary +1 day never
+crosses a Mon–Sun boundary because the stores bank on Mondays and Tuesdays.
+
+**Do not join on the memo's store name.** It is a THIRD vocabulary — `BEND`, `CENTER`, `HILLSBORO`,
+`PORTLAND RD`, `RIVER`, **`SOUTH`** (= Commercial) — neither `store_id` nor the QB class already
+mapped verbatim by `RECON_STORE_BY_CLASS_`. The line carries the class already; read the DATE and
+ignore the rest, or you have a fourth mapping to drift.
+
+**`?action=reconprobe` reports `deposit_notes`** — every distinct memo per store, paired with the
+dates it was booked on, plus `notes_seen`. That is how the above was measured and how the next
+format change gets caught. `notes_seen: 0` over a range that HAS deposits means this app is pinned to
+a GX Core without `PrivateNote`, so it doubles as the re-pin check — the goalprobe/v223 lesson, where
+a pin reporting the right version and still returning the wrong data is a different failure from one
+that never took.
+
+`tests/qb_deposits_shape_test.js` (38 assertions) executes `reconBankedOn_` against every live case
+above, including all three refund memos and each year typo.
 
 **The state colors MUST stay qualified as `.recon-kpi-figs strong.recon-kpi-off`.** The bare class is
 (0,1,0) and the `.recon-kpi-figs strong` rule above it is (0,1,1), so a lone class loses and the

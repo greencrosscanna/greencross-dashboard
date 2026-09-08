@@ -2523,6 +2523,63 @@ const RECON_STORE_BY_CLASS_ = {
   'RIVER RD':      'River',
 };
 
+// WHEN THE MONEY ACTUALLY REACHED THE BANK, read out of the deposit's own memo.
+//
+// QuickBooks' TxnDate is an ACCOUNTING date. Month-end deposits are back-dated so the income lands
+// in the right month — Sky, 2026-09-07: "we deposited on 8/4 for the last days of the month
+// (7/28-31) and back dated the deposit to 7/31 so it hits the P&L correctly, but it messes up my
+// 'week' view expectations." The memo is the only record of the real date:
+//
+//     BEND 08.04.26 Dep (7/28/26 - 7/31/26)
+//
+// MEASURED over 140 live deposits, 2026-05-01..09-07, every one of which carried a memo. Four
+// findings shaped this, and three of them would have cost real money:
+//
+//  1. THE MEMO'S YEAR IS UNRELIABLE, SO IT IS IGNORED. Six memos say `.25` in 2026 —
+//     `BEND 05.12.25`, `HILLSBORO 06.09.25`, `BEND 08.18.25` and their pairs. Trusting the typed
+//     year moves those six deposits back 364 days, i.e. out of the year entirely: money silently
+//     gone from the week rather than merely misplaced in it. The year is taken from TxnDate instead,
+//     which is never more than a few days off and cannot be fat-fingered. Nothing is lost by it —
+//     the memo's year carries no information TxnDate does not already have.
+//  2. THE PERIOD IN PARENTHESES IS NEVER PARSED. It is not needed to answer "when did it bank", and
+//     it is the dirtiest part of the string: one memo reads `(5/6/26 - 0/0/26)` and another
+//     `Order Correction (refund` with no closing bracket. Anchoring on the date + "Dep" makes both
+//     harmless instead of a special case.
+//  3. THE SEPARATOR IS OPTIONAL. `CENTER08.05.26 Dep (…)` — one memo in 140 has no space before the
+//     date. A pattern requiring one drops that deposit, and a dropped deposit is the vanishing-row
+//     failure this tab exists to prevent.
+//  4. A LAG BOUND IS THE SAFETY NET, not a nicety. Observed lags are 0,+1,+2,+3,+4,+5,+7 days and
+//     NEVER negative — you cannot bank money before you book it. So a parse landing outside 0..14
+//     days is a typo, not a fact, and falls back to TxnDate. That bound is what makes finding 1
+//     safe by construction rather than by correction.
+//
+// Returns '' when there is nothing trustworthy to say — the three refund memos in the sample carry
+// no date at all. '' means "use TxnDate", which is exactly today's behavior, so a memo this cannot
+// read costs nothing.
+const RECON_BANKED_MAX_LAG_ = 14;
+function reconBankedOn_(note, booked) {
+  const m = /(?:^|\D)(\d{1,2})\.(\d{1,2})\.(\d{2,4})\s*Dep\b/i.exec(String(note || ''));
+  const b = reconDate_(booked);
+  if (!m || !b) return '';
+  const mm = Number(m[1]), dd = Number(m[2]);
+  const bookedYear = Number(b.slice(0, 4));
+  let best = '', bestLag = -1;
+  // The booking year, then the next one — a December booking banked in January is the only roll
+  // that can legitimately occur inside the lag bound.
+  for (let i = 0; i < 2; i++) {
+    const yr = bookedYear + i;
+    const d = new Date(Date.UTC(yr, mm - 1, dd));
+    // Round-trip check: Date.UTC happily rolls 2/30 into March and 0/0 into the previous year, and
+    // both appear in real memos. A date that does not come back as itself was never a date.
+    if (d.getUTCFullYear() !== yr || d.getUTCMonth() !== mm - 1 || d.getUTCDate() !== dd) continue;
+    const cand = d.toISOString().slice(0, 10);  // @utc-ok built with Date.UTC one line up
+    const lag = Math.round((d.getTime() - new Date(b + 'T00:00:00Z').getTime()) / 86400000);
+    if (lag < 0 || lag > RECON_BANKED_MAX_LAG_) continue;
+    if (bestLag < 0 || lag < bestLag) { best = cand; bestLag = lag; }
+  }
+  return best;
+}
+
 function getDeposits(params) {
   const output = ContentService.createTextOutput();
   output.setMimeType(ContentService.MimeType.JSON);
@@ -2600,6 +2657,10 @@ function getDeposits(params) {
           // must not branch on absence. Empty for EVERY deposit until this app re-pins to the
           // version carrying it — which makes reconprobe the check that the re-pin took.
           note: String(dep.note || ''),
+          // The real banking date read out of that memo, or '' when it cannot be read. See
+          // reconBankedOn_. `date` above is untouched and stays authoritative for the P&L and every
+          // month view; only the Reconcile WEEK headline reads this one.
+          banked_on: reconBankedOn_(dep.note, date),
         };
         if (store) { (byStore[store] = byStore[store] || []).push(rec); }
         else       { unattributed.push(rec); }

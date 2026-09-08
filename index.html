@@ -1395,7 +1395,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.580';
+const APP_VERSION = 'v2.581';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -6647,17 +6647,36 @@ function reconStraysFrom(rows) {
 //    the River failure shape — a per-store problem degrading into a smaller number, not an error.
 //  - NOTHING BANKED RETURNS NULL, NEVER 0. The caller renders a dash. A confident zero next to a
 //    variance is a measurement of a question nobody has answered yet.
+// WHEN a deposit counts as banked. `banked_on` is the real date read out of the deposit memo by the
+// proxy's reconBankedOn_; `date` is QuickBooks' TxnDate, which is an ACCOUNTING date and is
+// deliberately back-dated at month end so income lands in the right month.
+//
+// Only this headline uses the real date. Everything else — the P&L, every month view, and the
+// store-week ATTRIBUTION on the cards below — keeps TxnDate, which is what it is for. Sky asked for
+// the week view specifically, and moving attribution too would change which week each deposit
+// reconciles against, which is a different question nobody has asked.
+//
+// Falls back to `date` whenever the memo could not be read (three refund memos in 140 carry no
+// date), so an unreadable memo costs nothing and behaves exactly as it did before.
+function reconBankedDate_(d) { return (d && d.banked_on) || (d && d.date) || ''; }
+
 function reconBankedInPeriod_(rows, from, to, storeCount) {
   const hits = [];
   for (const r of rows || []) {
-    const inside = (r.deps || []).filter(d => d && d.date >= from && d.date <= to);
+    const inside = (r.deps || []).filter(d => {
+      const b = reconBankedDate_(d);
+      return b >= from && b <= to;
+    });
     if (inside.length) hits.push({ row: r, inside: inside });
   }
   if (!hits.length) return null;
 
   const r2 = (n) => Math.round(n * 100) / 100;
   const deposited = r2(hits.reduce((a, h) => a + h.inside.reduce((x, d) => x + (d.amount || 0), 0), 0));
-  const dates = hits.reduce((a, h) => a.concat(h.inside.map(d => d.date)), []).filter(Boolean).sort();
+  // The REAL banking dates, for the same reason the period filter uses them: the sub-line says
+  // "deposited Aug 4 – Aug 5", and printing the back-dated TxnDate there would contradict the
+  // filter that selected these deposits in the first place.
+  const dates = hits.reduce((a, h) => a.concat(h.inside.map(reconBankedDate_)), []).filter(Boolean).sort();
   const stores = {};
   hits.forEach(h => { stores[h.row.store] = 1; });
 

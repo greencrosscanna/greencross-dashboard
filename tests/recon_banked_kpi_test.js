@@ -52,7 +52,7 @@ const ok = (msg, cond) => { if (cond) { pass++; console.log('  ok   ' + msg); }
 
 const ctx = { console };
 vm.createContext(ctx);
-for (const fn of ['reconBankedInPeriod_', 'getISOWeek', 'getUserWeek', 'getDaysOfISOWeek', 'toDateStr']) {
+for (const fn of ['reconBankedDate_', 'reconBankedInPeriod_', 'getISOWeek', 'getUserWeek', 'getDaysOfISOWeek', 'toDateStr']) {
   vm.runInContext(grab(fn), ctx);
 }
 const kpi = (rows, from, to, n) => ctx.reconBankedInPeriod_(rows, from, to, n);
@@ -142,6 +142,65 @@ ok('both halves pay for the SAME store-week, so the card reconciles normally',
    wk30.paysFrom === '2026-07-29' && wk31.paysFrom === '2026-07-29');
 // A period holding a whole week has nothing outside it, and must not claim otherwise.
 ok('a whole week reports zero outside', wk35.outside === 0);
+
+console.log('\n2c. banked_on WINS over TxnDate — the month-end artifact, with the real numbers');
+/* Sky, 2026-09-07: "we deposited on 8/4 for the last days of the month (7/28-31) and back dated the
+ * deposit to 7/31 so it hits the P&L correctly, but it messes up my 'week' view expectations."
+ *
+ * Every figure below is MEASURED off the live route (reconprobe, GXCore v305), not invented. Booked
+ * dates are QuickBooks TxnDate; banked dates are read from the deposit memos by reconBankedOn_.
+ * Note the banked date is NOT uniform — Bend/Hillsboro/River banked 08-04, the other three 08-05 —
+ * so any single "month-end deposits land on the 4th" rule would be wrong. */
+const dep = (date, banked_on, amount, i) => ({ id: 'd' + date + i, date, banked_on, amount });
+const bankRow = (store, ws, we, expected, deps) => ({
+  store, win: { start: ws, end: we }, expected,
+  deposited: deps.reduce((a, d) => a + d.amount, 0),
+  deps, missing: [], done: false,
+});
+const JULAUG = [
+  // the ordinary end-of-July run: booked Mon/Tue, banked the next day
+  bankRow('Bend',       '2026-07-21', '2026-07-27', 39740.07, [dep('2026-07-27', '2026-07-28', 39740.07, 1)]),
+  bankRow('Hillsboro',  '2026-07-21', '2026-07-27', 24329.52, [dep('2026-07-27', '2026-07-28', 24329.52, 1)]),
+  bankRow('Center',     '2026-07-22', '2026-07-28', 11091.85, [dep('2026-07-28', '2026-07-29', 11091.85, 1)]),
+  bankRow('Commercial', '2026-07-22', '2026-07-28', 45757.60, [dep('2026-07-28', '2026-07-29', 45757.60, 1)]),
+  bankRow('Portland Rd','2026-07-22', '2026-07-28', 26876.04, [dep('2026-07-28', '2026-07-29', 26876.04, 1)]),
+  bankRow('River',      '2026-07-22', '2026-07-28', 34510.81, [dep('2026-07-28', '2026-07-29', 34510.81, 1)]),
+  // the BACK-DATED month-end run: all booked 07-31, actually banked 08-04 or 08-05
+  bankRow('Bend',       '2026-07-28', '2026-08-03', 25277.67, [dep('2026-07-31', '2026-08-04', 25277.67, 2)]),
+  bankRow('Hillsboro',  '2026-07-28', '2026-08-03', 14451.61, [dep('2026-07-31', '2026-08-04', 14451.61, 2)]),
+  bankRow('River',      '2026-07-29', '2026-08-04', 17625.01, [dep('2026-07-31', '2026-08-04', 17625.01, 2)]),
+  bankRow('Center',     '2026-07-29', '2026-08-04',  6334.27, [dep('2026-07-31', '2026-08-05',  6334.27, 2)]),
+  bankRow('Commercial', '2026-07-29', '2026-08-04', 25865.23, [dep('2026-07-31', '2026-08-05', 25865.23, 2)]),
+  bankRow('Portland Rd','2026-07-29', '2026-08-04', 11975.89, [dep('2026-07-31', '2026-08-05', 11975.89, 2)]),
+];
+const WK30 = ['2026-07-27', '2026-08-02'], WK31 = ['2026-08-03', '2026-08-09'];
+const k30 = kpi(JULAUG, WK30[0], WK30[1], 6);
+const k31 = kpi(JULAUG, WK31[0], WK31[1], 6);
+ok('WK30 is the ordinary run alone — $182,305.89, not $283,835.57',
+   k30.deposited === 182305.89);
+ok('...covering all six stores',            k30.covered === 6);
+ok('WK31 now carries the back-dated money — $101,529.68 of it',
+   k31.deposited === 101529.68);
+ok('...banked 08-04 through 08-05, not on the booked 07-31',
+   k31.bankedFrom === '2026-08-04' && k31.bankedTo === '2026-08-05');
+// The artifact Sky spotted: on TxnDate the pair reads 283,835.57 / 97,959.90 against a ~186k norm.
+const byTxn = JULAUG.map(r => ({ ...r, deps: r.deps.map(d => ({ ...d, banked_on: '' })) }));
+const t30 = kpi(byTxn, WK30[0], WK30[1], 6), t31 = kpi(byTxn, WK31[0], WK31[1], 6);
+ok('on TxnDate alone WK30 swallows the whole month-end run',
+   Math.round((t30.deposited - k30.deposited) * 100) / 100 === 101529.68);
+// Every one of these deposits is booked 07-27..07-31, so on TxnDate WK31 holds NOTHING — the whole
+// $101,529.68 sits in the week before the one it reached the bank in. That is the artifact entire.
+ok('...and WK31 is left with nothing at all', t31 === null);
+ok('the money is conserved — only the week it lands in moves',
+   Math.round((t30.deposited + 0) * 100) / 100 ===
+   Math.round((k30.deposited + k31.deposited) * 100) / 100);
+// Falling back is what makes an unreadable memo cost nothing.
+ok('a deposit with no readable memo keeps its TxnDate',
+   ctx.reconBankedDate_({ date: '2026-07-31', banked_on: '' }) === '2026-07-31');
+ok('...and one with a memo uses the real date',
+   ctx.reconBankedDate_({ date: '2026-07-31', banked_on: '2026-08-04' }) === '2026-08-04');
+ok('a missing banked_on field entirely is the same as an empty one',
+   ctx.reconBankedDate_({ date: '2026-07-31' }) === '2026-07-31');
 
 console.log('\n3. reconciled weeks still count');
 const ticked = REAL.map((r, i) => i < 3 ? Object.assign({}, r, { done: true }) : r);

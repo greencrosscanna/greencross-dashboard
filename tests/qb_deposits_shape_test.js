@@ -46,7 +46,8 @@ if (!MAP_SRC) { console.log('RECON_STORE_BY_CLASS_ is gone from dutchie_proxy.gs
 
 const ctx = { console };
 vm.createContext(ctx);
-vm.runInContext(MAP_SRC[0] + '\n' + grab(GS, 'hasOwn_') + '\n' + grab(GS, 'reconDate_'), ctx);
+vm.runInContext(MAP_SRC[0] + '\n' + grab(GS, 'hasOwn_') + '\n' + grab(GS, 'reconDate_') + '\n'
+  + /const RECON_BANKED_MAX_LAG_ = \d+;/.exec(GS)[0] + '\n' + grab(GS, 'reconBankedOn_'), ctx);
 
 // The grouping half of the SHIPPED getDeposits, lifted rather than restated — a copy pasted here
 // would keep passing after the real one regressed.
@@ -155,13 +156,58 @@ ok('the deposit memo reaches the row', nrec.note === 'BEND 09.02.26 Dep (8/28/26
 ok('VERBATIM — not trimmed, reordered or normalized',
    nrec.note === NOTED[0].note);
 ok('the accounting date is untouched by it', nrec.date === '2026-08-31');
-// The whole point: the row must NOT sprout a derived banking date. When one appears it should be
-// because someone measured the six stores and wrote a parser on purpose, not because a helper crept
-// in — the same guard core-admin put on the Core side against parsing it upstream.
-ok('nothing has silently derived a banking date',
-   nrec.banked_on === undefined && nrec.banked_date === undefined && nrec.real_date === undefined);
-ok('and the shipped source parses no date out of a memo',
-   !/note[\s\S]{0,80}(match|replace|split)\s*\([\s\S]{0,40}\d\{?2/.test(GS));
+ok('...while the real banking date is read out of the memo', nrec.banked_on === '2026-09-02');
+
+// ── reconBankedOn_: the rule, and every live case that shaped it ───────────────────────────────
+// MEASURED over 140 deposits, 2026-05-01..09-07, all carrying a memo. These are not invented
+// strings — each one appeared in production, and three of them would have moved real money.
+const bo = ctx.reconBankedOn_;
+ok('the ordinary case: TxnDate + 1',
+   bo('BEND 08.11.26 Dep (8/4/26 - 8/10/26)', '2026-08-10') === '2026-08-11');
+ok('the month-end back-date, which is the whole reason this exists',
+   bo('BEND 08.04.26 Dep (7/28/26 - 7/31/26)', '2026-07-31') === '2026-08-04');
+ok('...and it is not a uniform offset — Salem banked a day later than Bend',
+   bo('SOUTH 08.05.26 Dep (7/29/26 - 7/31/26)', '2026-07-31') === '2026-08-05');
+
+// 1. THE MEMO'S YEAR IS IGNORED. Six live memos say .25 in 2026. Trusting the typed year moves them
+// back 364 days — out of the year entirely, which is money gone rather than merely misplaced.
+ok('a fat-fingered year is corrected from TxnDate, not obeyed',
+   bo('BEND 05.12.25 Dep (5/5/26 - 5/11/26)', '2026-05-11') === '2026-05-12');
+ok('...same for the other two pairs seen live',
+   bo('HILLSBORO 06.09.25 Dep (6/2/26 - 6/8/26)', '2026-06-08') === '2026-06-09' &&
+   bo('BEND 08.18.25 Dep (8/11/26 - 8/17/26)', '2026-08-17') === '2026-08-18');
+ok('...and it never lands in the previous year',
+   bo('BEND 05.12.25 Dep (x)', '2026-05-11').slice(0, 4) === '2026');
+
+// 2. THE PERIOD IS NEVER PARSED — it is the dirtiest part of the string.
+ok('a 0/0 in the period cannot break it',
+   bo('PORTLAND RD 05.13.26 Dep (5/6/26 - 0/0/26)', '2026-05-12') === '2026-05-13');
+ok('nor can an unclosed bracket',
+   bo('CENTER 08.12.26 Dep (8/5/26 - 8/11/26', '2026-08-11') === '2026-08-12');
+ok('a single-date period parses like any other',
+   bo('BEND 06.02.26 Dep (6/1/26)', '2026-06-01') === '2026-06-02');
+
+// 3. THE SEPARATOR IS OPTIONAL — one memo in 140 has no space before the date, and a pattern
+// requiring one silently drops that deposit.
+ok('no space between store and date still parses',
+   bo('CENTER08.05.26 Dep (7/29/26 - 7/31/26)', '2026-07-31') === '2026-08-05');
+
+// 4. THE LAG BOUND IS THE SAFETY NET. Observed lags are 0..+7 and never negative — you cannot bank
+// money before you book it. Anything outside 0..14 is a typo, so it falls back to TxnDate.
+ok('a memo with no date at all falls back', bo('Printer Ink (refund)', '2026-06-08') === '');
+ok('...as does an unclosed refund memo',    bo('Order Correction (refund', '2026-05-14') === '');
+ok('a date BEFORE the booking is refused',  bo('BEND 08.01.26 Dep (x)', '2026-08-10') === '');
+ok('a date far beyond the bound is refused', bo('BEND 09.30.26 Dep (x)', '2026-08-10') === '');
+ok('an impossible date is refused, not rolled into the next month',
+   bo('BEND 02.30.26 Dep (x)', '2026-02-25') === '');
+ok('the lag bound is a named constant, not a magic number',
+   /const RECON_BANKED_MAX_LAG_ = \d+;/.test(GS));
+// A December booking banked in January is the one legitimate year roll inside the bound.
+ok('a Dec booking banked in Jan rolls the year forward',
+   bo('BEND 01.02.27 Dep (x)', '2026-12-31') === '2027-01-02');
+ok('an empty or missing memo says nothing rather than guessing',
+   bo('', '2026-08-10') === '' && bo(null, '2026-08-10') === '');
+ok('a missing booked date is refused too', bo('BEND 08.11.26 Dep (x)', '') === '');
 // Core's contract: a deposit with no memo gets the empty STRING, never undefined, so a reader must
 // not branch on absence. Sales must not turn that back into undefined.
 const bare = ctx.group([{ id: '1', date: '2026-08-18', total: 5, account: '',
