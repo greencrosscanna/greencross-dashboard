@@ -119,6 +119,30 @@ const gappy = kpi([row('Bend', '2026-08-25', '2026-08-31', 39467.76,
 ok('a week missing a day of sales is reported but not compared',
    gappy.deposited === 39467.76 && gappy.partial === true && gappy.expected === null);
 
+console.log('\n2b. the money banked OUTSIDE the period is named, which is what explains a lumpy week');
+// Sky, 2026-09-07: "wk 30 is abnormally high and wk 31 is low, the two combined look like it could
+// be the right amount." Measured on the live reconprobe and he was right, with nothing broken:
+// WK30 $283,835.57 / 13 deposits, WK31 $97,959.90 / 6, against a ~$186k / 7-deposit norm — and the
+// pair $381,795.47, two ordinary weeks. Every store banked twice in WK30: the usual Mon/Tue deposit
+// plus an extra on Friday 07-31, the last day of July, because a deposit spanning month end is split
+// so the income lands in the right month.
+const SPLIT = [row('River', '2026-07-29', '2026-08-04', 52135.89,
+                   [['2026-07-31', 32733.00], ['2026-08-04', 19402.89]])];
+const wk30 = kpi(SPLIT, '2026-07-27', '2026-08-02', 6);   // holds the July half
+const wk31 = kpi(SPLIT, '2026-08-03', '2026-08-09', 6);   // holds the August half
+ok('WK30 reports only the July half',        wk30.deposited === 32733.00);
+ok('WK31 reports only the August half',      wk31.deposited === 19402.89);
+ok('both refuse to compare',                 wk30.partial === true && wk31.partial === true);
+ok('WK30 names the August half as outside',  wk30.outside === 19402.89);
+ok('WK31 names the July half as outside',    wk31.outside === 32733.00);
+ok('inside plus outside is the whole week, from either side',
+   Math.round((wk30.deposited + wk30.outside) * 100) / 100 === 52135.89 &&
+   Math.round((wk31.deposited + wk31.outside) * 100) / 100 === 52135.89);
+ok('both halves pay for the SAME store-week, so the card reconciles normally',
+   wk30.paysFrom === '2026-07-29' && wk31.paysFrom === '2026-07-29');
+// A period holding a whole week has nothing outside it, and must not claim otherwise.
+ok('a whole week reports zero outside', wk35.outside === 0);
+
 console.log('\n3. reconciled weeks still count');
 const ticked = REAL.map((r, i) => i < 3 ? Object.assign({}, r, { done: true }) : r);
 const k3 = kpi(ticked, WK35[0], WK35[1], 6);

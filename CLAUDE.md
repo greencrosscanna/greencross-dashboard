@@ -644,7 +644,7 @@ question the selector does not control has to name its own scope or it inherits 
 default. The durable fix was not better words; it was making the tile and the selector describe the
 same window.
 
-Rules, all pinned by `tests/recon_banked_kpi_test.js` (40 assertions, executes the shipped function
+Rules, all pinned by `tests/recon_banked_kpi_test.js` (48 assertions, executes the shipped function
 and asserts the markup):
 
 - **A deposit belongs to the period ITS OWN DATE falls in** — not the period of the week it pays
@@ -656,6 +656,21 @@ and asserts the markup):
   manufactures a shortfall out of a date boundary, the same error as pacing month-to-date against a
   full-month budget. `partial` suppresses Expected/Variance and the tile says why. All-or-nothing
   deliberately: mixing whole weeks with partial ones is the "two row sets" error again.
+- **`outside` names the money for those same weeks banked in a DIFFERENT period**, and it is the
+  number that explains a week reading oddly. Sky, 2026-09-07: *"wk 30 is abnormally high and wk 31 is
+  low, the two combined look like it could be the right amount."*
+
+  **He was right and nothing was broken.** Measured on the live `reconprobe`: **WK30 $283,835.57 over
+  13 deposits** against a ~$186k / 7-deposit norm, **WK31 $97,959.90 over 6**, and the pair
+  **$381,795.47** — two ordinary weeks. Every store banked TWICE in WK30: its usual Mon/Tue deposit
+  plus an extra one on **Friday 07-31, the last day of July**, because a deposit spanning month end
+  is split so the income lands in the right month. WK31's deposit then carried only the August
+  remainder. Real money, correctly dated, genuinely lumpy.
+
+  Both halves attribute to the **same store-week** (`2026-07-29..08-04`, verified against the shipped
+  `reconWindowForDeposit`), so the CARD reconciles normally — it is only the calendar-week headline
+  that splits. `inside + outside` equals the whole week from either side, which is what the tile now
+  says rather than leaving the reader to notice the pattern across two weeks and ask.
 - **Reconciled weeks still count.** `done` is Sky's progress through the list, not a fact about the
   money; dropping them makes the figure fall toward $0 across a session in which nothing happened.
 - **Strays are not banking.** `deps` is already the sales banking; a `Printer Ink (refund)` carrying

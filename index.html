@@ -1388,7 +1388,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.577';
+const APP_VERSION = 'v2.578';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -6636,11 +6636,26 @@ function reconBankedInPeriod_(rows, from, to, storeCount) {
   const expected = whole ? r2(hits.reduce((a, h) => a + h.row.expected, 0)) : null;
   const wins = hits.map(h => h.row.win);
 
+  // How much of these same store-weeks was banked OUTSIDE the selected period. This is the number
+  // that explains a week reading oddly high or low, and without it the reader has to work it out.
+  //
+  // Sky, 2026-09-07: "wk 30 is abnormally high and wk 31 is low, the two combined look like it could
+  // be the right amount." He was exactly right, and nothing was broken — MEASURED on the live
+  // reconprobe: WK30 $283,835.57 over 13 deposits against a ~$186k/7-deposit norm, WK31 $97,959.90
+  // over 6, and the pair $381,795.47, which is two ordinary weeks. Every store banked TWICE in WK30:
+  // its usual Mon/Tue deposit plus an extra one on Friday 07-31 — the last day of July — because a
+  // deposit spanning month end is split so the income lands in the right month. WK31's deposit then
+  // carried only the August remainder. Real money, correctly dated, genuinely lumpy.
+  const outside = r2(hits.reduce((a, h) => a + h.row.deps
+    .filter(d => h.inside.indexOf(d) === -1)
+    .reduce((x, d) => x + (d.amount || 0), 0), 0));
+
   return {
     deposited,
     expected,
     diff:       whole ? r2(deposited - expected) : null,
     partial:    !whole,
+    outside,
     covered:    Object.keys(stores).length,
     stores:     storeCount,
     reconciled: hits.filter(h => h.row.done).length,
@@ -6961,8 +6976,12 @@ function renderReconcile(nocache) {
             Math.abs(kpi.diff) < 0.005 ? 'Ties exactly'
               : `${kpi.diff > 0 ? 'Over' : 'Short'} by ${reconFmtMoney(Math.abs(kpi.diff))}`}</strong></div>
         </div>` : kpi ? `
-        <div class="recon-kpi-note">Not compared — this period holds only part of a store's
-          week. Reconcile it on the card below, where the whole week is in view.</div>` : ''}
+        <div class="recon-kpi-note">${kpi.outside > 0
+            ? `A further <strong>${reconFmtMoney(kpi.outside)}</strong> for these same weeks was banked
+               outside this period — usually a deposit split at month end. That is why a week can read
+               high or low on its own and correct across the pair.`
+            : `This period holds only part of a store's week.`}
+          Not compared — reconcile on the card below, where the whole week is in view.</div>` : ''}
       </div>
       <div class="recon-summary-row">
         <div class="recon-tally">
