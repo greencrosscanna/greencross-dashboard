@@ -57,7 +57,8 @@ const kpiOf = (rows, n) => ctx.reconWeekKpi_(rows, n);
 // tested explicitly below rather than arrived at by accident in every other fixture.
 const row = (store, start, end, expected, deposited, opts = {}) => ({
   store, win: { start, end }, expected, deposited,
-  deps: opts.deps !== undefined ? opts.deps : [{ id: store + start, amount: deposited }],
+  deps: opts.deps !== undefined ? opts.deps
+      : [{ id: store + start, amount: deposited, date: opts.date || end }],
   missing: opts.missing || [], done: !!opts.done,
 });
 
@@ -141,6 +142,45 @@ ok('each store contributes exactly one week',    k.covered === 2);
 // The older week wins nothing even when it is the one carrying more money.
 k = kpiOf([row(...BEND_PRIOR, 99999, 99999), row(...BEND_LAST, 7000, 7000)], 1);
 ok('latest means latest by DATE, not by size', k.deposited === 7000);
+
+console.log('\n7. WHEN the money moved is reported, separately from what it pays for');
+// The tile shipped as "Deposited this week" for one afternoon. Sky, 2026-09-07: "wk 36 is showing
+// 191,617 as deposited this week, but we're on Monday, no deposits have been made this week yet."
+// The figure was right; the money moved on 08-31 and 09-01, for weeks ENDING 08-31 and 09-01.
+// Which week the banking pays FOR and when it was deposited are two different facts.
+k = kpiOf([row('Bend',  '2026-08-25', '2026-08-31', 39467.76, 39467.76, { date: '2026-08-31' }),
+           row('River', '2026-08-26', '2026-09-01', 37786.76, 37786.76, { date: '2026-09-01' })], 2);
+ok('the window it pays for spans Aug 25 – Sep 1', k.from === '2026-08-25' && k.to === '2026-09-01');
+ok('the deposits themselves are dated Aug 31 – Sep 1',
+   k.bankedFrom === '2026-08-31' && k.bankedTo === '2026-09-01');
+ok('...which is NOT the same span as the window', k.bankedFrom !== k.from);
+// Several deposits in one week (Commercial is routinely split) must widen the banked range, and the
+// earliest/latest are what matter — not the order they arrive in.
+k = kpiOf([row('Commercial', '2026-08-26', '2026-09-01', 51515.05, 51515.05,
+               { deps: [{ id: 'b', amount: 25000, date: '2026-09-01' },
+                        { id: 'a', amount: 26515.05, date: '2026-08-31' }] })], 1);
+ok('a split week reports the earliest deposit date first',  k.bankedFrom === '2026-08-31');
+ok('...and the latest as the end',                          k.bankedTo === '2026-09-01');
+ok('...regardless of the order the deposits came in',       k.bankedFrom < k.bankedTo);
+// One deposit is one date, not a range — the caller renders a single day rather than "X – X".
+k = kpiOf([row('Bend', '2026-08-25', '2026-08-31', 39467.76, 39467.76, { date: '2026-08-31' })], 1);
+ok('a single deposit reports the same date both ways', k.bankedFrom === k.bankedTo);
+
+console.log('\n8. the shipped markup states the dates and never says "this week"');
+// The label is the fix, so it is asserted against the real page rather than left to review.
+// Bound the slice FORWARD from the markup, not from the first mention in the file: the class names
+// appear in the CSS a few hundred KB earlier, so an unanchored indexOf runs the slice backwards and
+// every assertion below passes against an empty string.
+const HOST = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+const CARD_AT = HOST.indexOf('<div class="card recon-summary">');
+const CARD = CARD_AT === -1 ? '' : HOST.slice(CARD_AT, HOST.indexOf('recon-summary-row', CARD_AT));
+ok('the summary markup was actually found', CARD.length > 200);
+ok('the tile is labeled "Banked for" plus a date range',
+   /Banked for \$\{reconFmtRange\(\{ start: kpi\.from, end: kpi\.to \}\)\}/.test(CARD));
+ok('no relative week-word survives in the tile',
+   !/this week/i.test(CARD));
+ok('the sub-line reports when it was deposited', /deposited \$\{reconFmtDay\(kpi\.bankedFrom\)/.test(CARD));
+ok('and the empty state still promises nothing', /Nothing banked yet/.test(CARD));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

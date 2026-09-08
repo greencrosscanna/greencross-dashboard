@@ -1384,7 +1384,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.575';
+const APP_VERSION = 'v2.576';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -6578,10 +6578,25 @@ function reconStraysFrom(rows) {
 
 // The headline figure: what the company banked for the week currently up for reconciliation.
 //
-// "This week" is, per store, the LATEST COMPLETE store-week THAT HAS BEEN BANKED — not a calendar
+// IT IS LABELED "BANKED FOR <dates>", NEVER "this week", AND THAT IS NOT A WORDING PREFERENCE.
+// It shipped as "Deposited this week" for one afternoon. Sky, 2026-09-07: "wk 36 is showing 191,617
+// as deposited this week, but we're on Monday, no deposits have been made this week yet." He was
+// right, and the number was right too — $191,617.26 is exactly the sum of the six stores' latest
+// banked weeks, verified against the live reconprobe. The money moved on 08-31 and 09-01. The tile
+// claimed it moved in WK36, which had not banked a cent.
+//
+// Two things made that claim land as fact rather than as shorthand. The period bar sits DIRECTLY
+// ABOVE this tile reading WK36, so "this week" looks like it is defined by the selector; and the
+// tile answers a question the selector does not control. A relative week-word in a tile with a week
+// picker over it will be read as the picked week every time.
+//
+// So the label states the dates it covers, and the sub-line states WHEN THE MONEY MOVED
+// (`bankedFrom`/`bankedTo`) — which week the banking pays FOR and when it was deposited are two
+// different facts, and collapsing them is the whole bug.
+//
+// What it sums is, per store, the LATEST COMPLETE store-week THAT HAS BEEN BANKED — not a calendar
 // week. A store-week is not a calendar week at all, and differs per store by design (Bend runs
-// Tue→Mon, River Wed→Tue, so the same "this week" is 08-25..08-31 for one and 08-26..09-01 for the
-// other). Naming it by what it actually sums is the only version that cannot mislead.
+// Tue→Mon, River Wed→Tue, so the same week is 08-25..08-31 for one and 08-26..09-01 for the other).
 //
 // Five rules, each of which is a believable wrong number if dropped:
 //
@@ -6615,6 +6630,9 @@ function reconWeekKpi_(rows, storeCount) {
   if (!week.length) return null;
   const deposited = Math.round(week.reduce((a, r) => a + r.deposited, 0) * 100) / 100;
   const expected  = Math.round(week.reduce((a, r) => a + r.expected,  0) * 100) / 100;
+  // WHEN THE MONEY MOVED, which is not the same fact as which week it pays for, and conflating the
+  // two is the whole reason this tile had to be relabeled — see the "Banked for" note below.
+  const dates = week.reduce((a, r) => a.concat(r.deps.map(d => d.date)), []).filter(Boolean).sort();
   return {
     deposited, expected,
     diff:      Math.round((deposited - expected) * 100) / 100,
@@ -6623,6 +6641,8 @@ function reconWeekKpi_(rows, storeCount) {
     reconciled: week.filter(r => r.done).length,
     from:      week.reduce((a, r) => a < r.win.start ? a : r.win.start, week[0].win.start),
     to:        week.reduce((a, r) => a > r.win.end   ? a : r.win.end,   week[0].win.end),
+    bankedFrom: dates[0] || null,
+    bankedTo:   dates[dates.length - 1] || null,
   };
 }
 
@@ -6902,15 +6922,18 @@ function renderReconcile(nocache) {
     <div class="card recon-summary">
       <div class="recon-kpi">
         <div class="recon-kpi-lead">
-          <span class="recon-kpi-lbl">Deposited this week</span>
+          <span class="recon-kpi-lbl">${kpi
+            ? `Banked for ${reconFmtRange({ start: kpi.from, end: kpi.to })}`
+            : 'Banked for the latest week'}</span>
           <strong class="recon-kpi-val">${kpi ? reconFmtMoney(kpi.deposited) : '—'}</strong>
           <span class="recon-kpi-sub">${kpi
             ? `${kpi.covered === kpi.stores
                   ? `all ${kpi.stores} stores`
                   : `<strong class="recon-kpi-short">${kpi.covered} of ${kpi.stores} stores</strong>`}`
-              + ` · ${reconFmtRange({ start: kpi.from, end: kpi.to })}`
+              + (kpi.bankedFrom ? ` · deposited ${reconFmtDay(kpi.bankedFrom)}${
+                   kpi.bankedTo !== kpi.bankedFrom ? ` – ${reconFmtDay(kpi.bankedTo)}` : ''}` : '')
               + (kpi.reconciled ? ` · ${kpi.reconciled} already reconciled` : '')
-            : 'Nothing banked yet for the latest week'}</span>
+            : 'Nothing banked yet'}</span>
         </div>
         ${kpi ? `
         <div class="recon-kpi-figs">
@@ -7082,13 +7105,15 @@ function reconFmtMoney(n) {
   return '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// UTC throughout, for the reason reconAddDays spells out: these strings are dates, not instants,
+// and letting the browser localize one shifts it a day west of Greenwich.
+function reconFmtDay(ds) {
+  const p = String(ds).split('-').map(Number);
+  return new Date(Date.UTC(p[0], p[1] - 1, p[2]))
+    .toLocaleDateString([], { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
 function reconFmtRange(win) {
-  const f = (ds) => {
-    const p = ds.split('-').map(Number);
-    return new Date(Date.UTC(p[0], p[1] - 1, p[2]))
-      .toLocaleDateString([], { month: 'short', day: 'numeric', timeZone: 'UTC' });
-  };
-  return `${f(win.start)} – ${f(win.end)}`;
+  return `${reconFmtDay(win.start)} – ${reconFmtDay(win.end)}`;
 }
 
 // ── P&L statement ─────────────────────────────────────────────────────────────────────────────

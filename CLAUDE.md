@@ -609,18 +609,39 @@ calendar of the complaint, **verified to fail 10 against the pre-fix `index.html
 end-to-end "the 08-31 deposit appears on a September card at all"). Four assertions in
 `tests/deposit_reconciliation_test.js` pinned the old starts-inside rule and were inverted.
 
-### The Reconcile headline — "Deposited this week" (v2.575, 2026-09-07)
+### The Reconcile headline — "Banked for <dates>" (v2.575, relabeled v2.576 same day)
 
 One figure at the top of the tab: what the company banked for the week currently up for
 reconciliation, with Expected and the variance beside it. Built by `reconWeekKpi_`.
 
-**"This week" is, per store, the latest complete store-week THAT HAS BEEN BANKED.** Not a calendar
+**Never label it "this week", and that is not a wording preference.** It shipped as *"Deposited this
+week"* for one afternoon. Sky, 2026-09-07: *"wk 36 is showing 191,617 as deposited this week, but
+we're on Monday, no deposits have been made this week yet."*
+
+He was right, **and so was the number** — $191,617.26 is exactly the sum of the six stores' latest
+banked weeks, verified per store against the live `reconprobe` (Bend 39,467.76 · Hillsboro 25,240.13
+· Center 13,448.01 · Commercial 51,515.05 · Portland Rd 24,159.55 · River 37,786.76). The money
+moved on **08-31 and 09-01**. The tile claimed it moved in WK36, which had not banked a cent.
+
+Two things made that read as a claim rather than as shorthand, and both generalize:
+
+- **The period bar sits DIRECTLY ABOVE the tile**, reading WK36. A relative week-word in a tile with
+  a week picker over it will be read as the picked week, every time.
+- **The tile answers a question the selector does not control.** That is deliberate (see below), but
+  it means the tile has to name its own scope or it inherits the selector's by default.
+
+So the label states the dates it covers, and the sub-line states **when the money moved**
+(`bankedFrom`/`bankedTo`). *Which week the banking pays FOR* and *when it was deposited* are two
+different facts; collapsing them is the entire bug. Now: `BANKED FOR AUG 25 – SEP 1` / `$191,617.26`
+/ `all 6 stores · deposited Aug 31 – Sep 1`.
+
+**What it sums is, per store, the latest complete store-week THAT HAS BEEN BANKED.** Not a calendar
 week — a store-week is not one, and the six stores disagree about which dates it is (Bend runs
-Tue→Mon, River Wed→Tue, so the same "this week" is 08-25..08-31 for one and 08-26..09-01 for the
-other; the sub-line shows the union and says how many stores it covers).
+Tue→Mon, River Wed→Tue, so the same week is 08-25..08-31 for one and 08-26..09-01 for the other; the
+label shows the union and the sub-line says how many stores it covers).
 
 Five rules. Each is a believable wrong number if dropped, which is why they are pinned by
-`tests/recon_week_kpi_test.js` (31 assertions, executes the shipped function):
+`tests/recon_week_kpi_test.js` (43 assertions, executes the shipped function and asserts the label):
 
 - **The week must have DEPOSITS on it.** Deposits land a day or two after a week closes, so there is
   always a stretch where the newest complete week has been sold and not yet banked. **This was
