@@ -202,6 +202,46 @@ ok('...and one with a memo uses the real date',
 ok('a missing banked_on field entirely is the same as an empty one',
    ctx.reconBankedDate_({ date: '2026-07-31' }) === '2026-07-31');
 
+console.log('\n2d. money that is not a store\'s sales banking was NEVER in the total');
+/* Sky, 2026-09-07: "the KPI card should exclude any deposits that have been ignored, so wk31 should
+ * be 199490-12662-27" — and then "or if its easier, only show deposits attributed to store CLASS's,
+ * not Corporate".
+ *
+ * MEASURED on the live route: it already does. WK31 holds 13 deposits totalling $212,152.49, of
+ * which 12 are store-classed sales banking summing to exactly $199,489.58 — the figure on screen.
+ * The $12,662.91 "South Accident (January) Insurance Reimbursement" is classed CORPORATE, so it has
+ * no store and never enters a row; the $26.84 "Q1 Refund" is also CORPORATE and is dated 08-11,
+ * which is WK32 and not this week at all. Over 2026-07-01..09-07 those two are the ONLY deposits
+ * with no store class, and there are NO store-classed deposits whose memo is not sales.
+ *
+ * What misled was the note underneath: "Ignoring 2 deposits ... ($12,689.75)" — 12,662.91 + 26.84 —
+ * sitting directly below a large total without saying which side of it they were on. The arithmetic
+ * never changed; the sentence did.
+ *
+ * These pin the exclusion so a future change cannot quietly fold that money in. */
+const CORP = [
+  { id: 'c1', date: '2026-08-04', banked_on: '2026-08-04', amount: 12662.91, class: 'CORPORATE',
+    memo: 'South Accident (January)  Insurance Reimbursement' },
+  { id: 'c2', date: '2026-08-11', banked_on: '2026-08-11', amount: 26.84, class: 'CORPORATE',
+    memo: 'Q1 Refund' },
+];
+// Unattributed deposits are not in any store row, which is the structural reason they cannot count.
+const k31c = kpi(JULAUG, WK31[0], WK31[1], 6);
+ok('WK31 is the store banking alone', k31c.deposited === 101529.68);
+ok('...and no CORPORATE row can reach it — they belong to no store',
+   CORP.every(c => !JULAUG.some(r => r.deps.some(d => d.id === c.id))));
+// A deposit that IS store-classed but is not sales banking is set aside as a stray by reconBuildRow
+// and lands in `strays`, never `deps`. The KPI reads `deps` only.
+const withStray = JULAUG.concat([{
+  store: 'Commercial', win: { start: '2026-07-29', end: '2026-08-04' }, expected: 0,
+  deposited: 0, deps: [], missing: [],
+  strays: [{ id: 's1', date: '2026-08-04', banked_on: '2026-08-05', amount: 12662.91 }],
+}]);
+ok('a store-classed NON-sales deposit is a stray and is not counted either',
+   kpi(withStray, WK31[0], WK31[1], 6).deposited === 101529.68);
+ok('...and it does not inflate the store coverage count',
+   kpi(withStray, WK31[0], WK31[1], 6).covered === 6);
+
 console.log('\n3. reconciled weeks still count');
 const ticked = REAL.map((r, i) => i < 3 ? Object.assign({}, r, { done: true }) : r);
 const k3 = kpi(ticked, WK35[0], WK35[1], 6);

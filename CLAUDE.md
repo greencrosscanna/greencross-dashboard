@@ -780,6 +780,33 @@ that never took.
 `tests/qb_deposits_shape_test.js` (38 assertions) executes `reconBankedOn_` against every live case
 above, including all three refund memos and each year typo.
 
+**Corporate money was NEVER in the headline — the NOTE was what said otherwise.** Sky, 2026-09-07:
+*"the KPI card should exclude any deposits that have been ignored, so wk31 should be
+199490-12662-27"*, then *"or if its easier, only show deposits attributed to store CLASS's, not
+Corporate"*.
+
+**It already did.** MEASURED on the live route: WK31 holds 13 deposits totalling $212,152.49, of
+which 12 are store-classed sales banking summing to exactly **$199,489.58** — the figure on screen.
+The $12,662.91 *South Accident (January) Insurance Reimbursement* is classed **CORPORATE**, so it
+belongs to no store and never enters a row; the $26.84 *Q1 Refund* is CORPORATE too and is dated
+08-11, which is **WK32, not WK31**. Over 2026-07-01..09-07 those two are the only deposits with no
+store class, and there are **no** store-classed deposits whose memo is not sales.
+
+What misled was the line underneath: *"Ignoring 2 deposits not included in a store's week
+($12,689.75)"* — 12,662.91 + 26.84 — sitting directly below a large total without saying which side
+of it they were on. **The arithmetic never changed; the sentence did.** It now reads "Not in the
+total above", and the headline's sub-line ends "store sales banking only", so the question does not
+arise from the screen.
+
+Two structural reasons that money cannot reach the headline, both pinned by
+`tests/recon_banked_kpi_test.js`: an unattributed deposit is in no store row at all, and a
+store-classed deposit whose memo is not sales is set aside by `reconBuildRow` into `strays`, which
+the KPI never reads — it sums `deps`.
+
+*The lesson is the one this tab keeps teaching: a correct figure with an ambiguous sentence under it
+is indistinguishable, to the reader, from a wrong figure. The same failure as "Deposited this week"
+and as "banked in another period", three times in one day on one card.*
+
 **The state colors MUST stay qualified as `.recon-kpi-figs strong.recon-kpi-off`.** The bare class is
 (0,1,0) and the `.recon-kpi-figs strong` rule above it is (0,1,1), so a lone class loses and the
 variance renders in plain body text — the one figure on the card that has to read as a state. Found

@@ -1395,7 +1395,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.581';
+const APP_VERSION = 'v2.582';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -7020,6 +7020,7 @@ function renderReconcile(nocache) {
               + (kpi.bankedFrom ? ` · deposited ${reconFmtDay(kpi.bankedFrom)}${
                    kpi.bankedTo !== kpi.bankedFrom ? ` – ${reconFmtDay(kpi.bankedTo)}` : ''}` : '')
               + ` · pays for ${reconFmtRange({ start: kpi.paysFrom, end: kpi.paysTo })}`
+              + ` · store sales banking only`
             : 'Nothing banked in this period'}</span>
         </div>
         ${kpi && !kpi.partial ? `
@@ -7061,13 +7062,14 @@ function renderReconcile(nocache) {
 
     ${unatt.length ? (reconIgnoreUnatt ? `
       <div class="recon-hidden-note">
-        Ignoring ${unatt.length} deposit${unatt.length === 1 ? '' : 's'} not included in a store's week
-        (${reconFmtMoney(unatt.reduce((a, d) => a + d.amount, 0))}).
+        <strong>Not in the total above:</strong> ${unatt.length} deposit${unatt.length === 1 ? '' : 's'}
+        not part of a store's banking (${reconFmtMoney(unatt.reduce((a, d) => a + d.amount, 0))})
+        — Corporate refunds and the like.
         <button class="toggle-btn recon-linkish" onclick="toggleReconUnatt()">Show</button>
       </div>` : `
       <div class="card recon-unatt">
         <div class="recon-unatt-hd">
-          ${unatt.length} deposit${unatt.length === 1 ? '' : 's'} not included in a store's week
+          ${unatt.length} deposit${unatt.length === 1 ? '' : 's'} not in the total above
           <button class="toggle-btn recon-linkish" onclick="toggleReconUnatt()">Ignore these</button>
         </div>
         <div class="recon-unatt-note">Either the QuickBooks class maps to no store, or it maps to one but the amount is not part of that week's banking — the rest of the week ties to the expected figure exactly without it. They are listed rather than dropped: money that disappears from a reconciliation screen is the failure this tab exists to prevent.</div>
