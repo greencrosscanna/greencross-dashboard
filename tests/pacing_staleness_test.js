@@ -118,6 +118,38 @@ ctx.paceFracs = { Commercial: 0.50, Century: 0.50, River: 0.50 };
 ctx.paceFracsAt = now;
 check('yesterday reads 100%', pacing(), 100);
 
+/* ── The TTL is an ABANDONMENT threshold, not a refresh interval ───────────────────────────────
+ *
+ * Asserted against the shipped source because getting this backwards produced a whole Asana to-do:
+ * "Sales pace refreshes every 5 minutes, so it lags the kiosk by up to ~150 dollars". It does not.
+ * refreshLiveData — which IS the 60-second tick and the visibilitychange catch-up — calls
+ * loadPaceFracs(true), and `force` skips the staleness guard entirely. A healthy tab re-fetches the
+ * frac every minute; PACE_FRACS_TTL_MS only decides when a frac that could NOT be refreshed stops
+ * being trusted.
+ *
+ * The old comment on the constant claimed the opposite ("well under the 60 s poll, so a poll
+ * re-fetches"), which is wrong in both directions and is what the to-do was written from. These
+ * pin the real relationship so the next reader cannot inherit the same wrong model. */
+console.log('\nthe TTL governs the BROKEN case, not the healthy one');
+const POLL = /const AUTO_REFRESH_MS = ([^;]+);/.exec(SRC);
+check('the auto-refresh tick is 60 seconds', POLL && eval(POLL[1]), 60 * 1000);
+const TTL = /const PACE_FRACS_TTL_MS = ([^;]+);/.exec(SRC);
+check('the TTL is longer than the poll, so it is not what schedules a refresh',
+      !!(TTL && eval(TTL[1]) > eval(POLL[1])), true);
+check('refreshLiveData forces a pace re-fetch, bypassing the TTL',
+      /refreshLiveData\(\)\s*\{[\s\S]*?loadPaceFracs\(true\)/.test(SRC), true);
+check('the 60-second tick goes through refreshLiveData',
+      /_autoRefreshTimer = setInterval\([\s\S]*?refreshLiveData\(\)[\s\S]*?AUTO_REFRESH_MS\)/.test(SRC), true);
+check('returning to a hidden tab also forces a catch-up',
+      /visibilitychange[\s\S]{0,600}refreshLiveData\(\)/.test(SRC), true);
+// And the guard the threshold actually exists for: past it, callers drop the curve for the ramp.
+check('a stale frac is abandoned rather than trusted',
+      /!paceFracsStale\(\)\s*&&\s*paceFracs\[s\]/.test(SRC), true);
+// Scoped to the DECLARATION LINE: the prose above the constant quotes the old wording in order to
+// explain why it was wrong, and a whole-file search would match that quotation and fail on itself.
+check('the declaration carries no trailing claim about the poll',
+      /well under/.test(/const PACE_FRACS_TTL_MS = .*/.exec(SRC)[0]), false);
+
 console.log('\n──────────────────────────────');
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

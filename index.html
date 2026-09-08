@@ -1395,7 +1395,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.582';
+const APP_VERSION = 'v2.583';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -1506,7 +1506,31 @@ let paceFracs = null; // { storeName: 0-1 frac } from GXCore.expectedSalesFrac �
 // Memoizing them for the life of the page froze "% of day elapsed" while net sales kept climbing.
 let paceFracsAt = 0;              // Date.now() of the last successful fetch; 0 = never
 let _paceFracsInFlight = false;
-const PACE_FRACS_TTL_MS = 5 * 60 * 1000; // 5 min — well under the 60 s poll, so a poll re-fetches
+/* NOT A REFRESH INTERVAL — an ABANDONMENT threshold, and the difference is the whole point.
+ *
+ * The 60-second poll calls loadPaceFracs(TRUE) (refreshLiveData, since 2026-08-24) and so does the
+ * visibilitychange catch-up, so a healthy tab re-fetches the frac every minute regardless of this
+ * number. What this decides is how long a frac may go WITHOUT a successful fetch before the
+ * renderers stop trusting it: past it, paceFracsStale() goes true and every caller falls back to the
+ * linear 8am–10pm clock ramp rather than pacing against a snapshot from an hour ago.
+ *
+ * The old comment here read "5 min — well under the 60 s poll, so a poll re-fetches", which is
+ * backwards twice over: 5 minutes is well OVER 60 seconds, and the poll re-fetches because it passes
+ * force, not because of this TTL. Believing it costs you the diagnosis — it reads as "the pacing
+ * number only moves every 5 minutes", which was never true and is the shape of the Asana to-do
+ * "Sales pace refreshes every 5 minutes, so it lags the kiosk by up to ~150 dollars".
+ *
+ * What that to-do actually described was this threshold FIRING. Pace used to cost six GX Core round
+ * trips and measured 12.2s clean, 53s at the tail; fetches that slow miss minutes on end, the frac
+ * goes stale, and the app silently swaps the real intraday curve for a straight line — which is
+ * exactly a visible disagreement with the kiosk, worst at the peak hours where the curve is furthest
+ * from linear. v2.583's proxy fix (59b0a14, 2026-09-07) removed the cause: the curves are mirrored
+ * from Core once a DAY and the fraction is arithmetic, so a pace call now measures ~2s and this
+ * threshold is not reached in normal operation.
+ *
+ * So leave it at 5 minutes. Shortening it makes the app abandon a good curve sooner during a hiccup;
+ * lengthening it makes it pace against a staler one. It only governs the broken case now. */
+const PACE_FRACS_TTL_MS = 5 * 60 * 1000;
 function paceFracsStale() { return !paceFracsAt || (Date.now() - paceFracsAt) > PACE_FRACS_TTL_MS; }
 let expSection = 'main';
 let collapsedMapSections = new Set();
