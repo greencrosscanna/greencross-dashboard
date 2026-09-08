@@ -873,13 +873,19 @@ function doGet(e) {
           const note = String(r.note || '');
           if (!note) return;
           withNote++; notesSeen++;
-          distinct[note] = (distinct[note] || 0) + 1;
+          // Paired with the BOOKED date, because the whole question is how far the memo's date sits
+          // from TxnDate. A tally of memo strings alone cannot answer it, and that delta is what
+          // decides both the sanity bound on a parser and which deposits actually move week.
+          if (!hasOwn_(distinct, note)) distinct[note] = { seen: 0, booked: [] };
+          distinct[note].seen++;
+          if (distinct[note].booked.indexOf(r.date) === -1) distinct[note].booked.push(r.date);
         });
         noteRows.push({
           store: k, deposits: n, with_note: withNote,
           // Every one of them, not a sample: a format is only proved by the cases that break it.
-          notes: Object.keys(distinct).map(function (s) { return { note: s, seen: distinct[s] }; })
-                   .sort(function (a, b) { return a.note < b.note ? -1 : 1; }),
+          notes: Object.keys(distinct).map(function (s) {
+            return { note: s, seen: distinct[s].seen, booked: distinct[s].booked.sort() };
+          }).sort(function (a, b) { return a.note < b.note ? -1 : 1; }),
         });
       });
       noteRows.sort(function (a, b) { return a.store < b.store ? -1 : 1; });
