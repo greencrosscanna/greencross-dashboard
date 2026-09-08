@@ -876,15 +876,20 @@ function doGet(e) {
           // Paired with the BOOKED date, because the whole question is how far the memo's date sits
           // from TxnDate. A tally of memo strings alone cannot answer it, and that delta is what
           // decides both the sanity bound on a parser and which deposits actually move week.
-          if (!hasOwn_(distinct, note)) distinct[note] = { seen: 0, booked: [] };
+          if (!hasOwn_(distinct, note)) distinct[note] = { seen: 0, booked: [], banked: [] };
           distinct[note].seen++;
           if (distinct[note].booked.indexOf(r.date) === -1) distinct[note].booked.push(r.date);
+          // What the SHIPPED parser makes of it — not a re-implementation. This is what turns the
+          // probe from a format survey into an end-to-end check of the deployed reconBankedOn_.
+          const bo = String(r.banked_on || '');
+          if (distinct[note].banked.indexOf(bo) === -1) distinct[note].banked.push(bo);
         });
         noteRows.push({
           store: k, deposits: n, with_note: withNote,
           // Every one of them, not a sample: a format is only proved by the cases that break it.
           notes: Object.keys(distinct).map(function (s) {
-            return { note: s, seen: distinct[s].seen, booked: distinct[s].booked.sort() };
+            return { note: s, seen: distinct[s].seen, booked: distinct[s].booked.sort(),
+                     banked_on: distinct[s].banked.sort() };
           }).sort(function (a, b) { return a.note < b.note ? -1 : 1; }),
         });
       });
