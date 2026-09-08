@@ -133,5 +133,41 @@ const evil = ctx.group(EVIL);
 ok('an inherited key like "constructor" is unattributed, not a store',
    Object.keys(evil.byStore).length === 0 && evil.unattributed.length === 1);
 
+// ── The deposit's own memo rides through UNPARSED ─────────────────────────────────────────────
+// QuickBooks' TxnDate is an ACCOUNTING date: month-end deposits are back-dated so they land in the
+// right month for the P&L, while the money reaches the bank days later. Sky, 2026-09-07: "we
+// deposited on 8/4 for the last days of the month (7/28-31) and back dated the deposit to 7/31 so it
+// hits the P&L correctly, but it messes up my 'week' view expectations." The real date exists only
+// in the deposit memo, which GX Core now passes through as `note` (hub e180e2a, at Sales' request).
+//
+// These assert the PLUMBING and, just as deliberately, the ABSENCE of a parser. Two example strings
+// — Sky's and Core's fixture — are both from Bend, and two strings from one store are not a format.
+// A date parser that guesses wrong moves real money into the wrong week silently, so the format gets
+// MEASURED across all six stores (?action=reconprobe → deposit_notes) before anything reads it.
+const NOTED = [{
+  id: '5010', date: '2026-08-31', total: 100, account: 'Checking',
+  note: 'BEND 09.02.26 Dep (8/28/26 - 8/31/26)',
+  lines: [{ class: 'CENTURY DR', amount: 100, memo: 'Med Sales' }],
+}];
+const noted = ctx.group(NOTED);
+const nrec = noted.byStore['Bend'][0];
+ok('the deposit memo reaches the row', nrec.note === 'BEND 09.02.26 Dep (8/28/26 - 8/31/26)');
+ok('VERBATIM — not trimmed, reordered or normalized',
+   nrec.note === NOTED[0].note);
+ok('the accounting date is untouched by it', nrec.date === '2026-08-31');
+// The whole point: the row must NOT sprout a derived banking date. When one appears it should be
+// because someone measured the six stores and wrote a parser on purpose, not because a helper crept
+// in — the same guard core-admin put on the Core side against parsing it upstream.
+ok('nothing has silently derived a banking date',
+   nrec.banked_on === undefined && nrec.banked_date === undefined && nrec.real_date === undefined);
+ok('and the shipped source parses no date out of a memo',
+   !/note[\s\S]{0,80}(match|replace|split)\s*\([\s\S]{0,40}\d\{?2/.test(GS));
+// Core's contract: a deposit with no memo gets the empty STRING, never undefined, so a reader must
+// not branch on absence. Sales must not turn that back into undefined.
+const bare = ctx.group([{ id: '1', date: '2026-08-18', total: 5, account: '',
+                          lines: [{ class: 'CENTURY DR', amount: 5, memo: 'Med Sales' }] }]);
+ok('a deposit with no memo carries the empty string, never undefined',
+   bare.byStore['Bend'][0].note === '');
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

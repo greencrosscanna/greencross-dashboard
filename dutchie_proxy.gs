@@ -844,6 +844,45 @@ function doGet(e) {
       const memos = Object.keys(memoTally)
         .map(function (m) { return { memo: m, seen: memoTally[m] }; })
         .sort(function (a, b) { return b.seen - a.seen; });
+
+      // THE DEPOSIT-LEVEL NOTES, per store, verbatim and undeduplicated across stores.
+      //
+      // This exists to MEASURE a format before anything parses it. The note carries the real banking
+      // date (`BEND 08.04.26 Dep (7/28/26 - 7/31/26)`) while TxnDate carries the accounting one, and
+      // keying the Reconcile week view on the real date is the fix for the month-end swing. But two
+      // example strings, both from Bend, are not a format: whether every store writes
+      // `<STORE> MM.DD.YY Dep (…)`, whether the date is always second, whether it is ever absent —
+      // none of that is knowable by reading, and guessing moves real money into the wrong week
+      // silently. Same reason the memo vocabulary above is measured rather than assumed.
+      //
+      // Grouped BY STORE because that is the axis the format could vary on, and the one thing a
+      // whole-range tally would hide. `with_note` vs `deposits` is the coverage check: a format that
+      // holds for five stores and is missing on the sixth is the River failure shape again.
+      //
+      // Reports strings only — no amounts. Until this app re-pins to the GX Core version carrying
+      // PrivateNote every note is '', which makes this route the check that the re-pin took.
+      const noteRows = [];
+      let notesSeen = 0;
+      Object.keys(byStore).forEach(function (k) {
+        const seenIds = {}, distinct = {};
+        let n = 0, withNote = 0;
+        byStore[k].forEach(function (r) {
+          // One deposit can produce several rows (one per class); count the DEPOSIT once.
+          if (hasOwn_(seenIds, r.id)) return;
+          seenIds[r.id] = 1; n++;
+          const note = String(r.note || '');
+          if (!note) return;
+          withNote++; notesSeen++;
+          distinct[note] = (distinct[note] || 0) + 1;
+        });
+        noteRows.push({
+          store: k, deposits: n, with_note: withNote,
+          // Every one of them, not a sample: a format is only proved by the cases that break it.
+          notes: Object.keys(distinct).map(function (s) { return { note: s, seen: distinct[s] }; })
+                   .sort(function (a, b) { return a.note < b.note ? -1 : 1; }),
+        });
+      });
+      noteRows.sort(function (a, b) { return a.store < b.store ? -1 : 1; });
       // The SALES half, sampled in the same breath. The expected figure on every card is
       // Net Sales + TAX, and per-day tax was only added to the daily records for this feature — it
       // used to be summed into the store-month total and dropped from the rows. That change touches
@@ -880,6 +919,10 @@ function doGet(e) {
           return { date: u.date, class: u.class, amount: u.amount, memo: u.memo };
         }),
         memos: memos,
+        // The deposit-level notes, per store — what a memo-date parser has to survive. `notes_seen`
+        // 0 across a range that HAS deposits means this app is still pinned to a GX Core without
+        // PrivateNote; that is the re-pin check, not a data problem.
+        deposit_notes: noteRows, notes_seen: notesSeen,
         week_starts: data.config
       });
     } catch (e) {
@@ -2531,6 +2574,26 @@ function getDeposits(params) {
           // deliberately did not collapse them upstream, and they are the obvious next thing to
           // want on this tab.
           memo: g.memos.join(' · '), lines: g.memos.length,
+          // THE DEPOSIT'S OWN MEMO (QuickBooks PrivateNote), passed through UNPARSED and unused.
+          //
+          // It is the only place the REAL banking date exists. Month-end deposits are back-dated so
+          // they land in the right month for the P&L — Sky, 2026-09-07: "we deposited on 8/4 for the
+          // last days of the month (7/28-31) and back dated the deposit to 7/31 so it hits the P&L
+          // correctly, but it messes up my 'week' view expectations." So `date` above is an
+          // ACCOUNTING date and is deliberately, correctly wrong about when the money moved:
+          //
+          //     BEND 08.04.26 Dep (7/28/26 - 7/31/26)
+          //
+          // Added to GX Core at Sales' request (core-admin, hub e180e2a) and NOTHING READS IT YET.
+          // Parsing it is deliberately not done: two example strings, both from Bend, are not a
+          // format, and a date parser that guesses wrong moves real money into the wrong week
+          // silently. `?action=reconprobe` reports the distinct notes per store so the format can be
+          // MEASURED across all six first — same discipline as the deposit-memo vocabulary above.
+          //
+          // Empty STRING when a deposit has no memo, never undefined (Core's contract), so a reader
+          // must not branch on absence. Empty for EVERY deposit until this app re-pins to the
+          // version carrying it — which makes reconprobe the check that the re-pin took.
+          note: String(dep.note || ''),
         };
         if (store) { (byStore[store] = byStore[store] || []).push(rec); }
         else       { unattributed.push(rec); }
