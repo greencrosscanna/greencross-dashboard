@@ -930,6 +930,27 @@ function doGet(e) {
           return { date: u.date, class: u.class, amount: u.amount, memo: u.memo };
         }),
         memos: memos,
+        // PER-DEPOSIT detail, behind &detail=1 because it is large and only wanted when a specific
+        // figure is being taken apart. Reports the memo VERBATIM and does NOT classify — the
+        // sales/stray rule (reconIsSalesDeposit) lives in index.html and must stay in one place. A
+        // second copy here would be a rule that can disagree with the tab it is meant to explain,
+        // which is the failure this whole tab exists to prevent, one level up.
+        detail: String((params && params.detail) || '') === '1' ? (function () {
+          const out = [];
+          Object.keys(byStore).forEach(function (k) {
+            byStore[k].forEach(function (r) {
+              out.push({ store: k, id: r.id, date: r.date, banked_on: r.banked_on,
+                         amount: r.amount, cls: r.class, memo: r.memo, note: r.note });
+            });
+          });
+          // Unattributed rows carry no store — they are the other half of what a reader means by
+          // "ignored", so they belong in the same listing rather than a separate one.
+          (data.unattributed || []).forEach(function (u) {
+            out.push({ store: null, id: u.id, date: u.date, banked_on: u.banked_on,
+                       amount: u.amount, cls: u.class, memo: u.memo, note: u.note });
+          });
+          return out.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+        })() : null,
         // The deposit-level notes, per store — what a memo-date parser has to survive. `notes_seen`
         // 0 across a range that HAS deposits means this app is still pinned to a GX Core without
         // PrivateNote; that is the re-pin check, not a data problem.
