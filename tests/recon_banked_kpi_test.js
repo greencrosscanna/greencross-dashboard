@@ -204,7 +204,43 @@ ok('no relative week-word survives in the tile', !/this week/i.test(CARD));
 ok('the empty state says nothing was banked in the period',
    /Nothing banked in this period/.test(CARD));
 ok('the comparison is gated on `partial`', /kpi && !kpi\.partial/.test(CARD));
-ok('and a withheld comparison explains itself', /Not compared/.test(CARD));
+// A withheld comparison must first say the TOTAL is complete. Sky, 2026-09-07: "when i'm in week
+// mode, i want to see the sum of what was deposited that week, regardless of the month." The figure
+// already was that sum — measured, WK30 $283,835.57 and WK31 $97,959.90, matching QuickBooks to the
+// cent — but the note read as though money were missing from it. Only the GOAL comparison is
+// withheld, and the note has to lead with that or a correct total looks clipped.
+ok('a withheld comparison first says the total is complete',
+   /This is everything banked in this period/.test(CARD));
+ok('...and it is the GOAL comparison that is withheld, named as such',
+   /No goal comparison —/.test(CARD));
+ok('...naming the money banked elsewhere, which is what explains the swing',
+   /for these same weeks was\s+banked in another period/.test(CARD));
+
+console.log('\n9. the headline is a swipe surface, sharing the income hero\'s gesture');
+// Sky, 2026-09-07: "can we update so i can swipe the top KPI chip to switch the week, same as we do
+// on the income tab." Same machinery, not a second copy — a parallel implementation drifts from this
+// one within a release. The surface is declared with data-pswipe="<selector>", and the selector has
+// to re-find the node AFTER periodStep re-renders, because the element thrown off screen is not the
+// one that comes back.
+ok('the Reconcile headline declares itself a swipe surface',
+   /class="recon-kpi" data-pswipe="\.recon-kpi"/.test(HTML));
+ok('...restricted to phones, where a drag is a swipe and not a text selection',
+   /data-pswipe="\.recon-kpi" data-pswipe-mobile/.test(HTML));
+ok('...and carries its own pair of cues', /recon-kpi[^>]*>\s*<span class="ic-swipe-cue l">/.test(HTML));
+ok('the income hero is the same kind of surface, not a special case',
+   /id="ic-mob-hero" data-pswipe="#ic-mob-hero"/.test(HTML));
+ok('there is exactly ONE commit path, shared', (HTML.match(/function _pCommit\s*\(/g) || []).length === 1);
+ok('cues are found inside the surface, not by a global id',
+   /el\.querySelector\('\.ic-swipe-cue\.l'\)/.test(HTML) && !/getElementById\('ic-cue-l'\)/.test(HTML));
+ok('a drag starting on a control is left to that control',
+   /closest\('button,a,input,select,textarea'\)/.test(HTML));
+ok('the surface allows vertical scrolling through it',
+   /\.recon-kpi\{[^}]*touch-action:pan-y/.test(HTML));
+ok('...and is positioned so the cues have something to anchor to',
+   /\.recon-kpi\{[^}]*position:relative/.test(HTML));
+// periodStep is what actually moves, so the swipe inherits the week/month/day grain for free.
+ok('the commit calls periodStep, so it steps whatever grain is selected',
+   /_pCommit\(dir, sel\)[\s\S]{0,1200}periodStep\(dir\)/.test(HTML));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

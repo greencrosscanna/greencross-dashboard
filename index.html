@@ -947,7 +947,14 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
    headline did not restyle anything that was already there. */
 .recon-summary{display:flex;flex-direction:column;align-items:stretch;gap:12px}
 .recon-summary-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.recon-kpi{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;flex-wrap:wrap}
+/* position:relative anchors the swipe cues, which are absolutely positioned and add ZERO height.
+   touch-action:pan-y keeps the page scrollable while the horizontal drag steps the period —
+   without it iOS claims the gesture and the swipe never fires. Both mirror #ic-mob-hero. */
+.recon-kpi{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;flex-wrap:wrap;
+  position:relative;touch-action:pan-y}
+/* The cues sit in the card's padding, so the lead text needs no room made for it — but on a phone
+   the value is close enough to the edge that a couple of pixels of breathing room reads better. */
+@media (max-width:767px){ .recon-kpi{padding:0 10px;margin:0 -10px} }
 .recon-kpi-lead{display:flex;flex-direction:column;gap:3px;min-width:0}
 .recon-kpi-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
 .recon-kpi-val{font-size:26px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums;line-height:1.1}
@@ -1388,7 +1395,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.578';
+const APP_VERSION = 'v2.579';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -4561,29 +4568,45 @@ const P_SWIPE_OUT_MS = 150;  // the throw. Short — this is dead time before th
 const P_SWIPE_IN_MS  = 260;  // the arrival. Longer, so the eye follows the card in and lands on it
 let _pDrag = null;           // { x, y, dx } while a drag is live
 
+// A swipe surface is any element carrying data-pswipe="<selector>", where the selector re-finds it
+// AFTER the step re-renders — the node thrown off screen is usually not the node that comes back.
+// It started life hardcoded to #ic-mob-hero; the Reconcile headline is the second one, and Sky asked
+// for it in the same words: "can we update so i can swipe the top KPI chip to switch the week, same
+// as we do on the income tab." Same gesture, same thresholds, same animation — a second
+// implementation would drift from this one within a release.
+//
+// Cues are found INSIDE the surface (.ic-swipe-cue.l / .r) rather than by id, so every surface
+// carries its own pair and nothing has to be uniquely named.
+//
+// data-pswipe-mobile marks a surface that should only respond on a phone. #ic-mob-hero does not need
+// it — that element only exists in the mobile render — but the Reconcile tile is one element at both
+// sizes, and on a desktop a click-drag across it is someone selecting the dollar figure, not asking
+// to change the week.
+function _pSwipeEl(sel) { try { return document.querySelector(sel); } catch (e) { return null; } }
+
 // Painted straight onto the node rather than through render() — a re-render per pointermove would
-// rebuild the whole income view sixty times a second.
-function _pDragPaint(dx, animate) {
-  const el = document.getElementById('ic-mob-hero');
+// rebuild the whole view sixty times a second.
+function _pDragPaint(dx, animate, sel) {
+  const el = _pSwipeEl(sel || (_pDrag && _pDrag.sel));
   if (!el) return;
   el.style.transition = animate ? 'transform .22s cubic-bezier(.4,0,.2,1),opacity .22s cubic-bezier(.4,0,.2,1)' : 'none';
   el.style.transform  = `translateX(${dx * P_SWIPE_TRAVEL}px)`;
   el.style.opacity    = String(1 - Math.min(.35, Math.abs(dx) / 260));
   // Dragging right reveals the PREVIOUS period, so the left cue is the one that lights.
-  const cl = document.getElementById('ic-cue-l'), cr = document.getElementById('ic-cue-r');
+  const cl = el.querySelector('.ic-swipe-cue.l'), cr = el.querySelector('.ic-swipe-cue.r');
   if (cl) { cl.style.opacity = String(Math.min(1, Math.max(0, dx) / 40));  cl.classList.toggle('arm', dx >  P_SWIPE_COMMIT); }
   if (cr) { cr.style.opacity = String(Math.min(1, Math.max(0, -dx) / 40)); cr.classList.toggle('arm', dx < -P_SWIPE_COMMIT); }
 }
 
 function _pDragEnd() {
   if (!_pDrag) return;
-  const dx = _pDrag.dx;
+  const dx = _pDrag.dx, sel = _pDrag.sel;
   _pDrag = null;
-  if (Math.abs(dx) <= P_SWIPE_COMMIT) return _pDragPaint(0, true);   // under the threshold: spring back
+  if (Math.abs(dx) <= P_SWIPE_COMMIT) return _pDragPaint(0, true, sel);   // under threshold: spring back
   // A no-op on iOS Safari — there is no web haptics API on iPhone, so this is silent on the
   // target device. Kept because it does fire on Android.
   if (navigator.vibrate) navigator.vibrate(8);
-  _pCommit(dx < 0 ? 1 : -1);
+  _pCommit(dx < 0 ? 1 : -1, sel);
 }
 
 // A committed swipe used to snap the card back to center and swap the numbers underneath it in the
@@ -4596,10 +4619,10 @@ function _pDragEnd() {
 //
 // Anyone who has asked their phone for less motion gets the old instant swap — for a vestibular
 // trigger, a card flying across the screen is exactly the thing they turned off.
-function _pCommit(dir) {
-  const el = document.getElementById('ic-mob-hero');
+function _pCommit(dir, sel) {
+  const el = _pSwipeEl(sel);
   const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (!el || reduce) { _pDragPaint(0, false); return periodStep(dir); }
+  if (!el || reduce) { _pDragPaint(0, false, sel); return periodStep(dir); }
 
   const off = dir > 0 ? -1 : 1;   // swiping to the NEXT period throws the card left
   el.style.transition = `transform ${P_SWIPE_OUT_MS}ms cubic-bezier(.4,0,1,1),opacity ${P_SWIPE_OUT_MS}ms linear`;
@@ -4609,7 +4632,7 @@ function _pCommit(dir) {
   setTimeout(() => {
     periodStep(dir);            // numbers change while the card is off screen and invisible
     // periodStep re-renders, so the node may be a different element than the one thrown.
-    const next = document.getElementById('ic-mob-hero');
+    const next = _pSwipeEl(sel);
     if (!next) return;
     next.style.transition = 'none';
     next.style.transform  = `translateX(${-off * 120}px)`;
@@ -4617,7 +4640,7 @@ function _pCommit(dir) {
     // Two frames: one for the browser to accept the start state, one to animate away from it.
     // A single rAF sometimes coalesces with the style write above and the entry is skipped.
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      const n = document.getElementById('ic-mob-hero');
+      const n = _pSwipeEl(sel);
       if (!n) return;
       n.style.transition = `transform ${P_SWIPE_IN_MS}ms cubic-bezier(.15,.85,.3,1),opacity ${P_SWIPE_IN_MS}ms ease-out`;
       n.style.transform  = 'translateX(0)';
@@ -4627,19 +4650,28 @@ function _pCommit(dir) {
 }
 
 document.addEventListener('pointerdown', e => {
-  if (!e.target.closest || !e.target.closest('#ic-mob-hero')) return;
-  _pDrag = { x: e.clientX, y: e.clientY, dx: 0 };
+  if (!e.target.closest) return;
+  const surface = e.target.closest('[data-pswipe]');
+  if (!surface) return;
+  // A drag that starts on a button is that button's business, not the stepper's.
+  if (e.target.closest('button,a,input,select,textarea')) return;
+  if (surface.hasAttribute('data-pswipe-mobile') && !_pSwipeNarrow()) return;
+  _pDrag = { x: e.clientX, y: e.clientY, dx: 0, sel: surface.getAttribute('data-pswipe') };
 });
 document.addEventListener('pointermove', e => {
   if (!_pDrag) return;
   const dx = e.clientX - _pDrag.x, dy = e.clientY - _pDrag.y;
   // Vertical wins: a page scroll must never be swallowed by the stepper.
-  if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 12) { _pDrag = null; return _pDragPaint(0, true); }
+  if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 12) { const s = _pDrag.sel; _pDrag = null; return _pDragPaint(0, true, s); }
   _pDrag.dx = dx * (periodStepTarget(dx < 0 ? 1 : -1).allowed ? 1 : P_SWIPE_DAMP);
   _pDragPaint(_pDrag.dx, false);
 });
 document.addEventListener('pointerup', _pDragEnd);
 document.addEventListener('pointercancel', _pDragEnd);
+
+// Same breakpoint the Expenses tab picks its layout with, so "phone" means one thing in this file.
+function _pSwipeNarrow() { return !(window.matchMedia && matchMedia('(min-width:768px) and (hover:hover) and (pointer:fine)').matches); }
+
 
 let _storeBarsAnimated = false;
 function animateStorePacingBars(animate) {
@@ -4943,7 +4975,7 @@ function renderIncome() {
     document.getElementById('main-content').innerHTML = `
       <!-- Mobile layout -->
       <div class="ic-mob">
-        <div class="ic-hero-card" id="ic-mob-hero">
+        <div class="ic-hero-card" id="ic-mob-hero" data-pswipe="#ic-mob-hero">
           ${_incomeHeroInnerHtml(net, periodGoal, goalPct, pacingPct, isClosed, under, { cmpHtml, goalWait, dataWait })}
         </div>
         <!-- KPIs sit ABOVE the store breakdown, per the handoff's mobile screen. The other order
@@ -6956,7 +6988,9 @@ function renderReconcile(nocache) {
     <div class="sec-lbl">Deposit reconciliation</div>
 
     <div class="card recon-summary">
-      <div class="recon-kpi">
+      <div class="recon-kpi" data-pswipe=".recon-kpi" data-pswipe-mobile>
+        <span class="ic-swipe-cue l">‹</span>
+        <span class="ic-swipe-cue r">›</span>
         <div class="recon-kpi-lead">
           <span class="recon-kpi-lbl">Banked ${reconFmtRange(sel)}</span>
           <strong class="recon-kpi-val">${kpi ? reconFmtMoney(kpi.deposited) : '—'}</strong>
@@ -6976,12 +7010,12 @@ function renderReconcile(nocache) {
             Math.abs(kpi.diff) < 0.005 ? 'Ties exactly'
               : `${kpi.diff > 0 ? 'Over' : 'Short'} by ${reconFmtMoney(Math.abs(kpi.diff))}`}</strong></div>
         </div>` : kpi ? `
-        <div class="recon-kpi-note">${kpi.outside > 0
-            ? `A further <strong>${reconFmtMoney(kpi.outside)}</strong> for these same weeks was banked
-               outside this period — usually a deposit split at month end. That is why a week can read
-               high or low on its own and correct across the pair.`
-            : `This period holds only part of a store's week.`}
-          Not compared — reconcile on the card below, where the whole week is in view.</div>` : ''}
+        <div class="recon-kpi-note"><strong>This is everything banked in this period.</strong>
+          ${kpi.outside > 0
+            ? `No goal comparison — a further ${reconFmtMoney(kpi.outside)} for these same weeks was
+               banked in another period, usually a month-end split. That is why one week can read
+               high and the next low.`
+            : `No goal comparison — this period holds only part of a store's week.`}</div>` : ''}
       </div>
       <div class="recon-summary-row">
         <div class="recon-tally">

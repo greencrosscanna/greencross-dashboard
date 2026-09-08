@@ -644,7 +644,7 @@ question the selector does not control has to name its own scope or it inherits 
 default. The durable fix was not better words; it was making the tile and the selector describe the
 same window.
 
-Rules, all pinned by `tests/recon_banked_kpi_test.js` (48 assertions, executes the shipped function
+Rules, all pinned by `tests/recon_banked_kpi_test.js` (60 assertions, executes the shipped function
 and asserts the markup):
 
 - **A deposit belongs to the period ITS OWN DATE falls in** — not the period of the week it pays
@@ -679,6 +679,40 @@ and asserts the markup):
   quietly short two stores is the River failure shape.
 - **Nothing banked returns NULL, never 0.** The caller renders a dash. A confident zero beside a
   variance measures a question nobody has answered yet.
+
+**Swipe it to step the period — same gesture as the Income hero, and deliberately the SAME CODE.**
+Sky, 2026-09-07: *"can we update so i can swipe the top KPI chip to switch the week, same as we do on
+the income tab."* A swipe surface is now any element carrying **`data-pswipe="<selector>"`**; the
+selector re-finds the node AFTER `periodStep` re-renders, because the element thrown off screen is
+never the one that comes back. `#ic-mob-hero` was the first, `.recon-kpi` the second, and there is
+exactly one `_pCommit` — a parallel implementation would drift from this one inside a release.
+
+- **Cues live INSIDE the surface** (`.ic-swipe-cue.l` / `.r`), found by query rather than by the old
+  global `ic-cue-l` id, so every surface carries its own pair and nothing needs a unique name.
+- **`data-pswipe-mobile` restricts a surface to phones.** `#ic-mob-hero` does not need it — that
+  element only exists in the mobile render — but the Reconcile tile is one element at both sizes, and
+  on a desktop a click-drag across it is someone selecting the dollar figure, not asking to change
+  the week. Verified: a 120px drag on a 1280px viewport changes nothing.
+- **`.recon-kpi` needs `position:relative`** (anchors the cues) and **`touch-action:pan-y`** (or iOS
+  claims the gesture and the swipe never fires). Both mirror `#ic-mob-hero`.
+- **A drag starting on a button belongs to that button**, not the stepper.
+- It steps whatever grain is selected, because it calls the same `periodStep`. Measured on a phone
+  viewport: WK32 $188,358.79 → swipe left → WK33 — → swipe right ×2 → WK31 $97,959.90, and a 20px
+  drag (under the 56px commit) correctly does nothing.
+
+**The week total is already month-independent — do not "fix" it again.** Sky, 2026-09-07: *"when i'm
+in week mode, i want to see the sum of what was deposited that week, regardless of the month. i
+compare the performance by looking at the weekly deposits."* **It already was that sum**, verified
+against QuickBooks to the cent (WK30 $283,835.57, WK31 $97,959.90). `reconWantedRange` stays
+month-wide only to decide which store-weeks get BUILT, and the one-window reach-back guarantees every
+deposit dated in the selected week has a row to land on: attribution is always the window containing
+`date − 1`, and the list starts at `windowStart(from − 1)`, so the attributed window can never sort
+before the first listed one.
+
+What was wrong was the NOTE, not the number — it said money for these weeks was banked outside the
+period, which reads as *your total is short* to someone comparing weekly deposits. It now leads with
+**"This is everything banked in this period."** and says it is the GOAL comparison that is withheld.
+A correct figure with a note that undermines it is a wrong answer.
 
 **The state colors MUST stay qualified as `.recon-kpi-figs strong.recon-kpi-off`.** The bare class is
 (0,1,0) and the `.recon-kpi-figs strong` rule above it is (0,1,1), so a lone class loses and the
