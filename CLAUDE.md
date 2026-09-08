@@ -609,61 +609,61 @@ calendar of the complaint, **verified to fail 10 against the pre-fix `index.html
 end-to-end "the 08-31 deposit appears on a September card at all"). Four assertions in
 `tests/deposit_reconciliation_test.js` pinned the old starts-inside rule and were inverted.
 
-### The Reconcile headline — "Banked for <dates>" (v2.575, relabeled v2.576 same day)
+### The Reconcile headline — "Banked <selected period>" (v2.577)
 
-One figure at the top of the tab: what the company banked for the week currently up for
-reconciliation, with Expected and the variance beside it. Built by `reconWeekKpi_`.
+One figure at the top of the tab: **what was banked in the SELECTED PERIOD**, with Expected and the
+variance beside it. Built by `reconBankedInPeriod_`, scoped by `reconSelectedRange()`.
 
-**Never label it "this week", and that is not a wording preference.** It shipped as *"Deposited this
-week"* for one afternoon. Sky, 2026-09-07: *"wk 36 is showing 191,617 as deposited this week, but
-we're on Monday, no deposits have been made this week yet."*
+**It tracks the period picker, and the scope is the DEPOSIT'S OWN DATE.** Sky, 2026-09-07: *"yes
+track the picker. if i've selected this week (36), i would expect to see —, then if i select the
+previous week i would expect to see the 191k."* Verified in the browser on his real numbers:
 
-He was right, **and so was the number** — $191,617.26 is exactly the sum of the six stores' latest
-banked weeks, verified per store against the live `reconprobe` (Bend 39,467.76 · Hillsboro 25,240.13
-· Center 13,448.01 · Commercial 51,515.05 · Portland Rd 24,159.55 · River 37,786.76). The money
-moved on **08-31 and 09-01**. The tile claimed it moved in WK36, which had not banked a cent.
+| picked | shows |
+|---|---|
+| WK36 (Mon 09-07 – 09-13) | `BANKED SEP 7 – SEP 13` · **—** · *Nothing banked in this period* |
+| WK35 (08-31 – 09-06) | `BANKED AUG 31 – SEP 6` · **$191,617.26** · all 6 stores · deposited Aug 31 – Sep 1 · pays for Aug 25 – Sep 1 |
+| WK34 (08-24 – 08-30) | **—** — the week the selling happened, and none of it was banked then |
 
-Two things made that read as a claim rather than as shorthand, and both generalize:
+**A dash early in the week is CORRECT, not a gap.** Deposits lag the week they pay for, so a
+picker-scoped tile is empty until the banking lands. The weeks still awaiting reconciliation are on
+the cards below, which deliberately do **not** follow the picker — narrowing those would hide the
+work. Only the headline is period-scoped.
 
-- **The period bar sits DIRECTLY ABOVE the tile**, reading WK36. A relative week-word in a tile with
-  a week picker over it will be read as the picked week, every time.
-- **The tile answers a question the selector does not control.** That is deliberate (see below), but
-  it means the tile has to name its own scope or it inherits the selector's by default.
+*Two earlier versions, kept because the reasoning is the useful part.* v2.575 shipped it labeled
+**"Deposited this week"** showing the latest banked week regardless of the picker. Sky: *"wk 36 is
+showing 191,617 as deposited this week, but we're on Monday, no deposits have been made this week
+yet."* **The number was right** — $191,617.26 is exactly the six stores' latest banked weeks,
+verified per store against the live `reconprobe` (Bend 39,467.76 · Hillsboro 25,240.13 · Center
+13,448.01 · Commercial 51,515.05 · Portland Rd 24,159.55 · River 37,786.76), and the money moved on
+08-31 and 09-01. The tile claimed it moved in WK36, which had not banked a cent. v2.576 fixed the
+label; v2.577 fixed the scope, which is what he actually wanted.
 
-So the label states the dates it covers, and the sub-line states **when the money moved**
-(`bankedFrom`/`bankedTo`). *Which week the banking pays FOR* and *when it was deposited* are two
-different facts; collapsing them is the entire bug. Now: `BANKED FOR AUG 25 – SEP 1` / `$191,617.26`
-/ `all 6 stores · deposited Aug 31 – Sep 1`.
+**The lesson generalizes past the wording.** The period bar sits DIRECTLY ABOVE this tile, so a
+relative week-word in it will be read as the picked week every time — and a tile that answers a
+question the selector does not control has to name its own scope or it inherits the selector's by
+default. The durable fix was not better words; it was making the tile and the selector describe the
+same window.
 
-**What it sums is, per store, the latest complete store-week THAT HAS BEEN BANKED.** Not a calendar
-week — a store-week is not one, and the six stores disagree about which dates it is (Bend runs
-Tue→Mon, River Wed→Tue, so the same week is 08-25..08-31 for one and 08-26..09-01 for the other; the
-label shows the union and the sub-line says how many stores it covers).
+Rules, all pinned by `tests/recon_banked_kpi_test.js` (40 assertions, executes the shipped function
+and asserts the markup):
 
-Five rules. Each is a believable wrong number if dropped, which is why they are pinned by
-`tests/recon_week_kpi_test.js` (43 assertions, executes the shipped function and asserts the label):
-
-- **The week must have DEPOSITS on it.** Deposits land a day or two after a week closes, so there is
-  always a stretch where the newest complete week has been sold and not yet banked. **This was
-  caught on screen, not in review** — the first cut picked the newest complete week and rendered
-  `$50,400.00` expected against **`$0.00` deposited, "Short by $50,400.00"** on a six-store fixture.
-  A confident zero dressed as a finding, at the top of the tab. The week whose money has landed is
-  the one being reconciled; stores still awaiting a deposit are reported through `covered`.
-- **Reconciled weeks count.** `done` is Sky's progress through the list, not a fact about the money.
-  Summing only the open cards makes the headline fall toward $0 across a session in which nothing
-  happened except him ticking stores off.
-- **All three figures come from ONE row set.** Sum deposits over one and expectations over another
-  and `deposited − expected` stops equalling the variance printed beside it — a headline that fails
-  the subtraction any reader will do on it.
-- **Incomplete weeks are excluded from all three.** A week missing a day has a partial expected
-  figure, which manufactures a variance out of a gap in the data.
-- **Coverage is reported, never assumed.** `4 of 6 stores` renders in amber. A company total quietly
-  covering four of six is the exact shape of the River outage — a per-store failure degrading into a
-  smaller number rather than an error.
-
-**It deliberately ignores the All-weeks toggle and does not read `shown`.** The headline answers
-"what did we bank this week", and neither the view mode nor how far through the list Sky has got is
-allowed to change that number.
+- **A deposit belongs to the period ITS OWN DATE falls in** — not the period of the week it pays
+  for. Inverting that is exactly the bug the old label had. Hence WK34 showing nothing.
+- **The comparison is withheld unless every contributing week is WHOLLY inside the period and fully
+  priced.** A week can bank in two deposits (Commercial routinely splits 3 days + 4 days), so a
+  period can catch one and miss the other — measured: a September view holds only the 09-01 halves,
+  $63,478.68 of the $191,617.26. Comparing part of a week's banking against a whole week's sales
+  manufactures a shortfall out of a date boundary, the same error as pacing month-to-date against a
+  full-month budget. `partial` suppresses Expected/Variance and the tile says why. All-or-nothing
+  deliberately: mixing whole weeks with partial ones is the "two row sets" error again.
+- **Reconciled weeks still count.** `done` is Sky's progress through the list, not a fact about the
+  money; dropping them makes the figure fall toward $0 across a session in which nothing happened.
+- **Strays are not banking.** `deps` is already the sales banking; a `Printer Ink (refund)` carrying
+  a store's class stays on the not-included list where it is visible.
+- **Coverage is reported, never assumed.** `4 of 6 stores` renders in amber — a company figure
+  quietly short two stores is the River failure shape.
+- **Nothing banked returns NULL, never 0.** The caller renders a dash. A confident zero beside a
+  variance measures a question nobody has answered yet.
 
 **The state colors MUST stay qualified as `.recon-kpi-figs strong.recon-kpi-off`.** The bare class is
 (0,1,0) and the `.recon-kpi-figs strong` rule above it is (0,1,1), so a lone class loses and the

@@ -955,6 +955,10 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
 /* Covering fewer stores than exist is the one thing in this block that must not read as a footnote:
    a company total quietly short a store is the River failure shape — a smaller number, not an error. */
 .recon-kpi-short{color:var(--amber);font-weight:700}
+/* Shown INSTEAD of Expected/Variance when the selected period holds only part of a store's week.
+   Comparing part of a week's banking against a whole week's sales invents a shortfall out of a date
+   boundary, so the tile says why rather than printing a number it cannot stand behind. */
+.recon-kpi-note{font-size:11px;line-height:1.45;color:var(--muted);background:var(--card);border-radius:6px;padding:7px 9px;max-width:340px}
 .recon-kpi-figs{display:flex;gap:18px}
 .recon-kpi-figs>div{display:flex;flex-direction:column;gap:2px}
 .recon-kpi-figs span{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
@@ -1384,7 +1388,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.576';
+const APP_VERSION = 'v2.577';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -6576,74 +6580,89 @@ function reconStraysFrom(rows) {
   return out.sort((a, b) => String(a.date).localeCompare(String(b.date)));
 }
 
-// The headline figure: what the company banked for the week currently up for reconciliation.
+// The headline figure: what was BANKED IN THE SELECTED PERIOD.
 //
-// IT IS LABELED "BANKED FOR <dates>", NEVER "this week", AND THAT IS NOT A WORDING PREFERENCE.
-// It shipped as "Deposited this week" for one afternoon. Sky, 2026-09-07: "wk 36 is showing 191,617
-// as deposited this week, but we're on Monday, no deposits have been made this week yet." He was
-// right, and the number was right too — $191,617.26 is exactly the sum of the six stores' latest
-// banked weeks, verified against the live reconprobe. The money moved on 08-31 and 09-01. The tile
-// claimed it moved in WK36, which had not banked a cent.
+// IT TRACKS THE PERIOD PICKER. Sky, 2026-09-07: "yes track the picker. if i've selected this week
+// (36), i would expect to see —, then if i select the previous week i would expect to see the 191k."
+// So the scope is simply: deposits whose OWN DATE falls inside the selected week (or month, or
+// year). Select WK36 on a Monday and the honest answer is a dash; select WK35 and the $191,617.26
+// that moved on 08-31 and 09-01 appears, because that is when it moved.
 //
-// Two things made that claim land as fact rather than as shorthand. The period bar sits DIRECTLY
-// ABOVE this tile reading WK36, so "this week" looks like it is defined by the selector; and the
-// tile answers a question the selector does not control. A relative week-word in a tile with a week
-// picker over it will be read as the picked week every time.
+// This REPLACED a version that showed the latest banked week regardless of the picker. That version
+// was defensible — deposits lag the week they pay for, so a picker-scoped tile is empty early in
+// every week — but it shipped labeled "Deposited this week" while the period bar directly above it
+// read WK36, and it was reporting money banked in WK35. Tracking the picker is what makes the tile
+// answerable from the screen: the number and the selector now describe the same window.
 //
-// So the label states the dates it covers, and the sub-line states WHEN THE MONEY MOVED
-// (`bankedFrom`/`bankedTo`) — which week the banking pays FOR and when it was deposited are two
-// different facts, and collapsing them is the whole bug.
+// A dash early in the week is CORRECT, not a gap. Nothing has been banked yet; the weeks still
+// awaiting reconciliation are on the cards below, which deliberately do NOT follow the picker.
 //
-// What it sums is, per store, the LATEST COMPLETE store-week THAT HAS BEEN BANKED — not a calendar
-// week. A store-week is not a calendar week at all, and differs per store by design (Bend runs
-// Tue→Mon, River Wed→Tue, so the same week is 08-25..08-31 for one and 08-26..09-01 for the other).
+// The rules that keep it honest:
 //
-// Five rules, each of which is a believable wrong number if dropped:
-//
-//  - THE WEEK MUST HAVE DEPOSITS ON IT. Deposits land a day or two AFTER a week closes, so there is
-//    always a stretch where the newest complete week has been sold and not yet banked. Picking it
-//    renders "$0.00 deposited" against a full week of expectation — measured on a six-store fixture,
-//    "Short by $50,400.00" — which is a confident zero dressed as a finding, and the single most
-//    alarming wrong answer this tab could put at the top of itself. The week whose money has landed
-//    is the one being reconciled; the rest is reported through `covered`.
-//  - RECONCILED WEEKS COUNT. `done` is a workflow state, not a fact about the money. Summing only
-//    the open cards would make the headline shrink as Sky ticked stores off — the figure would fall
-//    to $0 across a session in which nothing changed except his own progress, which is precisely
-//    backwards for a total of what was banked.
-//  - ALL THREE FIGURES COME FROM ONE ROW SET. Sum deposits over one set and expectations over
-//    another and `deposited − expected` stops equalling the variance printed beside it — a headline
-//    that fails the subtraction any reader would do on it.
-//  - COVERAGE IS REPORTED, NEVER ASSUMED. `stores` vs `covered` is the whole reason this returns a
-//    count at all: a company total quietly covering five of six stores is the exact shape of the
-//    River outage — a per-store failure degrading into a smaller number rather than an error.
-//  - NOTHING BANKED MEANS NO FIGURE. Returning 0 renders a confident measurement of a question
-//    nobody has answered yet. The caller shows a dash.
-function reconWeekKpi_(rows, storeCount) {
-  // Complete AND banked. Written out rather than reusing `reconcilable`, which is the same test
-  // today but exists to gate a BUTTON — if that ever loosens, this must not follow it silently.
-  const usable = (rows || []).filter(r => !r.missing.length && r.deps.length > 0);
-  const latestFor = {};
-  for (const r of usable) {
-    if (!latestFor[r.store] || r.win.start > latestFor[r.store]) latestFor[r.store] = r.win.start;
+//  - A DEPOSIT BELONGS TO THE PERIOD ITS OWN DATE FALLS IN. Not the period of the week it pays for —
+//    that is the distinction the old label got wrong, and inverting it here would reintroduce it.
+//  - THE COMPARISON IS WITHHELD UNLESS EVERY CONTRIBUTING WEEK IS WHOLLY INSIDE THE PERIOD. A week
+//    can be banked in two deposits (Commercial routinely splits 3 days + 4 days), so a period can
+//    catch one and miss the other. Comparing part of a week's banking against a whole week's sales
+//    manufactures a shortfall out of a date boundary — the same class of error as pacing a
+//    month-to-date figure against a full-month budget. `partial` says so instead.
+//  - AND UNLESS THE WEEK'S SALES ARE COMPLETE, for the reason every other figure on this tab
+//    refuses a partial window: a gap in the data would read as a variance.
+//  - STRAY DEPOSITS ARE NOT BANKING. `deps` is already the sales banking; a "Printer Ink (refund)"
+//    carrying a store's class is real money and not what this tab measures. It stays on the
+//    not-included list where it is visible.
+//  - COVERAGE IS REPORTED, NEVER ASSUMED. A company figure quietly covering four of six stores is
+//    the River failure shape — a per-store problem degrading into a smaller number, not an error.
+//  - NOTHING BANKED RETURNS NULL, NEVER 0. The caller renders a dash. A confident zero next to a
+//    variance is a measurement of a question nobody has answered yet.
+function reconBankedInPeriod_(rows, from, to, storeCount) {
+  const hits = [];
+  for (const r of rows || []) {
+    const inside = (r.deps || []).filter(d => d && d.date >= from && d.date <= to);
+    if (inside.length) hits.push({ row: r, inside: inside });
   }
-  const week = usable.filter(r => r.win.start === latestFor[r.store]);
-  if (!week.length) return null;
-  const deposited = Math.round(week.reduce((a, r) => a + r.deposited, 0) * 100) / 100;
-  const expected  = Math.round(week.reduce((a, r) => a + r.expected,  0) * 100) / 100;
-  // WHEN THE MONEY MOVED, which is not the same fact as which week it pays for, and conflating the
-  // two is the whole reason this tile had to be relabeled — see the "Banked for" note below.
-  const dates = week.reduce((a, r) => a.concat(r.deps.map(d => d.date)), []).filter(Boolean).sort();
+  if (!hits.length) return null;
+
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const deposited = r2(hits.reduce((a, h) => a + h.inside.reduce((x, d) => x + (d.amount || 0), 0), 0));
+  const dates = hits.reduce((a, h) => a.concat(h.inside.map(d => d.date)), []).filter(Boolean).sort();
+  const stores = {};
+  hits.forEach(h => { stores[h.row.store] = 1; });
+
+  // Every week contributing money must be fully inside the period AND fully priced, or there is no
+  // honest comparison to draw. All-or-nothing deliberately: mixing whole weeks with partial ones is
+  // the "two row sets" error — deposited would stop equalling expected plus the variance.
+  const whole = hits.every(h => h.inside.length === h.row.deps.length && !h.row.missing.length);
+  const expected = whole ? r2(hits.reduce((a, h) => a + h.row.expected, 0)) : null;
+  const wins = hits.map(h => h.row.win);
+
   return {
-    deposited, expected,
-    diff:      Math.round((deposited - expected) * 100) / 100,
-    covered:   week.length,
-    stores:    storeCount,
-    reconciled: week.filter(r => r.done).length,
-    from:      week.reduce((a, r) => a < r.win.start ? a : r.win.start, week[0].win.start),
-    to:        week.reduce((a, r) => a > r.win.end   ? a : r.win.end,   week[0].win.end),
+    deposited,
+    expected,
+    diff:       whole ? r2(deposited - expected) : null,
+    partial:    !whole,
+    covered:    Object.keys(stores).length,
+    stores:     storeCount,
+    reconciled: hits.filter(h => h.row.done).length,
+    from, to,
     bankedFrom: dates[0] || null,
     bankedTo:   dates[dates.length - 1] || null,
+    // Which store-weeks this money pays for — the bridge to the cards below.
+    paysFrom:   wins.reduce((a, w) => a < w.start ? a : w.start, wins[0].start),
+    paysTo:     wins.reduce((a, w) => a > w.end   ? a : w.end,   wins[0].end),
   };
+}
+
+// The range the KPI is scoped to: the SELECTED week when there is one, else whatever period is
+// selected. Deliberately separate from reconWantedRange, which stays month-wide because it decides
+// which store-weeks get built and fetched — narrowing that would hide the cards Sky still has to
+// reconcile, and those are exactly the weeks whose money has not arrived yet.
+function reconSelectedRange() {
+  if (activeWeek) {
+    const days = getDaysOfISOWeek(activeYear, activeWeek);
+    return { start: toDateStr(days[0]), end: toDateStr(days[6]) };
+  }
+  return reconWantedRange();
 }
 
 function reconStateKey(store, win) { return store + '|' + win.start; }
@@ -6904,10 +6923,12 @@ function renderReconcile(nocache) {
   const readyCount = shown.filter(r => r.ties).length;
   const offCount   = shown.filter(r => r.reconcilable && !r.ties).length;
 
-  // Deliberately built from open AND done, and deliberately NOT from `shown`: the headline answers
-  // "what did we bank this week", which neither the All-weeks toggle nor how far Sky has got through
-  // ticking stores off is allowed to change. See reconWeekKpi_.
-  const kpi = reconWeekKpi_(open.concat(done), stores.length);
+  // Built from open AND done, and deliberately NOT from `shown`: money that was banked does not stop
+  // having been banked because Sky ticked the week off, or because the All-weeks toggle is closed.
+  // It IS scoped to the selected period — that is the one thing the reader controls. See
+  // reconBankedInPeriod_.
+  const sel = reconSelectedRange();
+  const kpi = reconBankedInPeriod_(open.concat(done), sel.start, sel.end, stores.length);
 
   // Two ways a deposit ends up outside a store's week, listed together because the question they
   // raise is the same one: no class that maps to a store, or a class that does but an amount that
@@ -6922,9 +6943,7 @@ function renderReconcile(nocache) {
     <div class="card recon-summary">
       <div class="recon-kpi">
         <div class="recon-kpi-lead">
-          <span class="recon-kpi-lbl">${kpi
-            ? `Banked for ${reconFmtRange({ start: kpi.from, end: kpi.to })}`
-            : 'Banked for the latest week'}</span>
+          <span class="recon-kpi-lbl">Banked ${reconFmtRange(sel)}</span>
           <strong class="recon-kpi-val">${kpi ? reconFmtMoney(kpi.deposited) : '—'}</strong>
           <span class="recon-kpi-sub">${kpi
             ? `${kpi.covered === kpi.stores
@@ -6932,16 +6951,18 @@ function renderReconcile(nocache) {
                   : `<strong class="recon-kpi-short">${kpi.covered} of ${kpi.stores} stores</strong>`}`
               + (kpi.bankedFrom ? ` · deposited ${reconFmtDay(kpi.bankedFrom)}${
                    kpi.bankedTo !== kpi.bankedFrom ? ` – ${reconFmtDay(kpi.bankedTo)}` : ''}` : '')
-              + (kpi.reconciled ? ` · ${kpi.reconciled} already reconciled` : '')
-            : 'Nothing banked yet'}</span>
+              + ` · pays for ${reconFmtRange({ start: kpi.paysFrom, end: kpi.paysTo })}`
+            : 'Nothing banked in this period'}</span>
         </div>
-        ${kpi ? `
+        ${kpi && !kpi.partial ? `
         <div class="recon-kpi-figs">
           <div><span>Expected</span><strong>${reconFmtMoney(kpi.expected)}</strong></div>
           <div><span>Variance</span><strong class="${Math.abs(kpi.diff) < 0.005 ? 'recon-kpi-ok' : 'recon-kpi-off'}">${
             Math.abs(kpi.diff) < 0.005 ? 'Ties exactly'
               : `${kpi.diff > 0 ? 'Over' : 'Short'} by ${reconFmtMoney(Math.abs(kpi.diff))}`}</strong></div>
-        </div>` : ''}
+        </div>` : kpi ? `
+        <div class="recon-kpi-note">Not compared — this period holds only part of a store's
+          week. Reconcile it on the card below, where the whole week is in view.</div>` : ''}
       </div>
       <div class="recon-summary-row">
         <div class="recon-tally">
