@@ -213,8 +213,14 @@ ok('a withheld comparison first says the total is complete',
    /This is everything banked in this period/.test(CARD));
 ok('...and it is the GOAL comparison that is withheld, named as such',
    /No goal comparison —/.test(CARD));
-ok('...naming the money banked elsewhere, which is what explains the swing',
-   /for these same weeks was\s+banked in another period/.test(CARD));
+// DATED, not banked. Sky, 2026-09-07: "we deposited on 8/4 for the last days of the month
+// (7/28-31) and back dated the deposit to 7/31 so it hits the P&L correctly." The money did not move
+// in another period — only its QuickBooks date did, and the tile must not assert otherwise. The real
+// banking date lives in the deposit memo (`BEND 08.04.26 Dep (7/28/26 - 7/31/26)`), which
+// qb_deposits does not yet pass through; requested from core-admin 2026-09-07.
+ok('...saying the money is DATED outside the period, not banked there',
+   /is\s+DATED outside this period/.test(CARD));
+ok('...and naming back-dating as the cause', /back-dated so they land in the right\s+month/.test(CARD));
 
 console.log('\n9. the headline is a swipe surface, sharing the income hero\'s gesture');
 // Sky, 2026-09-07: "can we update so i can swipe the top KPI chip to switch the week, same as we do

@@ -1395,7 +1395,7 @@ input.gxnum.pct{width:64px;text-align:center;font-size:17px;font-weight:700}
   }
 })();
 
-const APP_VERSION = 'v2.579';
+const APP_VERSION = 'v2.580';
 document.title = `Green Cross — Live Dashboard ${APP_VERSION}`;
 
 const GC_LOGO_PNG = 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png';
@@ -7012,9 +7012,9 @@ function renderReconcile(nocache) {
         </div>` : kpi ? `
         <div class="recon-kpi-note"><strong>This is everything banked in this period.</strong>
           ${kpi.outside > 0
-            ? `No goal comparison — a further ${reconFmtMoney(kpi.outside)} for these same weeks was
-               banked in another period, usually a month-end split. That is why one week can read
-               high and the next low.`
+            ? `No goal comparison — a further ${reconFmtMoney(kpi.outside)} for these same weeks is
+               DATED outside this period. Month-end deposits are back-dated so they land in the right
+               month, so one week can read high and the next low.`
             : `No goal comparison — this period holds only part of a store's week.`}</div>` : ''}
       </div>
       <div class="recon-summary-row">

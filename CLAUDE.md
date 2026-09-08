@@ -644,7 +644,7 @@ question the selector does not control has to name its own scope or it inherits 
 default. The durable fix was not better words; it was making the tile and the selector describe the
 same window.
 
-Rules, all pinned by `tests/recon_banked_kpi_test.js` (60 assertions, executes the shipped function
+Rules, all pinned by `tests/recon_banked_kpi_test.js` (61 assertions, executes the shipped function
 and asserts the markup):
 
 - **A deposit belongs to the period ITS OWN DATE falls in** — not the period of the week it pays
@@ -713,6 +713,44 @@ What was wrong was the NOTE, not the number — it said money for these weeks wa
 period, which reads as *your total is short* to someone comparing weekly deposits. It now leads with
 **"This is everything banked in this period."** and says it is the GOAL comparison that is withheld.
 A correct figure with a note that undermines it is a wrong answer.
+
+### The QuickBooks deposit date is an ACCOUNTING date. The real banking date is in the memo.
+
+**This is the root cause of the WK30/WK31 swing above, and it is not fixable inside Sales today.**
+Sky, 2026-09-07: *"we deposited on 8/4 for the last days of the month (7/28-31) and back dated the
+deposit to 7/31 so it hits the P&L correctly, but it messes up my 'week' view expectations."* The
+deposit memo carries both facts:
+
+```
+BEND 08.04.26 Dep (7/28/26 - 7/31/26)
+```
+
+— the **real deposit date** (08.04.26) and the **sales period it covers** (7/28–7/31). `TxnDate` says
+07-31 and is deliberately, correctly wrong about when the money moved.
+
+So a week keyed on `TxnDate` is right for the P&L and wrong for "what did we bank." Keyed on the real
+date, WK30 and WK31 become ~$182k and ~$199k — both ordinary — instead of $283,836 and $97,960.
+
+**Sales cannot see that memo.** `qb_deposits` sends `id / date / total / account / lines[]`, and the
+line `Description` carries only the five revenue categories (`Sales 3% Tax` · `Sales 17% Tax` ·
+`Med Sales` · `Rec Sales` · `Non MJ Sales` — verified 33x over 07-20..08-16). The deposit-level memo
+is QuickBooks' **`PrivateNote`**, which `gxQbNormalizeDeposit_` does not pass through and which does
+not appear anywhere in the hub. There is no generic QB query route to go around it.
+
+**Requested from core-admin 2026-09-07** (`add_note`, "qb_deposits: pass through Deposit.PrivateNote")
+as an additive `note` field. **Do not edit the hub from here** — that rule is at the bottom of this
+file and it is why this is a note rather than a commit.
+
+**Deliberately NOT built yet: the parser.** One example string is not a format. Whether every store
+writes `<STORE> MM.DD.YY Dep (…)`, whether the date is always second, whether it is ever absent —
+none of that is knowable until the field is available to measure, and a date parser that guesses
+wrong moves real money into the wrong week silently. Measure the memos across all six stores first,
+then parse. The design once it lands: **two dates per deposit** — `date` (TxnDate, accounting, keeps
+every month/P&L view exactly as it is) and a real banking date used ONLY by the Reconcile week view.
+
+Until then the tile shows the honest figure and says why the swing happens. Note the wording: the
+money is **DATED** outside the period, not *banked* there — it was banked in the same real week, and
+the tile must not assert otherwise.
 
 **The state colors MUST stay qualified as `.recon-kpi-figs strong.recon-kpi-off`.** The bare class is
 (0,1,0) and the `.recon-kpi-figs strong` rule above it is (0,1,1), so a lone class loses and the
